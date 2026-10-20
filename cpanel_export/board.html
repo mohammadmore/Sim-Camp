@@ -1,0 +1,938 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+    <link rel="icon" type="image/svg+xml" href="favicon.svg">
+    <link rel="icon" type="image/png" href="favicon.png">
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <link rel="stylesheet" href="style.css?v=11">
+    <title>جدول زنده سیمولیشن کمپ</title>
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.9.4/dist/confetti.browser.min.js"></script>
+    <script>
+        const savedTheme = localStorage.getItem('theme') || 'light';
+        document.documentElement.setAttribute('data-theme', savedTheme);
+        function toggleTheme() {
+            const current = document.documentElement.getAttribute('data-theme');
+            const next = current === 'dark' ? 'light' : 'dark';
+            document.documentElement.setAttribute('data-theme', next);
+            localStorage.setItem('theme', next);
+            updateThemeIcon();
+        }
+        function updateThemeIcon() {
+            const current = document.documentElement.getAttribute('data-theme');
+            const icon = document.querySelector('.theme-toggle i, .theme-toggle svg');
+            if (icon) {
+                icon.outerHTML = current === 'dark' ? '<i data-lucide="sun"></i>' : '<i data-lucide="moon"></i>'; if(typeof refreshIcons === 'function') refreshIcons();
+            }
+        }
+        document.addEventListener('DOMContentLoaded', () => { updateThemeIcon(); fetch('api.php?action=settings').then(r=>r.json()).then(d=>{ if(d.systemLogo) { const el = document.getElementById('boardSystemLogo'); if(el) { el.src = d.systemLogo; el.style.display = 'block'; } } }); });
+    </script>
+</head>
+<body style="overflow: hidden; height: 100vh; padding: 10px; box-sizing: border-box; margin: 0; display: flex; flex-direction: column;">
+    <div id="bgLogo" style="position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 80vmin; height: 80vmin; z-index: -1; pointer-events: none; display: none;"></div>
+    <button onclick="toggleTheme()" class="theme-toggle board-theme-toggle" title="تغییر پوسته"><i data-lucide="moon"></i></button>
+
+    <div class="header-container" id="boardHeader" style="margin: 0 auto 20px auto; display: flex; justify-content: space-between; align-items: center; max-width: 1400px; width: 95%; height: 15vh;">
+        <div class="logo-container">
+            <img id="boardSystemLogo" style="display:none; object-fit: contain;" />
+        </div>
+        <div class="title-container">
+            <h1 id="campTitleText" style="font-size: clamp(16px, 3.5vw, 70px); margin: 0; text-shadow: 0 4px 10px rgba(0,0,0,0.3); line-height: 1.1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; width: 100%; text-align: center;"></h1>
+        </div>
+        <div class="logo-container">
+            <img id="orgLogo" style="display:none; object-fit: contain;" />
+        </div>
+    </div>
+
+    <!-- FLIP Animation Container -->
+    <div id="board" class="board-container" style="max-width: 1400px; width: 95%;">
+        <!-- Medals will be dynamically injected here -->
+        <svg width="0" height="0" style="position: absolute;">
+  <defs>
+    <!-- Gold Gradient -->
+    <linearGradient id="gold-grad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#FFF2A0" />
+      <stop offset="30%" stop-color="#FFD700" />
+      <stop offset="70%" stop-color="#FDB931" />
+      <stop offset="100%" stop-color="#9A7801" />
+    </linearGradient>
+    <!-- Silver Gradient -->
+    <linearGradient id="silver-grad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#FFFFFF" />
+      <stop offset="30%" stop-color="#E0E0E0" />
+      <stop offset="70%" stop-color="#A0A0A0" />
+      <stop offset="100%" stop-color="#686868" />
+    </linearGradient>
+    <!-- Bronze Gradient -->
+    <linearGradient id="bronze-grad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#FFD3B6" />
+      <stop offset="30%" stop-color="#CD7F32" />
+      <stop offset="70%" stop-color="#A0522D" />
+      <stop offset="100%" stop-color="#5C3317" />
+    </linearGradient>
+  </defs>
+</svg>
+        <div id="medal-1" class="medal-icon" style="display:none;"><svg width="1em" height="1em" viewBox="0 0 24 24" fill="url(#gold-grad)" style="filter: drop-shadow(0 4px 6px rgba(255, 215, 0, 0.4));"><path d="M19,2H5A1,1,0,0,0,4,3V6A3,3,0,0,0,7,9H8.22A5.94,5.94,0,0,0,11,13.72V19H9a1,1,0,0,0,0,2h6a1,1,0,0,0,0-2H13V13.72A5.94,5.94,0,0,0,15.78,9H17a3,3,0,0,0,3-3V3A1,1,0,0,0,19,2ZM7,7A1,1,0,0,1,6,6V4H7ZM18,6a1,1,0,0,1-1,1H17V4h1Z"/></svg></div>
+        <div id="medal-2" class="medal-icon" style="display:none;"><svg width="1em" height="1em" viewBox="0 0 24 24" fill="url(#silver-grad)" style="filter: drop-shadow(0 4px 6px rgba(192, 192, 192, 0.4));"><path d="M19,2H5A1,1,0,0,0,4,3V6A3,3,0,0,0,7,9H8.22A5.94,5.94,0,0,0,11,13.72V19H9a1,1,0,0,0,0,2h6a1,1,0,0,0,0-2H13V13.72A5.94,5.94,0,0,0,15.78,9H17a3,3,0,0,0,3-3V3A1,1,0,0,0,19,2ZM7,7A1,1,0,0,1,6,6V4H7ZM18,6a1,1,0,0,1-1,1H17V4h1Z"/></svg></div>
+        <div id="medal-3" class="medal-icon" style="display:none;"><svg width="1em" height="1em" viewBox="0 0 24 24" fill="url(#bronze-grad)" style="filter: drop-shadow(0 4px 6px rgba(205, 127, 50, 0.4));"><path d="M19,2H5A1,1,0,0,0,4,3V6A3,3,0,0,0,7,9H8.22A5.94,5.94,0,0,0,11,13.72V19H9a1,1,0,0,0,0,2h6a1,1,0,0,0,0-2H13V13.72A5.94,5.94,0,0,0,15.78,9H17a3,3,0,0,0,3-3V3A1,1,0,0,0,19,2ZM7,7A1,1,0,0,1,6,6V4H7ZM18,6a1,1,0,0,1-1,1H17V4h1Z"/></svg></div>
+    </div>
+
+    <div class="asva-spacer" style="flex-grow: 1; flex-shrink: 0; min-height: 20px;"></div>
+    <div class="asva-footer"><span class="en-credit">Powered by Asva Studio</span><span class="credit-divider"> | </span><span class="fa-credit">توسعه یافته توسط شرکت داده‌پردازان اسوا</span></div>
+    
+    <!-- Splash Screen overlay -->
+    <div class="splash-overlay">
+        <!-- Emergency Siren Lights & Hazard Strobe (Activated on negative score) -->
+        <div id="sirenOverlay" class="siren-overlay" style="display: none;">
+            <div class="siren-light-left"></div>
+            <div class="siren-light-right"></div>
+            <div class="siren-vignette-pulse"></div>
+            <div class="siren-strobe-bar top"></div>
+            <div class="siren-strobe-bar bottom"></div>
+        </div>
+
+        <div id="splashPopup" class="splash-popup">
+            <!-- 1 & 2: Header Image with subtle bottom fade + Huge Team Name on the fade boundary -->
+            <div id="splashHeader" class="splash-header-banner">
+                <div class="splash-banner-media">
+                    <img id="splashHeaderImg" src="" alt="عکس تیم" class="splash-banner-img" onerror="this.style.display='none'; document.getElementById('splashHeaderPlaceholder').style.display='flex';">
+                    <div id="splashHeaderPlaceholder" class="splash-banner-placeholder" style="display: none;">
+                        <i data-lucide="users" style="width: 52px; height: 52px; opacity: 0.7;"></i>
+                    </div>
+                    <!-- Delicate bottom fade overlay -->
+                    <div class="splash-fade-overlay"></div>
+                    <!-- Team name: MUCH LARGER, written right on the fade boundary -->
+                    <div class="splash-team-title-wrap">
+                        <div id="splashTeamName" class="splash-team-title"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 3: Body below the fade boundary: Referee Profile (Right) & Score (Left) in matching large size -->
+            <div id="splashBody" class="splash-body-content">
+                <div class="splash-content-row">
+                    <!-- Right side: Referee profile (Avatar + Name + Role) much larger -->
+                    <div id="splashRefereeCol" class="splash-referee-col">
+                        <div id="splashRefereeAvatarWrap" class="splash-referee-avatar-wrap">
+                            <img id="splashRefereeImg" src="" alt="داور" class="splash-referee-avatar" style="display: none;" onerror="this.style.display='none'; document.getElementById('splashRefereePlaceholder').style.display='flex';">
+                            <div id="splashRefereePlaceholder" class="splash-referee-placeholder">
+                                <i data-lucide="user-check" style="width: 38px; height: 38px;"></i>
+                            </div>
+                        </div>
+                        <div class="splash-referee-meta">
+                            <div id="splashRefereeName" class="splash-referee-name">داور مسابقه</div>
+                            <div id="splashRefereeRole" class="splash-referee-role">ثبت امتیاز</div>
+                        </div>
+                    </div>
+
+                    <!-- Left side: Added or deducted score (+ / -) in matching large size -->
+                    <div id="splashScoreCol" class="splash-score-col">
+                        <div id="splashScoreValue" class="splash-score-value" dir="ltr">+۱</div>
+                        <div id="splashTagWrap" class="splash-tag-wrap" style="display: none;"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const urlParams = new URLSearchParams(window.location.search);
+        const pathParts = window.location.pathname.split('/');
+        let campId = urlParams.get('id');
+        if (!campId && pathParts[pathParts.length - 1] && pathParts[pathParts.length - 1] !== 'board.html') campId = pathParts[pathParts.length - 1];
+        const board = document.getElementById('board');
+        
+        let previousScores = {};
+        let medalAssignments = { 1: null, 2: null, 3: null };
+        
+        // State and Splash Management
+        let latestState = null;
+        let isSplashing = false;
+        let splashQueue = [];
+
+        function formatNumber(num, lang) { return lang === 'fa' ? num.toString().replace(/\d/g, d => '۰۱۲۳۴۵۶۷۸۹'[d]) : num; }
+        function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+        // Analog Counter function
+        function hexToRgba(hex, alpha=0.3) { let c=hex?hex.substring(1):"ffffff"; if(c.length===3) c=c.split("").map(x=>x+x).join(""); return `rgba(${parseInt(c.slice(0,2),16)}, ${parseInt(c.slice(2,4),16)}, ${parseInt(c.slice(4,6),16)}, ${alpha})`; }
+        function animateValue(obj, start, end, duration, lang = 'fa') {
+            let startTimestamp = null;
+            const step = (timestamp) => {
+                if (!startTimestamp) startTimestamp = timestamp;
+                const progress = Math.min((timestamp - startTimestamp) / duration, 1);
+                obj.innerText = formatNumber(Math.floor(progress * (end - start) + start), lang);
+                if (progress < 1) window.requestAnimationFrame(step);
+                else obj.innerText = formatNumber(end, lang);
+            };
+            window.requestAnimationFrame(step);
+        }
+
+        if (!campId) {
+            board.innerHTML = "<h3 style='color: var(--error-color);'>خطا: شناسه مسابقه نامعتبر است.</h3>";
+        } else {
+
+        const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        const unlockAudio = () => { if (audioCtx && audioCtx.state === 'suspended') audioCtx.resume(); };
+        ['click', 'touchstart', 'keydown'].forEach(evt => window.addEventListener(evt, unlockAudio, { once: true }));
+        function playSound(type) {
+            if (audioCtx.state === 'suspended') audioCtx.resume();
+            const osc = audioCtx.createOscillator();
+            const gainNode = audioCtx.createGain();
+            osc.connect(gainNode);
+            gainNode.connect(audioCtx.destination);
+            
+            if (type === 'success') {
+                osc.type = 'sine';
+                osc.frequency.setValueAtTime(523.25, audioCtx.currentTime); 
+                osc.frequency.setValueAtTime(659.25, audioCtx.currentTime + 0.1); 
+                gainNode.gain.setValueAtTime(0.3, audioCtx.currentTime);
+                gainNode.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.5);
+                osc.start();
+                osc.stop(audioCtx.currentTime + 0.5);
+            } else {
+                osc.type = 'triangle';
+                osc.frequency.setValueAtTime(250, audioCtx.currentTime);
+                osc.frequency.setValueAtTime(200, audioCtx.currentTime + 0.1);
+                gainNode.gain.setValueAtTime(0.3, audioCtx.currentTime);
+                gainNode.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.4);
+                osc.start();
+                osc.stop(audioCtx.currentTime + 0.4);
+            }
+        }
+
+        let mouseTimer;
+        document.addEventListener('mousemove', () => {
+            document.body.style.cursor = 'default';
+            clearTimeout(mouseTimer);
+            mouseTimer = setTimeout(() => {
+                document.body.style.cursor = 'none';
+            }, 3000);
+        });
+
+
+// Polling mode for cPanel / PHP Hosting
+let lastSeenLogTime = Date.now();
+let isFirstLoad = true;
+
+function pollBoardState() {
+    fetch(`api.php?action=poll&id=${campId}`)
+    .then(r => r.ok ? r.json() : Promise.reject())
+    .then(state => {
+        latestState = state;
+        let maxTime = lastSeenLogTime;
+        if (!isFirstLoad) {
+            (state.teams || []).forEach(t => {
+                if (t.scoreLogs && Array.isArray(t.scoreLogs)) {
+                    t.scoreLogs.forEach(log => {
+                        if (log.type === 'instant' && log.timestamp > lastSeenLogTime) {
+                            splashQueue.push({
+                                teamId: t.id, 
+                                delta: log.value, 
+                                teamName: t.name, 
+                                score: t.score, 
+                                logId: log.id,
+                                user: log.user,
+                                tag: log.tag || '',
+                                image: t.image || '',
+                                happyImage: t.happyImage || '',
+                                sadImage: t.sadImage || '',
+                                teamColor: t.color || ''
+                            });
+                        }
+                        if (log.type === 'cancelled' && log.timestamp > lastSeenLogTime) {
+                            const splash = document.getElementById('splash-' + log.id);
+                            if (splash) {
+                                const stamp = document.createElement('div');
+                                stamp.className = 'cancel-stamp';
+                                stamp.innerText = 'لغو شد';
+                                splash.appendChild(stamp);
+                            } else {
+                                const qIdx = splashQueue.findIndex(sq => sq.logId === log.id);
+                                if (qIdx !== -1) {
+                                    splashQueue[qIdx].isCancelled = true;
+                                }
+                            }
+                        }
+                        if (log.timestamp && log.timestamp > maxTime) maxTime = log.timestamp;
+                    });
+                }
+            });
+        } else {
+            (state.teams || []).forEach(t => {
+                if (t.scoreLogs && Array.isArray(t.scoreLogs)) {
+                    t.scoreLogs.forEach(log => {
+                        if (log.timestamp && log.timestamp > maxTime) maxTime = log.timestamp;
+                    });
+                }
+            });
+            isFirstLoad = false;
+        }
+        lastSeenLogTime = maxTime;
+
+        if (splashQueue.length > 0 && !isSplashing) {
+            runSplashQueue();
+        } else if (splashQueue.length === 0 && !isSplashing) {
+            renderBoard(latestState);
+        }
+    })
+    .catch(e => {});
+}
+
+pollBoardState();
+setInterval(pollBoardState, 1000);
+}
+
+        // --- Audio & Visual Warning / Celebration Systems ---
+        let activeAlarmOsc = null;
+        let activeAlarmInterval = null;
+
+        function startSirenAlarm() {
+            try {
+                if (audioCtx.state === 'suspended') audioCtx.resume();
+                stopSirenAlarm();
+                
+                const osc = audioCtx.createOscillator();
+                const gain = audioCtx.createGain();
+                osc.type = 'sawtooth';
+                osc.connect(gain);
+                gain.connect(audioCtx.destination);
+                
+                gain.gain.setValueAtTime(0.18, audioCtx.currentTime);
+                osc.start();
+                
+                let high = true;
+                osc.frequency.setValueAtTime(750, audioCtx.currentTime);
+                activeAlarmInterval = setInterval(() => {
+                    if (!osc) return;
+                    try {
+                        high = !high;
+                        const freq = high ? 880 : 620;
+                        osc.frequency.setTargetAtTime(freq, audioCtx.currentTime, 0.08);
+                    } catch(e) {}
+                }, 240);
+                
+                activeAlarmOsc = { osc, gain };
+            } catch(e) {
+                console.warn('Siren audio error:', e);
+            }
+        }
+
+        function stopSirenAlarm() {
+            if (activeAlarmInterval) {
+                clearInterval(activeAlarmInterval);
+                activeAlarmInterval = null;
+            }
+            if (activeAlarmOsc) {
+                try {
+                    activeAlarmOsc.gain.gain.linearRampToValueAtTime(0.01, audioCtx.currentTime + 0.08);
+                    setTimeout(() => {
+                        try { activeAlarmOsc.osc.stop(); } catch(e){}
+                        activeAlarmOsc = null;
+                    }, 100);
+                } catch(e) {
+                    activeAlarmOsc = null;
+                }
+            }
+        }
+
+        function playSuccessChime() {
+            try {
+                if (audioCtx.state === 'suspended') audioCtx.resume();
+                const notes = [523.25, 659.25, 783.99, 1046.5]; // C5, E5, G5, C6
+                notes.forEach((freq, idx) => {
+                    setTimeout(() => {
+                        try {
+                            const osc = audioCtx.createOscillator();
+                            const gain = audioCtx.createGain();
+                            osc.type = 'triangle';
+                            osc.frequency.setValueAtTime(freq, audioCtx.currentTime);
+                            osc.connect(gain);
+                            gain.connect(audioCtx.destination);
+                            gain.gain.setValueAtTime(0.22, audioCtx.currentTime);
+                            gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.45);
+                            osc.start();
+                            osc.stop(audioCtx.currentTime + 0.45);
+                        } catch(e){}
+                    }, idx * 75);
+                });
+            } catch(e) {}
+        }
+
+        function triggerConfetti() {
+            try {
+                if (typeof confetti === 'function') {
+                    confetti({
+                        particleCount: 80,
+                        spread: 100,
+                        origin: { y: 0.55 },
+                        colors: ['#10B981', '#34D399', '#FBBF24', '#60A5FA', '#F472B6', '#F59E0B']
+                    });
+                    setTimeout(() => {
+                        confetti({
+                            particleCount: 55,
+                            angle: 60,
+                            spread: 65,
+                            origin: { x: 0.05, y: 0.7 },
+                            colors: ['#10B981', '#34D399', '#FBBF24', '#60A5FA']
+                        });
+                        confetti({
+                            particleCount: 55,
+                            angle: 120,
+                            spread: 65,
+                            origin: { x: 0.95, y: 0.7 },
+                            colors: ['#10B981', '#34D399', '#FBBF24', '#60A5FA']
+                        });
+                    }, 220);
+                } else {
+                    launchFallbackConfetti();
+                }
+            } catch(e) {
+                launchFallbackConfetti();
+            }
+        }
+
+        function launchFallbackConfetti() {
+            const canvas = document.createElement('canvas');
+            canvas.style.position = 'fixed';
+            canvas.style.inset = '0';
+            canvas.style.width = '100vw';
+            canvas.style.height = '100vh';
+            canvas.style.pointerEvents = 'none';
+            canvas.style.zIndex = '3000';
+            document.body.appendChild(canvas);
+            const ctx = canvas.getContext('2d');
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+
+            const particles = [];
+            const colors = ['#10B981', '#34D399', '#FBBF24', '#60A5FA', '#F472B6', '#F59E0B'];
+            for (let i = 0; i < 90; i++) {
+                particles.push({
+                    x: canvas.width / 2 + (Math.random() - 0.5) * 200,
+                    y: canvas.height * 0.45,
+                    vx: (Math.random() - 0.5) * 16,
+                    vy: (Math.random() - 1.2) * 14,
+                    size: Math.random() * 8 + 4,
+                    color: colors[Math.floor(Math.random() * colors.length)],
+                    rot: Math.random() * 360,
+                    rotSpeed: (Math.random() - 0.5) * 12
+                });
+            }
+
+            let start = Date.now();
+            function draw() {
+                if (Date.now() - start > 2400) {
+                    canvas.remove();
+                    return;
+                }
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+                particles.forEach(p => {
+                    p.x += p.vx;
+                    p.y += p.vy;
+                    p.vy += 0.4;
+                    p.rot += p.rotSpeed;
+                    ctx.save();
+                    ctx.translate(p.x, p.y);
+                    ctx.rotate((p.rot * Math.PI) / 180);
+                    ctx.fillStyle = p.color;
+                    ctx.fillRect(-p.size / 2, -p.size / 2, p.size, p.size * 1.5);
+                    ctx.restore();
+                });
+                requestAnimationFrame(draw);
+            }
+            requestAnimationFrame(draw);
+        }
+
+        async function runSplashQueue() {
+            isSplashing = true; 
+            const popup = document.querySelector('.splash-popup');
+            const sirenOverlay = document.getElementById('sirenOverlay');
+
+            const splashHeaderImg = document.getElementById('splashHeaderImg');
+            const splashHeaderPlaceholder = document.getElementById('splashHeaderPlaceholder');
+            const splashTeamName = document.getElementById('splashTeamName');
+            
+            const splashRefereeAvatarWrap = document.getElementById('splashRefereeAvatarWrap');
+            const splashRefereeImg = document.getElementById('splashRefereeImg');
+            const splashRefereePlaceholder = document.getElementById('splashRefereePlaceholder');
+            const splashRefereeName = document.getElementById('splashRefereeName');
+            const splashRefereeRole = document.getElementById('splashRefereeRole');
+
+            const splashScoreValue = document.getElementById('splashScoreValue');
+            const splashTagWrap = document.getElementById('splashTagWrap');
+
+            while (splashQueue.length > 0) {
+                let sp = splashQueue.shift();
+                popup.id = 'splash-' + sp.logId;
+                
+                // Add blur before showing
+                document.getElementById('board').classList.add('blurred-board');
+                
+                const isPositive = sp.delta > 0;
+                const color = isPositive ? 'var(--success-color)' : 'var(--danger-color)';
+                const sign = isPositive ? '+' : '-';
+                const formattedDelta = formatNumber(Math.abs(sp.delta), latestState?.numLang || 'fa');
+                
+                // Determine photo: happy image for +, sad image for -, fallback to default team image
+                const targetTeam = (latestState?.teams || []).find(t => t.id === sp.teamId);
+                let teamPhoto = '';
+
+                if (isPositive) {
+                    if (sp.happyImage || targetTeam?.happyImage) {
+                        teamPhoto = sp.happyImage || targetTeam?.happyImage;
+                    } else if (sp.image || targetTeam?.image) {
+                        teamPhoto = sp.image || targetTeam?.image;
+                    }
+                } else {
+                    if (sp.sadImage || targetTeam?.sadImage) {
+                        teamPhoto = sp.sadImage || targetTeam?.sadImage;
+                    } else if (sp.image || targetTeam?.image) {
+                        teamPhoto = sp.image || targetTeam?.image;
+                    }
+                }
+
+                // 1. Header Banner & Subtle Fade
+                if (teamPhoto) {
+                    splashHeaderImg.src = teamPhoto;
+                    splashHeaderImg.style.display = 'block';
+                    splashHeaderPlaceholder.style.display = 'none';
+                } else {
+                    splashHeaderImg.style.display = 'none';
+                    splashHeaderPlaceholder.style.display = 'flex';
+                    const tCol = sp.teamColor || targetTeam?.color || '#3b82f6';
+                    splashHeaderPlaceholder.style.background = `linear-gradient(135deg, ${hexToRgba(tCol, 0.55)} 0%, rgba(15, 23, 42, 0.95) 100%)`;
+                }
+
+                // 2. Team name MUCH LARGER right on the fade boundary
+                if (splashTeamName) {
+                    splashTeamName.textContent = sp.teamName || targetTeam?.name || 'تیم';
+                }
+
+                // 3. Referee profile (Right) & Score (Left)
+                let uPic = '';
+                let uName = 'داور مسابقه';
+                let uRole = 'ثبت امتیاز';
+                if (sp.user) {
+                    uPic = sp.user.profilePic || sp.user.photo || sp.user.avatar || sp.user.image || '';
+                    uName = (sp.user.firstName ? `${sp.user.firstName} ${sp.user.lastName || ''}`.trim() : sp.user.username) || 'داور';
+                    uRole = sp.user.role === 'head_referee' ? 'سرداور' : (sp.user.role === 'referee' ? 'داور مسابقه' : (sp.user.role === 'admin' ? 'مدیر سیستم' : 'داور'));
+                }
+
+                if (uPic) {
+                    splashRefereeImg.src = uPic;
+                    splashRefereeImg.style.display = 'block';
+                    splashRefereePlaceholder.style.display = 'none';
+                } else {
+                    splashRefereeImg.style.display = 'none';
+                    splashRefereePlaceholder.style.display = 'flex';
+                }
+                if (splashRefereeAvatarWrap) {
+                    splashRefereeAvatarWrap.style.borderColor = color;
+                }
+                if (splashRefereeName) splashRefereeName.textContent = uName;
+                if (splashRefereeRole) splashRefereeRole.textContent = uRole;
+
+                if (splashScoreValue) {
+                    splashScoreValue.textContent = `${sign}${formattedDelta}`;
+                    splashScoreValue.style.color = color;
+                }
+
+                if (splashTagWrap) {
+                    if (sp.tag) {
+                        splashTagWrap.style.display = 'block';
+                        splashTagWrap.innerHTML = `<div class="splash-tag-badge" style="color: ${color};"><i data-lucide="tag" style="width: 15px; height: 15px;"></i> <span>${sp.tag}</span></div>`;
+                    } else {
+                        splashTagWrap.style.display = 'none';
+                    }
+                }
+
+                if (typeof refreshIcons === 'function') refreshIcons();
+
+                // 4. Trigger Confetti & Positive Aura or Emergency Siren Lights & Alarm
+                if (isPositive) {
+                    popup.classList.remove('negative-alarm');
+                    popup.classList.add('positive-glow');
+                    if (splashScoreValue) {
+                        splashScoreValue.classList.remove('siren-score-negative');
+                        splashScoreValue.classList.add('siren-score-positive');
+                    }
+                    if (sirenOverlay) sirenOverlay.style.display = 'none';
+                    stopSirenAlarm();
+                    triggerConfetti();
+                    playSuccessChime();
+                } else {
+                    popup.classList.remove('positive-glow');
+                    popup.classList.add('negative-alarm');
+                    if (splashScoreValue) {
+                        splashScoreValue.classList.remove('siren-score-positive');
+                        splashScoreValue.classList.add('siren-score-negative');
+                    }
+                    if (sirenOverlay) sirenOverlay.style.display = 'block';
+                    startSirenAlarm();
+                }
+                
+                // Reset position for centered flexbox
+                popup.style.position = 'relative';
+                popup.style.top = ''; 
+                popup.style.left = '';
+                popup.style.transform = '';
+                popup.classList.remove('fly');
+                popup.classList.add('show');
+
+                if (sp.isCancelled || sp.isStandaloneCancel) {
+                    const stamp = document.createElement('div');
+                    stamp.className = 'cancel-stamp';
+                    stamp.innerText = 'لغو شد';
+                    popup.appendChild(stamp);
+                }
+                
+                // Wait 2.5 seconds
+                await sleep(2500);
+                
+                // Stop alarm and siren effects before flying
+                stopSirenAlarm();
+                if (sirenOverlay) sirenOverlay.style.display = 'none';
+                popup.classList.remove('negative-alarm');
+                popup.classList.remove('positive-glow');
+                if (splashScoreValue) {
+                    splashScoreValue.classList.remove('siren-score-negative');
+                    splashScoreValue.classList.remove('siren-score-positive');
+                }
+
+                // Remove blur immediately when it starts flying
+                document.getElementById('board').classList.remove('blurred-board');
+                
+                // Fly to Team's row (specifically the score element)
+                const teamRow = document.getElementById('team-' + sp.teamId);
+                if (teamRow) {
+                    const scoreEl = teamRow.querySelector('.score-val');
+                    if (scoreEl) {
+                        const rect = scoreEl.getBoundingClientRect();
+                        const popupRect = popup.getBoundingClientRect();
+                        popup.style.position = 'fixed';
+                        popup.style.top = (popupRect.top + popupRect.height/2) + 'px';
+                        popup.style.left = (popupRect.left + popupRect.width/2) + 'px';
+                        
+                        popup.offsetHeight;
+                        
+                        popup.style.top = (rect.top + rect.height/2) + 'px';
+                        popup.style.left = (rect.left + rect.width/2) + 'px';
+                    }
+                    popup.classList.add('fly');
+                    await sleep(400);
+                }
+                
+                popup.classList.remove('show');
+                popup.classList.remove('fly');
+                
+                if (latestState) {
+                    let stateToRender = JSON.parse(JSON.stringify(latestState));
+                    splashQueue.forEach(pendingSp => {
+                        let team = stateToRender.teams.find(t => t.id === pendingSp.teamId);
+                        if (team && !pendingSp.isStandaloneCancel) {
+                            team.score -= pendingSp.delta;
+                        } else if (team && pendingSp.isStandaloneCancel) {
+                            team.score += pendingSp.delta;
+                        }
+                    });
+                    renderBoard(stateToRender);
+                }
+                popup.id = 'splashPopup';
+                const stamps = popup.querySelectorAll('.cancel-stamp');
+                stamps.forEach(s => s.remove());
+                
+                await sleep(1000); 
+            }
+            isSplashing = false; 
+            document.getElementById('board').classList.remove('blurred-board');
+            stopSirenAlarm();
+            if (sirenOverlay) sirenOverlay.style.display = 'none';
+            popup.classList.remove('negative-alarm', 'positive-glow');
+            if (splashScoreValue) {
+                splashScoreValue.classList.remove('siren-score-negative', 'siren-score-positive');
+            }
+            if (latestState) renderBoard(latestState);
+        }
+
+        function renderBoard(data) {
+            document.documentElement.dir = data.dir || 'rtl';
+            // Update Header
+            if (data.title || data.orgName) {
+                const org = data.orgName ? data.orgName + ' - ' : '';
+                const title = data.title || '';
+                document.getElementById('campTitleText').innerText = title;
+                document.title = (title || 'اسکوربورد');
+            }
+            const logoEl = document.getElementById('orgLogo');
+            const bgLogoEl = document.getElementById('bgLogo');
+            if (data.logo) {
+                logoEl.src = data.logo;
+                logoEl.style.display = 'block';
+                if (bgLogoEl) {
+                    bgLogoEl.style.webkitMaskImage = 'none';
+                    bgLogoEl.style.maskImage = 'none';
+                    bgLogoEl.style.backdropFilter = 'none';
+                    bgLogoEl.style.webkitBackdropFilter = 'none';
+                    bgLogoEl.style.boxShadow = 'none';
+                    bgLogoEl.style.backgroundImage = 'url(' + data.logo + ')';
+                    bgLogoEl.style.backgroundSize = 'contain';
+                    bgLogoEl.style.backgroundRepeat = 'no-repeat';
+                    bgLogoEl.style.backgroundPosition = 'center';
+                    bgLogoEl.style.backgroundColor = 'transparent';
+                    bgLogoEl.style.opacity = '0.15';
+                    bgLogoEl.style.display = 'block';
+                }
+            } else {
+                logoEl.style.display = 'none';
+                if (bgLogoEl) {
+                    bgLogoEl.style.display = 'none';
+                }
+            }
+
+            if (!data.teams || data.teams.length === 0) return;
+            
+            const sortedTeams = data.teams.sort((a, b) => b.score - a.score);
+            
+            // Dynamic Sizing
+            const headerHeight = document.getElementById('boardHeader').offsetHeight;
+            const footerEl = document.querySelector('.asva-footer');
+            const footerHeight = footerEl ? footerEl.offsetHeight + 40 : 40;
+            const availableHeight = window.innerHeight - headerHeight - footerHeight - 60; // 60px padding
+            const numTeams = sortedTeams.length;
+            const useTwoColumns = numTeams > 12;
+            const numRows = useTwoColumns ? Math.ceil(numTeams / 2) : numTeams;
+            // Calculate best row height
+            let ROW_HEIGHT = Math.max(30, Math.min(200, Math.floor(availableHeight / numRows))); 
+            const innerHeight = Math.max(10, ROW_HEIGHT - (ROW_HEIGHT > 40 ? 10 : 4)); // margin bottom
+
+            sortedTeams.forEach((team, index) => {
+                const teamKey = team.id;
+                let row = document.getElementById('team-' + teamKey);
+                
+                if (!row) {
+                    row = document.createElement('div');
+                    row.id = 'team-' + teamKey;
+                    row.className = 'board-row';
+                    row.innerHTML = `
+                        <div class="team-row" style="position: relative; border-inline-start: 12px solid ${team.color || '#fff'};">
+                            <div class="rank-number" style="position: absolute; display: flex; justify-content: center; align-items: center; opacity: 0; transition: opacity 0.5s; font-weight: 800; color: var(--text-color);"></div>
+                            <div class="name-container" style="display: flex; align-items: center; min-width: 0;">
+                                <div class="team-color-indicator" style="border-radius: 50%; flex-shrink: 0;"></div>
+                                <h2 class="team-name" style="margin: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0;">${team.name}</h2>
+                            </div>
+                            <h2 class="score-val" dir="ltr" style="margin: 0; text-shadow: 0 2px 5px rgba(0,0,0,0.3); font-variant-numeric: tabular-nums;">${formatNumber(team.score, data.numLang || 'fa')}</h2>
+                        </div>
+                    `;
+                    board.appendChild(row);
+                }
+                refreshIcons();
+                
+                // Update content and dynamic styling
+                const tr = row.querySelector('.team-row');
+                tr.style.height = innerHeight + 'px';
+                tr.style.padding = Math.max(2, innerHeight * 0.1) + 'px ' + Math.max(5, innerHeight * 0.2) + 'px';
+                tr.style.borderInlineStartColor = team.color;
+                // Add 30% tint of team color to the background
+                tr.style.backgroundColor = `${hexToRgba(team.color, 0.3)}`;
+
+                const indicator = row.querySelector('.team-color-indicator');
+                indicator.style.background = team.color;
+                indicator.style.boxShadow = `0 0 10px ${team.color}`;
+                
+                // Scale indicator
+                const indicatorSize = Math.max(12, ROW_HEIGHT * 0.25);
+                indicator.style.width = indicatorSize + 'px';
+                indicator.style.height = indicatorSize + 'px';
+                
+                // Adjust border width
+                tr.style.borderInlineStartWidth = Math.max(4, ROW_HEIGHT * 0.1) + 'px';
+                
+                const nameContainer = tr.querySelector('.name-container');
+                const paddingStart = Math.max(30, ROW_HEIGHT * (useTwoColumns ? 0.5 : 0.8));
+                nameContainer.style.paddingInlineStart = paddingStart + 'px';
+                nameContainer.style.gap = Math.max(5, ROW_HEIGHT * 0.15) + 'px';
+                
+                const nameEl = row.querySelector('.team-name');
+                nameEl.innerText = team.name;
+                nameEl.style.fontSize = Math.max(14, ROW_HEIGHT * 0.35) + 'px';
+
+                const scoreEl = row.querySelector('.score-val');
+                scoreEl.style.fontSize = Math.max(16, ROW_HEIGHT * 0.45) + 'px';
+                
+                // Analog Score Update
+                const oldScore = previousScores[teamKey];
+                if (oldScore !== undefined && oldScore !== team.score) {
+                    animateValue(scoreEl, oldScore, team.score, 1000, data.numLang || 'fa');
+                } else if (oldScore === undefined) {
+                    scoreEl.innerText = formatNumber(team.score, data.numLang || 'fa');
+                }
+                previousScores[teamKey] = team.score;
+
+                // FLIP Animation & Layout Logic
+                if (useTwoColumns) {
+                    const rowIdx = Math.floor(index / 2);
+                    const colIdx = index % 2;
+                    row.style.top = `${rowIdx * ROW_HEIGHT}px`;
+                    
+                    const isLastOdd = (index === numTeams - 1) && (numTeams % 2 !== 0);
+                    if (isLastOdd) {
+                        row.style.width = 'calc(50% - 10px)';
+                        row.style.insetInlineStart = 'calc(25% + 5px)';
+                    } else {
+                        row.style.width = 'calc(50% - 10px)';
+                        if (colIdx === 0) {
+                            row.style.insetInlineStart = '0';
+                        } else {
+                            row.style.insetInlineStart = 'calc(50% + 10px)';
+                        }
+                    }
+                } else {
+                    row.style.width = '100%';
+                    row.style.insetInlineStart = '0';
+                    row.style.top = `${index * ROW_HEIGHT}px`;
+                }
+
+                // Rank Number Logic (for 4th place onwards)
+                const rankEl = row.querySelector('.rank-number');
+                const borderW = Math.max(4, ROW_HEIGHT * 0.1);
+                const medalW = Math.max(18, ROW_HEIGHT * 0.5);
+                const rightPos = borderW + (paddingStart - medalW) / 2;
+                
+                if (index >= 3) {
+                    rankEl.innerText = formatNumber(index + 1, data.numLang || 'fa');
+                    rankEl.style.fontSize = Math.max(12, ROW_HEIGHT * 0.35) + 'px';
+                    rankEl.style.width = medalW + 'px';
+                    rankEl.style.height = medalW + 'px';
+                    rankEl.style.insetInlineStart = rightPos + 'px';
+                    rankEl.style.top = '50%';
+                    rankEl.style.transform = 'translateY(-50%)';
+                    rankEl.style.opacity = '0.7';
+                } else {
+                    rankEl.style.opacity = '0';
+                }
+            });
+
+            board.style.height = `${numRows * ROW_HEIGHT}px`;
+            
+            // --- Medal Logic ---
+            const newMedals = { 1: sortedTeams[0]?.id, 2: sortedTeams[1]?.id, 3: sortedTeams[2]?.id };
+            
+            for (let rank = 1; rank <= 3; rank++) {
+                let medalEl = document.getElementById('medal-' + rank);
+                let currentOwner = medalAssignments[rank];
+                let newOwner = newMedals[rank];
+                
+                if (!newOwner) {
+                    medalEl.style.display = 'none';
+                    continue;
+                }
+                medalEl.style.display = 'block';
+
+                // Size of medal
+                medalEl.style.fontSize = Math.max(18, ROW_HEIGHT * 0.5) + 'px';
+
+                function positionMedalAtTeam(teamId) {
+                    const tIndex = sortedTeams.findIndex(t => t.id === teamId);
+                    if(tIndex !== -1) {
+                        let topPos = tIndex * ROW_HEIGHT;
+                        let inlineStartOffset = '0px';
+                        
+                        if (useTwoColumns) {
+                            const rowIdx = Math.floor(tIndex / 2);
+                            const colIdx = tIndex % 2;
+                            topPos = rowIdx * ROW_HEIGHT;
+                            
+                            const isLastOdd = (tIndex === numTeams - 1) && (numTeams % 2 !== 0);
+                            if (isLastOdd) {
+                                inlineStartOffset = 'calc(25% + 5px)';
+                            } else {
+                                if (colIdx === 0) {
+                                    inlineStartOffset = '0px';
+                                } else {
+                                    inlineStartOffset = 'calc(50% + 10px)';
+                                }
+                            }
+                        }
+                        
+                        medalEl.style.top = (topPos + (ROW_HEIGHT/2) - (parseInt(medalEl.style.fontSize)/2)) + 'px';
+                        const borderW = Math.max(4, ROW_HEIGHT * 0.1);
+                        const paddingStart = Math.max(30, ROW_HEIGHT * (useTwoColumns ? 0.5 : 0.8));
+                        const medalW = parseInt(medalEl.style.fontSize);
+                        const rightPos = borderW + (paddingStart - medalW) / 2;
+                        
+                        if (inlineStartOffset !== '0px') {
+                            medalEl.style.insetInlineStart = `calc(${inlineStartOffset} + ${rightPos}px)`;
+                        } else {
+                            medalEl.style.insetInlineStart = rightPos + 'px';
+                        }
+                    }
+                }
+
+                if (!currentOwner) {
+                    medalAssignments[rank] = newOwner;
+                    positionMedalAtTeam(newOwner);
+                } else if (currentOwner !== newOwner) {
+                    // It changed! Instantly move it with the CURRENT owner (so it slides down with them)
+                    positionMedalAtTeam(currentOwner);
+                    // Playfully jump to the NEW owner after 1 second
+                    setTimeout(() => {
+                        medalAssignments[rank] = newOwner;
+                        positionMedalAtTeam(newOwner);
+                    }, 1000);
+                } else {
+                    // Stayed same
+                    positionMedalAtTeam(currentOwner);
+                }
+            }
+
+            // Cleanup deleted teams
+            const existingIds = new Set(sortedTeams.map(t => 'team-' + t.id));
+            Array.from(board.children).forEach(child => {
+                if (child.id.startsWith('team-') && !existingIds.has(child.id)) {
+                    child.style.opacity = '0';
+                    setTimeout(() => child.remove(), 1000);
+                }
+            });
+        }
+
+        let resizeTimeout;
+        window.addEventListener('resize', () => {
+            clearTimeout(resizeTimeout);
+            resizeTimeout = setTimeout(() => {
+                if (latestState) {
+                    // Create a simulated state by subtracting the deltas of remaining splashes in the queue
+                    let stateToRender = JSON.parse(JSON.stringify(latestState));
+                    splashQueue.forEach(pendingSp => {
+                        let team = stateToRender.teams.find(t => t.id === pendingSp.teamId);
+                        if (team && !pendingSp.isStandaloneCancel) {
+                            team.score -= pendingSp.delta;
+                        } else if (team && pendingSp.isStandaloneCancel) {
+                            // If it's a standalone cancel, it means the server has REMOVED the delta.
+                            // To simulate the state *before* this cancel is processed, we must ADD the delta back.
+                            team.score += pendingSp.delta;
+                        }
+                    });
+                    renderBoard(stateToRender);
+                }
+            }, 300);
+        });
+
+    </script>
+
+    
+    
+
+    
+    <script>
+        function refreshIcons() {
+            if (window.lucide) {
+                lucide.createIcons();
+            }
+        }
+        document.addEventListener("DOMContentLoaded", refreshIcons);
+    </script>
+    
+    <script src="tooltip.js"></script>
+</body>
+</html>

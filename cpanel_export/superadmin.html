@@ -1,0 +1,1645 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+    <link rel="icon" type="image/svg+xml" href="favicon.svg">
+    <link rel="icon" type="image/png" href="favicon.png">
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <link rel="stylesheet" href="style.css?v=2">
+    <title>پنل سوپرادمین - سیمولیشن کمپ</title>    <script src="https://unpkg.com/lucide@latest"></script>
+    <script>
+        const savedTheme = localStorage.getItem('theme') || 'light';
+        document.documentElement.setAttribute('data-theme', savedTheme);
+        function toggleTheme() {
+            const current = document.documentElement.getAttribute('data-theme');
+            const next = current === 'dark' ? 'light' : 'dark';
+            document.documentElement.setAttribute('data-theme', next);
+            localStorage.setItem('theme', next);
+            updateThemeIcon();
+        }
+        function updateThemeIcon() {
+            const current = document.documentElement.getAttribute('data-theme');
+            const icon = document.querySelector('.theme-toggle i, .theme-toggle svg');
+            if (icon) {
+                icon.outerHTML = current === 'dark' ? '<i data-lucide="sun"></i>' : '<i data-lucide="moon"></i>'; if(typeof refreshIcons === 'function') refreshIcons();
+            }
+        }
+        document.addEventListener('DOMContentLoaded', () => { 
+            updateThemeIcon(); 
+            fetch('api.php?action=settings').then(r=>r.json()).then(d=>{if(d.systemLogo)applySystemLogo(d.systemLogo)}); 
+            const savedSa = sessionStorage.getItem('sa_auth');
+            if (savedSa) {
+                const passInput = document.getElementById('saPassword');
+                if (passInput) {
+                    passInput.value = savedSa;
+                    superadminLogin();
+                }
+            }
+        });
+
+        const COLORS = [
+            '#000000', '#ffffff', '#808080', '#c0c0c0', '#a9a9a9', // Black, White, Grays
+            '#ff0000', '#800000', '#ff5733', '#ffa500', '#ff8c00', // Reds & Oranges
+            '#ffff00', '#ffd700', '#bdb76b', '#f0e68c', '#eee8aa', // Yellows
+            '#008000', '#00ff00', '#32cd32', '#228b22', '#006400', // Greens
+            '#0000ff', '#000080', '#00bfff', '#1e90ff', '#4169e1', // Blues
+            '#800080', '#ff00ff', '#8b008b', '#9400d3', '#9932cc', // Purples
+            '#ffc0cb', '#ff69b4', '#ff1493', '#c71585', '#db7093', // Pinks
+            '#8b4513', '#a0522d', '#d2691e', '#cd853f', '#f4a460', // Browns
+            '#00ffff', '#20b2aa', '#008080', '#40e0d0', '#48d1cc', // Cyans/Teals
+            '#e6e6fa', '#fff0f5', '#f5fffa', '#f0f8ff', '#f5f5dc'  // Off-whites/Pastels
+        ];
+    
+        function moveItemUp(btn) {
+            const item = btn.closest('.dynamic-item') || btn.parentElement;
+            if (item && item.previousElementSibling) {
+                item.parentElement.insertBefore(item, item.previousElementSibling);
+            }
+        }
+        function moveItemDown(btn) {
+            const item = btn.closest('.dynamic-item') || btn.parentElement;
+            if (item && item.nextElementSibling) {
+                item.parentElement.insertBefore(item.nextElementSibling, item);
+            }
+        }
+        
+    </script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+</head>
+<body>
+    <button onclick="toggleTheme()" class="theme-toggle" title="تغییر پوسته"><i data-lucide="moon"></i></button>
+
+    <img id="mainSystemLogo" src="" alt="Simulation Camp Logo" style="display: none; width: calc(60% + 60px); max-width: 460px; aspect-ratio: 12/5; object-fit: contain; margin-bottom: 20px; background: transparent; border: none; box-shadow: none;">
+    <!-- Superadmin Login -->
+    <div id="loginSection" class="glass" style="padding: 30px; width: 60%; max-width: 400px; text-align: center;">
+        <h2>ورود سوپرادمین</h2>
+        <input type="password" id="saPassword" placeholder="رمز عبور" class="settings-input" onkeydown="if(event.key === 'Enter') superadminLogin()">
+        <button onclick="superadminLogin()" style="padding: 10px 20px; width: 100%;" title="ورود به پنل مدیریت">ورود</button>
+        <p id="saErrorMsg" style="color: var(--error-color); display: none;"></p>
+    </div>
+
+    <!-- Superadmin Dashboard -->
+    <div id="dashboardSection" style="display: none; width: 90%; max-width: 1000px; text-align: center;">
+        <h2 style="margin-top: 0; margin-bottom: 25px; font-size: 28px;">داشبورد سوپرادمین</h2>
+        
+        <div class="action-buttons-container" style="display: flex; gap: 15px; justify-content: center; flex-wrap: wrap; margin-bottom: 30px;">
+            <button onclick="openSetupMode(null)" class="main-action-btn" style="background: rgba(0, 255, 136, 0.3); color: var(--success-color); border: 1px solid var(--success-color);" title="ایجاد رویداد جدید به صورت دستی">
+                <i data-lucide="plus-circle"></i> <span class="btn-text">مسابقه جدید</span>
+            </button>
+            <button onclick="showExcelGuide()" class="main-action-btn" style="background: var(--blue-bg); color: var(--blue-color); border: 1px solid var(--blue-border);" title="بارگذاری اطلاعات رویداد از فایل اکسل">
+                <i data-lucide="file-spreadsheet"></i> <span class="btn-text">ورود اکسل</span>
+            </button>
+            <button onclick="toggleAllCampsView()" id="toggleAllCampsBtn" class="main-action-btn" style="background: rgba(255, 255, 255, 0.15); color: var(--text-color); border: 1px solid var(--glass-border);" title="نمایش همه مسابقات (آرشیو شده و فعال)">
+                <i data-lucide="layers"></i> <span class="btn-text">مسابقات</span>
+            </button>
+            <button onclick="openGlobalSettings()" class="main-action-btn" style="background: rgba(255, 255, 255, 0.15); color: var(--text-color); border: 1px solid var(--glass-border);" title="تنظیمات کلی سیستم و سوپرادمین">
+                <i data-lucide="settings"></i> <span class="btn-text">تنظیمات</span>
+            </button>
+            <a href="cpanel_export.zip" download class="main-action-btn" style="background: rgba(168, 85, 247, 0.2); color: #c084fc; border: 1px solid rgba(168, 85, 247, 0.4); text-decoration: none;" title="دانلود بسته آماده برای استقرار روی هاست سی‌پنل (cPanel)">
+                <i data-lucide="archive"></i> <span class="btn-text">بسته cPanel</span>
+            </a>
+            <button onclick="superadminLogout()" class="main-action-btn" style="background: rgba(255, 76, 76, 0.15); color: var(--danger-color); border: 1px solid rgba(255, 76, 76, 0.3);" title="خروج از حساب سوپرادمین">
+                <i data-lucide="log-out"></i> <span class="btn-text">خروج</span>
+            </button>
+        </div>
+        <div id="campsGrid" class="dashboard-grid">
+            <!-- Cards go here -->
+        </div>
+    </div>
+
+    
+    <!-- Global Settings Modal -->
+    <div id="globalSettingsModal" class="modal-overlay">
+        <div class="glass" style="padding: 30px; width: 90%; max-width: 500px; text-align: right;">
+            <h3 style="margin-top: 0; display: flex; align-items: center; gap: 10px;"><i data-lucide="settings"></i> تنظیمات عمومی سیستم</h3>
+            <div style="display: flex; flex-direction: column; gap: 15px; margin-top: 20px;">
+                <div>
+                    <label style="display: block; margin-bottom: 8px;">لوگوی اصلی سیستم (لینک عکس):</label>
+                    <input type="text" id="sysLogoLink" class="settings-input" placeholder="https://example.com/logo.png">
+                </div>
+                <div>
+                    <label style="display: block; margin-bottom: 8px;">یا آپلود فایل لوگو:</label>
+                    <input type="file" id="sysLogoFile" accept="image/*" class="settings-input" style="padding: 10px;">
+                </div>
+            </div>
+            <div style="display: flex; gap: 10px; margin-top: 25px;">
+                <button onclick="saveGlobalSettings();" style="flex: 2; padding: 12px; background: rgba(0, 255, 136, 0.3); border: 1px solid var(--success-color); color: var(--success-color);" title="ذخیره تنظیمات کلی سیستم">
+                    <i data-lucide="save" style="width: 18px; height: 18px; vertical-align: middle; margin-left: 5px;"></i> ذخیره تغییرات
+                </button>
+                <button onclick="closeGlobalSettings()" style="flex: 1; padding: 12px; background: var(--input-bg);" title="انصراف و بستن تنظیمات">لغو</button>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Excel Guide Modal -->
+    <!-- Excel Guide Modal -->
+    <div id="excelGuideModal" class="modal-overlay">
+        <div class="glass" style="padding: 30px; width: 90%; max-width: 700px; max-height: 90vh; overflow-y: auto;">
+            <h3 style="margin-top: 0; display: flex; align-items: center; gap: 10px;"><i data-lucide="file-spreadsheet"></i> ورود از طریق اکسل</h3>
+            <p>لطفا یک فایل اکسل با <b>دو شیت مجزا</b> ایجاد کنید.</p>
+            
+            <h4 style="margin-top: 20px; color: var(--blue-color);">شیت اول: اطلاعات مسابقه</h4>
+            <p style="font-size: 13px; opacity: 0.9;">ردیف اول هدر باشد و از ردیف دوم اطلاعات وارد شود.</p>
+            <div style="overflow-x: auto;">
+                <table style="width: 100%; text-align: right; border-collapse: collapse; margin-top: 10px; font-size: 12px;">
+                    <tr style="border-bottom: 1px solid rgba(255,255,255,0.2);">
+                        <th style="padding: 10px;">ستون اول</th>
+                        <th style="padding: 10px;">ستون دوم</th>
+                        <th style="padding: 10px;">ستون سوم</th>
+                        <th style="padding: 10px;">ستون چهارم</th>
+                        <th style="padding: 10px;">ستون پنجم</th>
+                        <th style="padding: 10px;">ستون ششم</th>
+                    </tr>
+                    <tr>
+                        <td style="padding: 10px;">نام سازمان<br><small>(فقط ردیف ۲)</small></td>
+                        <td style="padding: 10px;">عنوان مسابقه<br><small>(فقط ردیف ۲)</small></td>
+                        <td style="padding: 10px;">لینک لوگو<br><small>(فقط ردیف ۲ - اختیاری)</small></td>
+                        <td style="padding: 10px;">نام مراحل<br><small>(ردیف ۲ تا انتها)</small></td>
+                        <td style="padding: 10px;">نام تیم‌ها<br><small>(ردیف ۲ تا انتها)</small></td>
+                        <td style="padding: 10px;">کد رنگ تیم<br><small>(اختیاری)</small></td>
+                    </tr>
+                </table>
+            </div>
+
+            <h4 style="margin-top: 30px; color: var(--success-color);">شیت دوم: کاربران و داوران (اختیاری)</h4>
+            <p style="font-size: 13px; opacity: 0.9;">ردیف اول هدر باشد و از ردیف دوم لیست اکانت‌ها وارد شود.</p>
+            <div style="overflow-x: auto;">
+                <table style="width: 100%; text-align: right; border-collapse: collapse; margin-top: 10px; font-size: 12px;">
+                    <tr style="border-bottom: 1px solid rgba(255,255,255,0.2);">
+                        <th style="padding: 10px;">ستون اول</th>
+                        <th style="padding: 10px;">ستون دوم</th>
+                        <th style="padding: 10px;">ستون سوم</th>
+                        <th style="padding: 10px;">ستون چهارم</th>
+                        <th style="padding: 10px;">ستون پنجم</th>
+                    </tr>
+                    <tr>
+                        <td style="padding: 10px;">نام و نام خانوادگی</td>
+                        <td style="padding: 10px;">نام کاربری</td>
+                        <td style="padding: 10px;">رمز عبور</td>
+                        <td style="padding: 10px;">نقش<br><small>(اپراتور، داور ارشد، داور)</small></td>
+                        <td style="padding: 10px;">لینک عکس پروفایل<br><small>(اختیاری)</small></td>
+                    </tr>
+                </table>
+            </div>
+            
+            <p style="font-size: 13px; opacity: 0.8; margin-top: 15px;">* در صورتی که کد رنگی جز رنگهای پیشفرض نیست یا سلول رنگ یک تیم خالی است، به صورت پیشفرض آن تیم سفید می‌شود.</p>
+
+            <div id="excelErrors" style="display: none; background: rgba(255,50,50,0.1); border: 1px solid var(--danger-color); color: var(--danger-color); padding: 15px; border-radius: 10px; margin-top: 20px; font-size: 13px; text-align: right;"></div>
+            <div style="display: flex; gap: 10px; margin-top: 25px; align-items: center; justify-content: flex-end;">
+                <input type="file" id="excelUpload" accept=".xlsx, .xls" style="display: none;" onchange="handleExcelUpload(event);">
+                <button onclick="document.getElementById('excelUpload').click()" style="flex: 2; padding: 12px; background: var(--blue-bg); color: var(--blue-color); border: 1px solid var(--blue-border); cursor: pointer; border-radius: 10px;" title="انتخاب فایل اکسل از دستگاه">
+                    <i data-lucide="upload" style="width: 18px; height: 18px; vertical-align: middle; margin-left: 5px;"></i> انتخاب فایل اکسل
+                </button>
+                <button onclick="closeExcelGuide()" style="flex: 1; padding: 12px; background: var(--input-bg); border-radius: 10px; cursor: pointer;" title="بستن راهنمای فایل اکسل">بستن</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Setup / Edit Modal Overlay -->
+    <div id="setupModal" class="modal-overlay" style="position: fixed; inset: 0; width: 100vw; height: 100vh; z-index: 1200; overflow-y: auto; padding: 25px 12px; box-sizing: border-box; align-items: center; justify-content: center;">
+        <div id="setupSection" class="glass modal-content" style="padding: 30px; width: 95%; max-width: 650px; max-height: 88vh; overflow-y: auto; position: relative; border-radius: 20px; box-sizing: border-box; margin: auto;">
+            <span class="close-btn" onclick="backToDashboard()" title="بستن" style="top: 20px; left: 20px; right: auto;">&times;</span>
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; padding-left: 35px;">
+                <h2 id="setupFormTitle" style="margin: 0; font-size: 24px;">تنظیمات مسابقه</h2>
+                <button onclick="backToDashboard()" class="icon-btn" style="font-size: 14px; padding: 6px 14px;" title="بازگشت به داشبورد و لیست رویدادها">بازگشت به داشبورد</button>
+            </div>
+        
+        <input type="hidden" id="editCampId">
+
+        <label>نام سازمان برگزارکننده:</label>
+        <input type="text" id="orgName" placeholder="مثلا: شرکت ایکس" class="settings-input">
+        
+        <label>عنوان مسابقه:</label>
+        <input type="text" id="campTitle" placeholder="مثلا: جام رمضان ۱۴۰۵" class="settings-input">
+        
+        <label>لوگوی سازمان:</label>
+        <div class="tabs">
+            <button class="tab-btn active" id="tabUrlBtn" onclick="setLogoMode('url')" title="استفاده از آدرس اینترنتی تصویر">لینک عکس</button>
+            <button class="tab-btn" id="tabUploadBtn" onclick="setLogoMode('upload')" title="آپلود تصویر از دستگاه">آپلود از دستگاه</button>
+        </div>
+        <input type="text" id="logoUrl" placeholder="https://example.com/logo.png" class="settings-input">
+        <input type="file" id="logoFile" accept="image/*" style="display: none; width: 100%; padding: 10px; margin-bottom: 15px; box-sizing: border-box; background: var(--input-bg);" onchange="handleFileUpload(event)">
+        <input type="hidden" id="logoBase64">
+        <!-- Image Preview -->
+        <div style="text-align: center;">
+            <img id="logoPreview" style="display:none; max-height: 60px; border-radius: 5px; margin-bottom: 15px;">
+        </div>
+
+        <label>رمز عبور اپراتور اصلی (نام کاربری ورود: admin):</label>
+        <input type="password" id="opPassword" placeholder="یک رمز برای ورود اپراتور" class="settings-input">
+        
+        
+        <label>نوع مسابقه:</label>
+        <select id="campType" class="settings-input" onchange="toggleUsersSection()">
+            <option value="simple">مسابقه ساده (فقط یک اپراتور)</option>
+            <option value="professional">مسابقه حرفه‌ای (امکان تعریف داور و داور ارشد - امتیازدهی مستقیم)</option>
+            <option value="tiered">مسابقه پلکانی (محاسبه امتیازات مراحل بر اساس رتبه و بستن مرحله)</option>
+        </select>
+
+        <div id="tieredSettingsSection" style="display: none; margin-bottom: 15px; background: rgba(59, 130, 246, 0.08); border: 1px solid rgba(59, 130, 246, 0.25); border-radius: 10px; padding: 12px 14px;">
+            <label style="margin-top: 0; font-weight: 700; color: var(--text-color);">جدول امتیازات پلکانی (از رتبه اول به بعد، جدا شده با کاما):</label>
+            <input type="text" id="tieredPointsLadder" class="settings-input" placeholder="500, 400, 300, 200, 100" value="500, 400, 300, 200, 100" style="margin-bottom: 6px;">
+            <div style="font-size: 12px; opacity: 0.8; line-height: 1.4;">در حالت پلکانی، امتیاز دادن داوران تغییری در جدول اصلی ایجاد نمی‌کند تا زمانی که اپراتور دکمه بستن مرحله و محاسبه امتیازات را فشار دهد.</div>
+        </div>
+
+        <div id="usersSectionWrapper" style="display: none;">
+            <label>کاربران رویداد:</label>
+            <div id="usersList" class="dynamic-list"></div>
+            <button onclick="addUser()" class="icon-btn add-dynamic-btn" style="width: 100%; margin-bottom: 20px; color:var(--blue-color);" title="افزودن کاربر جدید">+ افزودن کاربر جدید</button>
+        </div>
+
+        <label>حالت داوری میدانی:</label>
+        <select id="fieldJudgingMode" class="settings-input" onchange="toggleFieldJudgingSettings()">
+            <option value="free">حالت آزاد (ضریب ۵ - انتخاب آزادانه از ۵ تا ۱۰۰)</option>
+            <option value="restricted">حالت مقادیر مشخص و محدود</option>
+        </select>
+
+        <div id="restrictedValuesSection" style="display: none; margin-bottom: 15px;">
+            <label>مقادیر مجاز داوری میدانی (جدا شده با کاما، مثلاً 5, 10, 15, 20):</label>
+            <input type="text" id="fieldJudgingValuesInput" class="settings-input" placeholder="5, 10, 15, 20" value="5, 10, 15, 20">
+        </div>
+
+        <label>برچسب‌های مثبت داوری میدانی:</label>
+        <div class="tag-manage-box">
+            <div style="display: flex; gap: 8px;">
+                <input type="text" id="newPosTagInput" placeholder="عنوان برچسب جدید (مثل: نظم)" class="settings-input" style="margin: 0;" onkeydown="if(event.key==='Enter'){event.preventDefault();addPosTagFromInput();}">
+                <button type="button" onclick="addPosTagFromInput()" class="icon-btn" style="padding: 0 15px; color: var(--success-color);" title="افزودن برچسب مثبت">+ افزودن</button>
+            </div>
+            <div id="posTagsList" class="tags-chips-list"></div>
+        </div>
+
+        <label>برچسب‌های منفی داوری میدانی:</label>
+        <div class="tag-manage-box">
+            <div style="display: flex; gap: 8px;">
+                <input type="text" id="newNegTagInput" placeholder="عنوان برچسب جدید (مثل: بی‌نظمی)" class="settings-input" style="margin: 0;" onkeydown="if(event.key==='Enter'){event.preventDefault();addNegTagFromInput();}">
+                <button type="button" onclick="addNegTagFromInput()" class="icon-btn" style="padding: 0 15px; color: var(--danger-color);" title="افزودن برچسب منفی">+ افزودن</button>
+            </div>
+            <div id="negTagsList" class="tags-chips-list"></div>
+        </div>
+
+        <label>تیم‌ها:</label>
+        <div id="teamsList" class="dynamic-list"></div>
+        <button onclick="addTeam()" class="icon-btn add-dynamic-btn" style="width: 100%; margin-bottom: 20px; color:var(--success-color);" title="افزودن تیم جدید">+ افزودن تیم جدید</button>
+        
+        <label>مراحل مسابقه:</label>
+        <div id="stagesList" class="dynamic-list"></div>
+        <button onclick="addStage()" class="icon-btn add-dynamic-btn" style="width: 100%; margin-bottom: 20px; color:var(--success-color);" title="افزودن مرحله جدید">+ افزودن مرحله جدید</button>
+
+        <button id="saveCampBtn" onclick="createCamp()" style="padding: 15px; width: 100%; font-size: 18px; background: rgba(0, 255, 136, 0.4);" title="ذخیره تنظیمات و ایجاد رویداد">ذخیره و ایجاد لینک</button>
+        
+        <div id="result" style="margin-top: 20px; color: var(--text-color); font-weight: bold; display: none; text-align: center;">
+            لینک اپراتور: <br>
+            <a id="operatorLink" title="ورود به پنل اپراتور این رویداد در تب جدید"  href="#" target="_blank" style="color: var(--text-color); text-decoration: underline;"></a>
+        </div>
+    </div>
+    </div>
+
+    <!-- Color Picker Modal -->
+    <div id="colorPickerModal" class="modal-overlay" style="z-index: 1500;">
+        <div class="modal-content glass" style="max-width: 450px; padding: 20px;">
+            <h3 style="margin-top: 0;">انتخاب رنگ</h3>
+            <div id="colorGrid" class="color-grid"></div>
+            <button onclick="document.getElementById('colorPickerModal').style.display='none'" style="margin-top: 20px; padding: 10px;" title="لغو انتخاب رنگ">انصراف</button>
+        </div>
+    </div>
+
+    <script>
+        // --- Color Picker Logic ---
+        let colorTarget = null;
+        function initColorPicker() {
+            const grid = document.getElementById('colorGrid');
+            COLORS.forEach(color => {
+                const swatch = document.createElement('div');
+                swatch.className = 'color-swatch';
+                swatch.style.backgroundColor = color;
+                swatch.onclick = () => selectColor(color);
+                grid.appendChild(swatch);
+            });
+        }
+        initColorPicker();
+
+        function openColorPicker(btn) {
+            colorTarget = btn;
+            document.getElementById('colorPickerModal').style.display = 'flex';
+        }
+
+        function selectColor(color) {
+            if (colorTarget) {
+                colorTarget.dataset.value = color;
+                colorTarget.style.backgroundColor = color;
+            }
+            document.getElementById('colorPickerModal').style.display = 'none'; if (typeof validateRealTime === 'function') validateRealTime();
+        }
+
+        // --- Logo Mode Logic ---
+        let logoMode = 'url';
+        function setLogoMode(mode) {
+            logoMode = mode;
+            if (mode === 'url') {
+                document.getElementById('tabUrlBtn').classList.add('active');
+                document.getElementById('tabUploadBtn').classList.remove('active');
+                document.getElementById('logoUrl').style.display = 'block';
+                document.getElementById('logoFile').style.display = 'none';
+            } else {
+                document.getElementById('tabUrlBtn').classList.remove('active');
+                document.getElementById('tabUploadBtn').classList.add('active');
+                document.getElementById('logoUrl').style.display = 'none';
+                document.getElementById('logoFile').style.display = 'block';
+            }
+            updatePreview();
+        }
+
+        function handleFileUpload(e) {
+            const file = e.target.files[0];
+            if(file) {
+                const reader = new FileReader();
+                reader.onload = (e) => { 
+                    document.getElementById('logoBase64').value = e.target.result; 
+                    updatePreview();
+                };
+                reader.readAsDataURL(file);
+            }
+        }
+
+        document.getElementById('logoUrl').addEventListener('input', updatePreview);
+
+        function updatePreview() {
+            const preview = document.getElementById('logoPreview');
+            let src = '';
+            if (logoMode === 'url') {
+                src = document.getElementById('logoUrl').value;
+            } else {
+                src = document.getElementById('logoBase64').value;
+            }
+            if (src) {
+                preview.src = src;
+                preview.style.display = 'inline-block';
+            } else {
+                preview.style.display = 'none';
+            }
+        }
+
+        // --- Superadmin Logic ---
+
+        function superadminLogout() {
+            sessionStorage.removeItem('sa_auth');
+            // Clear password field
+            const passInput = document.getElementById('saPassword');
+            if(passInput) passInput.value = '';
+            
+            // Clear error message just in case
+            const errMsg = document.getElementById('saErrorMsg');
+            if(errMsg) {
+                errMsg.style.display = 'none';
+                errMsg.innerText = '';
+            }
+
+            // Animate transition back to login
+            hideModal('dashboardSection');
+            setTimeout(() => { showModal('loginSection', 'block'); }, 280);
+        }
+
+
+        function showModal(id, displayType = 'flex') {
+            const el = document.getElementById(id);
+            if(el) {
+                el.style.display = displayType;
+                el.classList.remove('closing');
+            }
+        }
+        function hideModal(id) {
+            const el = document.getElementById(id);
+            if(el) {
+                el.classList.add('closing');
+                setTimeout(() => {
+                    el.style.display = 'none';
+                    el.classList.remove('closing');
+                }, 280);
+            }
+        }
+
+        
+        function openGlobalSettings() {
+            showModal('globalSettingsModal', 'flex');
+            if(typeof refreshIcons === 'function') refreshIcons();
+        }
+        function closeGlobalSettings() {
+            hideModal('globalSettingsModal');
+        }
+        
+        function closeExcelGuide() {
+            hideModal('excelGuideModal');
+            const errDiv = document.getElementById("excelErrors");
+            if (errDiv) errDiv.style.display = "none";
+            const fileInput = document.getElementById('excelUpload');
+            if (fileInput) fileInput.value = '';
+        }
+
+        function showExcelGuide() {
+            showModal('excelGuideModal', 'flex');
+            if(typeof refreshIcons === "function") refreshIcons();
+
+        }
+
+        function handleExcelUpload(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+
+            const errDiv = document.getElementById("excelErrors");
+            if (errDiv) errDiv.style.display = "none";
+
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                try {
+                    let errors = [];
+                    const data = new Uint8Array(e.target.result);
+                    const workbook = XLSX.read(data, {type: 'array'});
+                    
+                    if (workbook.SheetNames.length === 0) {
+                        errors.push("فایل اکسل خالی است و هیچ شیتی ندارد.");
+                    } else {
+                        const firstSheetName = workbook.SheetNames[0];
+                        const mainSheet = workbook.Sheets[firstSheetName];
+                        const rows = XLSX.utils.sheet_to_json(mainSheet, {header: 1});
+                        
+                        if (rows.length < 2) {
+                            errors.push("شیت اول فایل اکسل خالی است یا فقط هدر دارد.");
+                        } else {
+                            let orgName = rows[1][0] ? String(rows[1][0]).trim() : "";
+                            let campTitle = rows[1][1] ? String(rows[1][1]).trim() : "";
+                            let logoUrl = rows[1][2] ? String(rows[1][2]).trim() : "";
+                            
+                            let stages = [];
+                            let teams = [];
+                            for (let i = 1; i < rows.length; i++) {
+                                if (!rows[i]) continue;
+                                if (rows[i][3]) {
+                                    let stageName = String(rows[i][3]).trim();
+                                    if (stageName) stages.push({ id: Date.now() + 's' + i, name: stageName });
+                                }
+                                if (rows[i][4]) {
+                                    let teamName = String(rows[i][4]).trim();
+                                    let teamColor = '#ffffff';
+                                    if (rows[i][5]) {
+                                        let inputColor = String(rows[i][5]).trim().toLowerCase();
+                                        if (!inputColor.startsWith('#')) {
+                                            inputColor = '#' + inputColor;
+                                        }
+                                        if (COLORS.includes(inputColor)) {
+                                            teamColor = inputColor;
+                                        }
+                                    }
+                                    let teamImage = rows[i][6] ? String(rows[i][6]).trim() : '';
+                                    if (teamName) teams.push({ id: Date.now() + 't' + i, name: teamName, color: teamColor, image: teamImage, score: 0, stageScores: {} });
+                                }
+                            }
+
+                            if (!campTitle) errors.push("عنوان مسابقه در شیت اول (ستون دوم، ردیف دوم) یافت نشد.");
+                            if (teams.length === 0) errors.push("هیچ تیمی در شیت اول (ستون پنجم) یافت نشد. حداقل یک تیم وارد کنید.");
+                            if (stages.length === 0) errors.push("هیچ مرحله‌ای در شیت اول (ستون چهارم) یافت نشد. حداقل یک مرحله وارد کنید.");
+                            
+                            let users = [];
+                            let hasOp = false;
+                            if (workbook.SheetNames.length > 1) {
+                                const secondSheetName = workbook.SheetNames[1];
+                                const usersSheet = workbook.Sheets[secondSheetName];
+                                const rows2 = XLSX.utils.sheet_to_json(usersSheet, {header: 1});
+                                
+                                for (let i = 1; i < rows2.length; i++) {
+                                    if (!rows2[i]) continue;
+                                    
+                                    let fullName = rows2[i][0] ? String(rows2[i][0]).trim() : "";
+                                    let username = rows2[i][1] ? String(rows2[i][1]).trim() : "";
+                                    let password = rows2[i][2] ? String(rows2[i][2]).trim() : "";
+                                    let roleStr = rows2[i][3] ? String(rows2[i][3]).trim() : "";
+                                    let profilePic = rows2[i][4] ? String(rows2[i][4]).trim() : "";
+                                    
+                                    // if username or password is provided but missing the other
+                                    if ((username && !password) || (!username && password)) {
+                                        errors.push(`در شیت دوم، ردیف ${i + 1}: هم نام کاربری و هم رمز عبور الزامی است.`);
+                                        continue;
+                                    }
+                                    if (!username || !password) continue;
+                                    
+                                    let firstName = fullName;
+                                    let lastName = "";
+                                    const spaceIndex = fullName.indexOf(' ');
+                                    if (spaceIndex !== -1) {
+                                        firstName = fullName.substring(0, spaceIndex);
+                                        lastName = fullName.substring(spaceIndex + 1);
+                                    }
+                                    
+                                    let role = 'operator';
+                                    if (roleStr.includes('سرداور') || roleStr.includes('ارشد')) role = 'head_referee';
+                                    else if (roleStr.includes('داور') && !roleStr.includes('ارشد')) role = 'referee';
+                                    
+                                    if (role === 'operator' || role === 'head_referee') hasOp = true;
+
+                                    users.push({
+                                        id: 'u_' + Math.random().toString(36).substr(2, 9),
+                                        firstName,
+                                        lastName,
+                                        username,
+                                        password,
+                                        role,
+                                        profilePic
+                                    });
+                                }
+                            }
+                            
+                            if (errors.length > 0) {
+                                // show errors
+                                if (errDiv) {
+                                    errDiv.innerHTML = "<b>ایرادات یافت شده در فایل اکسل:</b><ul style='margin-top: 10px; margin-bottom: 0; padding-right: 20px;'>" + errors.map(e => "<li>" + e + "</li>").join('') + "</ul>";
+                                    errDiv.style.display = "block";
+                                }
+                                return;
+                            }
+
+                            const firstOp = users.find(u => u.role === 'operator' || u.role === 'head_referee');
+                            let opPassword = firstOp ? firstOp.password : "admin123";
+
+                            const newCamp = {
+                                orgName: orgName,
+                                title: campTitle,
+                campType: 'simple',
+                                password: opPassword,
+                                logo: logoUrl,
+                                numLang: "fa",
+                                dir: "rtl",
+                                locked: false,
+                                stages: stages,
+                                teams: teams,
+                                users: users
+                            };
+
+                            fetch('api.php?action=setup', {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify(newCamp)
+                            })
+                            .then(res => res.json())
+                            .then(resData => {
+                                if (resData.success) {
+                                    alert("مسابقه با موفقیت از اکسل ایجاد شد!");
+                                    closeExcelGuide();
+                                    loadCamps();
+                                } else {
+                                    alert("خطا در ایجاد مسابقه: " + resData.message);
+                                }
+                            });
+                        }
+                    }
+                } catch (error) {
+                    if (errDiv) {
+                        errDiv.innerHTML = "<b>خطا در پردازش فایل:</b> " + error;
+                        errDiv.style.display = "block";
+                    } else {
+                        alert("خطا در پردازش فایل اکسل: " + error);
+                    }
+                }
+                event.target.value = "";
+            };
+            reader.readAsArrayBuffer(file);
+        }
+        function superadminLogin() {
+            const pass = document.getElementById('saPassword').value;
+            fetch('api.php?action=superadmin_login', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ password: pass })
+            })
+            .then(res => res.json())
+            .then(data => {
+                if (data.success) {
+                    sessionStorage.setItem('sa_auth', pass);
+                    hideModal('loginSection');
+                    setTimeout(() => { showModal('dashboardSection', 'block'); }, 280);
+                    loadCamps();
+                } else {
+                    sessionStorage.removeItem('sa_auth');
+                    document.getElementById('saErrorMsg').innerText = data.message;
+                    document.getElementById('saErrorMsg').style.display = 'block';
+                }
+            });
+        }
+
+        
+        function loadGlobalSettings() {
+            fetch('api.php?action=settings')
+            .then(res => res.json())
+            .then(data => {
+                if (data.systemLogo) {
+                    document.getElementById('sysLogoLink').value = data.systemLogo;
+                    applySystemLogo(data.systemLogo);
+                }
+            });
+        }
+        
+        function applySystemLogo(url) {
+            const el = document.getElementById('mainSystemLogo');
+            if (el && url) {
+                el.src = url;
+                el.style.display = 'block';
+            } else if (el) {
+                el.style.display = 'none';
+            }
+        }
+
+        async function saveGlobalSettings() {
+            let logoUrl = document.getElementById('sysLogoLink').value;
+            const fileInput = document.getElementById('sysLogoFile');
+            
+            const finishSave = async (url) => {
+                await fetch('api.php?action=settings', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ key: 'systemLogo', value: url })
+                });
+                applySystemLogo(url);
+                closeGlobalSettings();
+                setTimeout(() => alert('تنظیمات ذخیره شد'), 10);
+            };
+
+            if (fileInput.files && fileInput.files[0]) {
+                const reader = new FileReader();
+                reader.onload = async (e) => {
+                    logoUrl = e.target.result;
+                    document.getElementById('sysLogoLink').value = '';
+                    await finishSave(logoUrl);
+                };
+                reader.readAsDataURL(fileInput.files[0]);
+            } else {
+                await finishSave(logoUrl);
+            }
+        }
+        
+        async function saveSetting(key, value) {
+            await fetch('api.php?action=settings', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ key, value })
+            });
+            applySystemLogo(value);
+        }
+    
+        
+        let allFetchedCamps = [];
+        let viewingAllCamps = false;
+
+        function toggleAllCampsView() {
+            const grid = document.getElementById('campsGrid');
+            grid.style.opacity = '0';
+            grid.style.transform = 'translateY(10px)';
+            grid.style.transition = 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)';
+            
+            setTimeout(() => {
+            viewingAllCamps = !viewingAllCamps;
+            const btn = document.getElementById('toggleAllCampsBtn');
+            if (viewingAllCamps) {
+                btn.style.background = 'var(--blue-bg)';
+                btn.style.color = 'var(--blue-color)';
+                btn.innerHTML = '<i data-lucide="layers"></i> <span class="btn-text">فقط فعال‌ها</span>';
+            } else {
+                btn.style.background = 'rgba(255, 255, 255, 0.15)';
+                btn.style.color = 'var(--text-color)';
+                btn.innerHTML = '<i data-lucide="layers"></i> <span class="btn-text">مسابقات</span>';
+            }
+            if(typeof refreshIcons === 'function') refreshIcons();
+            renderCampsGrid();
+            
+            grid.style.opacity = '1';
+            grid.style.transform = 'translateY(0)';
+            }, 200);
+        }
+
+        function toggleArchive(id, status, btnElement) {
+            const card = btnElement.closest('.camp-card');
+            if(card) {
+                if(!viewingAllCamps) {
+                    const targetBtn = document.getElementById('toggleAllCampsBtn');
+                    const cardRect = card.getBoundingClientRect();
+                    const targetRect = targetBtn.getBoundingClientRect();
+                    
+                    // Calculate translation distance
+                    const deltaX = (targetRect.left + targetRect.width / 2) - (cardRect.left + cardRect.width / 2);
+                    const deltaY = (targetRect.top + targetRect.height / 2) - (cardRect.top + cardRect.height / 2);
+                    
+                    // Set relative position so z-index works to fly over everything
+                    card.style.position = 'relative';
+                    card.style.zIndex = '2500';
+                    card.style.pointerEvents = 'none'; // Avoid intercepting clicks
+                    
+                    // Apply smooth fly-away transform
+                    card.style.transition = 'transform 0.6s cubic-bezier(0.5, 0, 0.2, 1), opacity 0.5s ease-out';
+                    card.style.transform = `translate(${deltaX}px, ${deltaY}px) scale(0.05)`;
+                    card.style.opacity = '0';
+                    
+                    // Pulse the target button slightly when the card "arrives"
+                    setTimeout(() => {
+                        targetBtn.style.transform = 'scale(1.1)';
+                        targetBtn.style.transition = 'transform 0.2s';
+                        setTimeout(() => targetBtn.style.transform = 'scale(1)', 200);
+                    }, 500);
+
+                } else {
+                    card.style.opacity = status ? '0.6' : '1';
+                    btnElement.style.opacity = '0.5';
+                    btnElement.innerText = 'درحال ثبت...';
+                }
+            }
+            
+            setTimeout(() => {
+                fetch(`api.php?action=superadmin_camp_archive&id=${id}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ archived: status })
+                })
+                .then(res => res.json())
+                .then(data => {
+                    if (data.success) loadCamps();
+                });
+            }, !viewingAllCamps ? 600 : 0);
+        }
+
+        function loadCamps() {
+            fetch('api.php?action=superadmin_camps')
+            .then(res => res.json())
+            .then(data => {
+                if (data.success) {
+                    allFetchedCamps = data.camps;
+                    renderCampsGrid();
+                }
+            });
+        }
+
+        function renderCampsGrid() {
+            const grid = document.getElementById('campsGrid');
+            grid.innerHTML = '';
+            
+            let campsToShow = allFetchedCamps;
+            if (!viewingAllCamps) {
+                campsToShow = allFetchedCamps.filter(c => !c.archived);
+            }
+            
+            if (campsToShow.length === 0) {
+                grid.innerHTML = '<p>هیچ مسابقه‌ای برای نمایش وجود ندارد.</p>';
+                return;
+            }
+
+            campsToShow.forEach((camp, index) => {
+                const card = document.createElement('div');
+                card.className = 'camp-card fade-in-up';
+                card.style.animationDelay = `${index * 0.05}s`;
+                if (camp.archived) card.style.opacity = '0.6';
+                
+                const isLocked = camp.locked === 1;
+                const statusBadge = isLocked 
+                    ? '<span class="camp-badge badge-locked"><i data-lucide="lock"></i> قفل شده</span>'
+                    : '<span class="camp-badge badge-active"><i data-lucide="check-circle" style="width: 14px; height: 14px; margin-left: 5px;"></i> فعال</span>';
+
+                const archiveBtn = camp.archived
+                    ? `<button onclick="toggleArchive('${camp.id}', false, this)" title="خروج از آرشیو" style="width: 100%; padding: 10px; display: flex; align-items: center; justify-content: center; gap: 8px; background: rgba(255, 165, 0, 0.15); color: #ffa500; border: 1px solid rgba(255, 165, 0, 0.3); border-radius: 12px;">
+                            <i data-lucide="arrow-up-circle" style="width: 16px; height: 16px;"></i> خروج از آرشیو
+                        </button>`
+                    : `<button onclick="toggleArchive('${camp.id}', true, this)" title="آرشیو این رویداد" style="width: 100%; padding: 10px; display: flex; align-items: center; justify-content: center; gap: 8px; background: rgba(100, 100, 100, 0.2); border: 1px solid rgba(100,100,100,0.3); border-radius: 12px; color: var(--text-color);">
+                            <i data-lucide="archive" style="width: 16px; height: 16px;"></i> آرشیو
+                        </button>`;
+                
+                card.innerHTML = `
+                    <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 5px;">
+                        <div style="flex-grow: 1; padding-left: 10px;">
+                            <h3 style="margin: 0 0 8px 0; font-size: 18px; line-height: 1.4;">${camp.title || 'بدون عنوان'}</h3>
+                            <div style="font-size: 13px; opacity: 0.7; display: flex; align-items: center; gap: 5px;">
+                                <i data-lucide="building-2" style="width: 14px; height: 14px;"></i> 
+                                ${camp.orgName || '-'}
+                            </div>
+                        </div>
+                        ${statusBadge}
+                    </div>
+                    
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 15px;">
+                        <button onclick="openSetupMode('${camp.id}')" title="ویرایش تنظیمات" style="padding: 10px; display: flex; align-items: center; justify-content: center; gap: 8px; border-radius: 12px;">
+                            <i data-lucide="edit-2" style="width: 16px; height: 16px;"></i> ویرایش
+                        </button>
+                        <button onclick="toggleLock('${camp.id}', ${!isLocked})" title="${isLocked ? 'باز کردن' : 'قفل کردن'}" style="padding: 10px; display: flex; align-items: center; justify-content: center; gap: 8px; background: rgba(255, 76, 76, 0.15); color: var(--danger-color); border: 1px solid rgba(255, 76, 76, 0.3); border-radius: 12px;">
+                            ${isLocked ? '<i data-lucide="unlock" style="width: 16px; height: 16px;"></i> باز' : '<i data-lucide="lock" style="width: 16px; height: 16px;"></i> قفل'}
+                        </button>
+                        <div style="grid-column: span 2;">
+                            ${archiveBtn}
+                        </div>
+                        <a href="operator.html?id=${camp.id}" target="_blank" class="icon-btn" style="grid-column: span 2; display: flex; align-items: center; justify-content: center; gap: 8px; background: rgba(79, 172, 254, 0.1); color: #4facfe; border: 1px solid rgba(79, 172, 254, 0.2); text-decoration: none; font-size: 14px; padding: 12px; border-radius: 12px; width: 100%; box-sizing: border-box; transition: all 0.3s;">
+                            <i data-lucide="external-link" style="width: 16px; height: 16px;"></i> پنل اپراتور
+                        </a>
+                    </div>
+                `;
+                grid.appendChild(card);
+            });
+            if(typeof refreshIcons === 'function') refreshIcons();
+        }
+
+        function toggleLock(id, lockStatus) {
+            fetch(`api.php?action=superadmin_camp_lock&id=${id}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ locked: lockStatus })
+            })
+            .then(res => res.json())
+            .then(data => {
+                if (data.success) loadCamps();
+            });
+        }
+
+        function backToDashboard() {
+            const sm = document.getElementById('setupModal');
+            if (sm) {
+                sm.style.display = 'none';
+                sm.classList.remove('closing');
+            }
+            document.body.style.overflow = '';
+            document.documentElement.style.overflow = '';
+            window.scrollTo({ top: 0, behavior: 'instant' });
+            document.documentElement.scrollTop = 0;
+            document.body.scrollTop = 0;
+            setTimeout(() => {
+                window.scrollTo({ top: 0, behavior: 'instant' });
+                document.documentElement.scrollTop = 0;
+                document.body.scrollTop = 0;
+            }, 50);
+            loadCamps();
+        }
+
+
+        function toggleUsersSection() {
+            const campType = document.getElementById('campType').value;
+            const usersSection = document.getElementById('usersSectionWrapper');
+            const tieredSec = document.getElementById('tieredSettingsSection');
+            if (campType === 'professional' || campType === 'tiered') {
+                usersSection.style.display = 'block';
+            } else {
+                usersSection.style.display = 'none';
+            }
+            if (tieredSec) {
+                tieredSec.style.display = (campType === 'tiered') ? 'block' : 'none';
+            }
+        }
+
+        let currentPosTags = ['نظم', 'خلاقیت', 'کار تیمی', 'اخلاق ورزشی'];
+        let currentNegTags = ['بی‌نظمی', 'تاخیر', 'نقض قوانین', 'رفتار نامناسب'];
+
+        function toggleFieldJudgingSettings() {
+            const mode = document.getElementById('fieldJudgingMode').value;
+            const restrictedSec = document.getElementById('restrictedValuesSection');
+            if (restrictedSec) {
+                restrictedSec.style.display = mode === 'restricted' ? 'block' : 'none';
+            }
+        }
+
+        function renderPosTags() {
+            const list = document.getElementById('posTagsList');
+            if (!list) return;
+            list.innerHTML = '';
+            currentPosTags.forEach((tag, idx) => {
+                const chip = document.createElement('span');
+                chip.className = 'editable-tag-chip pos';
+                chip.innerHTML = `${tag} <button type="button" class="del-btn" onclick="removePosTag(${idx})" title="حذف">×</button>`;
+                list.appendChild(chip);
+            });
+        }
+
+        function renderNegTags() {
+            const list = document.getElementById('negTagsList');
+            if (!list) return;
+            list.innerHTML = '';
+            currentNegTags.forEach((tag, idx) => {
+                const chip = document.createElement('span');
+                chip.className = 'editable-tag-chip neg';
+                chip.innerHTML = `${tag} <button type="button" class="del-btn" onclick="removeNegTag(${idx})" title="حذف">×</button>`;
+                list.appendChild(chip);
+            });
+        }
+
+        function addPosTagFromInput() {
+            const input = document.getElementById('newPosTagInput');
+            const val = input.value.trim();
+            if (!val) return;
+            if (!currentPosTags.includes(val)) {
+                currentPosTags.push(val);
+                renderPosTags();
+            }
+            input.value = '';
+        }
+
+        function addNegTagFromInput() {
+            const input = document.getElementById('newNegTagInput');
+            const val = input.value.trim();
+            if (!val) return;
+            if (!currentNegTags.includes(val)) {
+                currentNegTags.push(val);
+                renderNegTags();
+            }
+            input.value = '';
+        }
+
+        function removePosTag(idx) {
+            currentPosTags.splice(idx, 1);
+            renderPosTags();
+        }
+
+        function removeNegTag(idx) {
+            currentNegTags.splice(idx, 1);
+            renderNegTags();
+        }
+
+        function openSetupMode(campId) {
+            document.body.style.overflow = 'hidden';
+            showModal('setupModal', 'flex');
+            const setupEl = document.getElementById('setupSection');
+            if (setupEl) setupEl.scrollTop = 0;
+            const setupModal = document.getElementById('setupModal');
+            if (setupModal) setupModal.scrollTop = 0;
+            document.getElementById('result').style.display = 'none';
+            
+            const listTeams = document.getElementById('teamsList');
+            const listStages = document.getElementById('stagesList');
+            const listUsers = document.getElementById('usersList');
+            listTeams.innerHTML = '';
+            listStages.innerHTML = '';
+            listUsers.innerHTML = '';
+            
+            if (campId) {
+                document.getElementById('setupFormTitle').innerText = 'ویرایش مسابقه';
+                document.getElementById('saveCampBtn').innerText = 'ذخیره تغییرات';
+                
+                fetch(`api.php?action=superadmin_camp&id=${campId}`)
+                .then(res => res.json())
+                .then(data => {
+                    if (data.success) {
+                        const c = data.camp;
+                        document.getElementById('editCampId').value = c.id;
+                        document.getElementById('orgName').value = c.orgName;
+                        document.getElementById('campTitle').value = c.title || '';
+                        document.getElementById('opPassword').value = c.password;
+                        document.getElementById('campType').value = c.campType || 'simple';
+                        if (document.getElementById('tieredPointsLadder')) {
+                            document.getElementById('tieredPointsLadder').value = (c.tieredPointsLadder && Array.isArray(c.tieredPointsLadder)) ? c.tieredPointsLadder.join(', ') : '500, 400, 300, 200, 100';
+                        }
+                        toggleUsersSection();
+                        
+                        document.getElementById('fieldJudgingMode').value = c.fieldJudgingMode || 'free';
+                        toggleFieldJudgingSettings();
+                        const vals = c.fieldJudgingValues && Array.isArray(c.fieldJudgingValues) ? c.fieldJudgingValues.join(', ') : '5, 10, 15, 20';
+                        document.getElementById('fieldJudgingValuesInput').value = vals;
+                        currentPosTags = (c.positiveTags && Array.isArray(c.positiveTags) && c.positiveTags.length > 0) ? [...c.positiveTags] : ['نظم', 'خلاقیت', 'کار تیمی', 'اخلاق ورزشی'];
+                        currentNegTags = (c.negativeTags && Array.isArray(c.negativeTags) && c.negativeTags.length > 0) ? [...c.negativeTags] : ['بی‌نظمی', 'تاخیر', 'نقض قوانین', 'رفتار نامناسب'];
+                        renderPosTags();
+                        renderNegTags();
+
+                        // Handle Logo
+                        if (c.logo && c.logo.startsWith('data:image')) {
+                            setLogoMode('upload');
+                            document.getElementById('logoBase64').value = c.logo;
+                        } else {
+                            setLogoMode('url');
+                            document.getElementById('logoUrl').value = c.logo || '';
+                        }
+                        updatePreview();
+
+                        c.teams.forEach(t => {
+        try {
+            console.log("t:", t);
+            addTeam(t.name, t.color, t.id, t.score, t.stageScores, t.scoreLogs, t.image || '', t.happyImage || '', t.sadImage || '', t.judgeStageScores || {});
+        } catch(e) {
+            console.error("ADDTEAM ERROR:", e);
+        }
+    });
+                        c.stages.forEach(s => addStage(s.name, s.id, s.unit, s.timeOrder, s.multiplier));
+                        if(c.users) c.users.forEach(u => addUser(u.firstName, u.lastName, u.username, u.password, u.role, u.profilePic, u.id));
+                    }
+                });
+            } else {
+                document.getElementById('setupFormTitle').innerText = 'مسابقه جدید';
+                document.getElementById('saveCampBtn').innerText = 'ایجاد لینک اختصاصی';
+                document.getElementById('editCampId').value = '';
+                document.getElementById('campType').value = 'simple';
+                if (document.getElementById('tieredPointsLadder')) {
+                    document.getElementById('tieredPointsLadder').value = '500, 400, 300, 200, 100';
+                }
+                toggleUsersSection();
+                document.getElementById('fieldJudgingMode').value = 'free';
+                toggleFieldJudgingSettings();
+                document.getElementById('fieldJudgingValuesInput').value = '5, 10, 15, 20';
+                currentPosTags = ['نظم', 'خلاقیت', 'کار تیمی', 'اخلاق ورزشی'];
+                currentNegTags = ['بی‌نظمی', 'تاخیر', 'نقض قوانین', 'رفتار نامناسب'];
+                renderPosTags();
+                renderNegTags();
+                document.getElementById('orgName').value = '';
+                document.getElementById('campTitle').value = '';
+                document.getElementById('opPassword').value = '';
+                document.getElementById('logoUrl').value = '';
+                document.getElementById('logoBase64').value = '';
+                setLogoMode('url');
+                updatePreview();
+                addTeam(); addStage(); addUser();
+            }
+        }
+
+        function addTeam(name = '', color = COLORS[Math.floor(Math.random() * COLORS.length)], id = '', score = 0, stageScores = {}, scoreLogs = [], image = '', happyImage = '', sadImage = '', judgeStageScores = {}) {
+            if(!id) id = 't_' + Math.random().toString(36).substr(2, 9);
+            const list = document.getElementById('teamsList');
+            const item = document.createElement('div');
+            item.className = 'dynamic-item team-item';
+            item.dataset.id = id;
+            item.dataset.score = score;
+            item.dataset.stagescores = JSON.stringify(stageScores);
+            item.dataset.scorelogs = JSON.stringify(scoreLogs);
+            item.dataset.judgestagescores = JSON.stringify(judgeStageScores);
+            item.innerHTML = `
+                <div style="display: flex; flex-direction: column; gap: 8px; width: 100%; padding: 4px;">
+                    <div style="display: flex; gap: 8px; align-items: center;">
+                        <input type="text" class="t-name" placeholder="نام تیم" value="${name}" style="flex: 2; min-width: 100px;">
+                        <div class="color-btn" style="background-color: ${color};" data-value="${color}" onclick="openColorPicker(this)" title="انتخاب رنگ تیم"></div>
+                    </div>
+                    
+                    <!-- عکس اصلی تیم ۱۶:۹ -->
+                    <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
+                        <div class="t-img-thumb" style="width: 56px; height: 31px; aspect-ratio: 16/9; border-radius: 6px; overflow: hidden; border: 1px solid var(--glass-border); flex-shrink: 0; background: var(--input-bg); display: flex; align-items: center; justify-content: center; position: relative;" title="پیش‌نمایش عکس اصلی ۱۶:۹">
+                            ${image ? `<img src="${image}" style="width: 100%; height: 100%; object-fit: cover;" onerror="this.style.display='none'">` : `<i data-lucide="image" style="width: 14px; height: 14px; opacity: 0.5;"></i>`}
+                            <span style="position: absolute; bottom: 1px; right: 2px; font-size: 7px; font-weight: bold; background: rgba(0,0,0,0.65); color: #fff; padding: 0 2px; border-radius: 2px; pointer-events: none;">16:9</span>
+                        </div>
+                        <input type="text" class="t-image" placeholder="عکس اصلی ۱۶:۹ (پیش‌فرض)" value="${image}" style="flex: 1; min-width: 120px; margin: 0;" oninput="updateTeamImgThumb(this)">
+                        <button type="button" class="icon-btn" onclick="triggerSuperPhotoInput(this)" title="آپلود عکس از فایل (نسبت ۱۶:۹)" style="padding: 5px 9px; font-size: 11px; display: inline-flex; align-items: center; gap: 3px; white-space: nowrap;"><i data-lucide="upload" style="width: 12px; height: 12px;"></i> آپلود</button>
+                        <button type="button" class="icon-btn remove-btn t-clear-img-btn" onclick="clearSuperPhoto(this)" title="حذف عکس" style="padding: 5px 7px; font-size: 11px; display: ${image ? 'inline-flex' : 'none'};">✕</button>
+                        <input type="file" accept="image/*" class="t-photo-file-input" style="display: none;" onchange="handleSuperPhotoSelected(this, '.t-image')">
+                    </div>
+
+                    <!-- عکس‌های واکنشی اختیاری (خوشحالی و ناراحتی) -->
+                    <div style="background: rgba(0,0,0,0.12); padding: 8px 10px; border-radius: 10px; border: 1px dashed var(--glass-border); display: flex; flex-direction: column; gap: 6px;">
+                        <span style="font-size: 11px; opacity: 0.85; font-weight: bold; color: var(--text-color);">عکس‌های واکنش امتیاز (اختیاری ۱۶:۹ - در صورت خالی بودن، عکس اصلی استفاده می‌شود):</span>
+                        
+                        <!-- عکس خوشحالی (+) -->
+                        <div style="display: flex; gap: 6px; align-items: center; flex-wrap: wrap;">
+                            <div class="t-img-thumb" style="width: 46px; height: 26px; aspect-ratio: 16/9; border-radius: 5px; overflow: hidden; border: 1px solid var(--glass-border); flex-shrink: 0; background: var(--input-bg); display: flex; align-items: center; justify-content: center; position: relative;" title="پیش‌نمایش عکس خوشحالی">
+                                ${happyImage ? `<img src="${happyImage}" style="width: 100%; height: 100%; object-fit: cover;" onerror="this.style.display='none'">` : `<span style="font-size: 11px;">😄</span>`}
+                            </div>
+                            <input type="text" class="t-happy-image" placeholder="عکس حالت خوشحالی (+)" value="${happyImage}" style="flex: 1; min-width: 120px; margin: 0; font-size: 12px;" oninput="updateTeamImgThumb(this)">
+                            <button type="button" class="icon-btn" onclick="triggerSuperPhotoInput(this)" title="آپلود عکس خوشحالی" style="padding: 4px 8px; font-size: 11px; display: inline-flex; align-items: center; gap: 3px; white-space: nowrap;"><i data-lucide="upload" style="width: 11px; height: 11px;"></i> آپلود</button>
+                            <button type="button" class="icon-btn remove-btn t-clear-img-btn" onclick="clearSuperPhoto(this)" title="حذف عکس" style="padding: 4px 6px; font-size: 11px; display: ${happyImage ? 'inline-flex' : 'none'};">✕</button>
+                            <input type="file" accept="image/*" class="t-photo-file-input" style="display: none;" onchange="handleSuperPhotoSelected(this, '.t-happy-image')">
+                        </div>
+
+                        <!-- عکس ناراحتی (-) -->
+                        <div style="display: flex; gap: 6px; align-items: center; flex-wrap: wrap;">
+                            <div class="t-img-thumb" style="width: 46px; height: 26px; aspect-ratio: 16/9; border-radius: 5px; overflow: hidden; border: 1px solid var(--glass-border); flex-shrink: 0; background: var(--input-bg); display: flex; align-items: center; justify-content: center; position: relative;" title="پیش‌نمایش عکس ناراحتی">
+                                ${sadImage ? `<img src="${sadImage}" style="width: 100%; height: 100%; object-fit: cover;" onerror="this.style.display='none'">` : `<span style="font-size: 11px;">😔</span>`}
+                            </div>
+                            <input type="text" class="t-sad-image" placeholder="عکس حالت ناراحتی (-)" value="${sadImage}" style="flex: 1; min-width: 120px; margin: 0; font-size: 12px;" oninput="updateTeamImgThumb(this)">
+                            <button type="button" class="icon-btn" onclick="triggerSuperPhotoInput(this)" title="آپلود عکس ناراحتی" style="padding: 4px 8px; font-size: 11px; display: inline-flex; align-items: center; gap: 3px; white-space: nowrap;"><i data-lucide="upload" style="width: 11px; height: 11px;"></i> آپلود</button>
+                            <button type="button" class="icon-btn remove-btn t-clear-img-btn" onclick="clearSuperPhoto(this)" title="حذف عکس" style="padding: 4px 6px; font-size: 11px; display: ${sadImage ? 'inline-flex' : 'none'};">✕</button>
+                            <input type="file" accept="image/*" class="t-photo-file-input" style="display: none;" onchange="handleSuperPhotoSelected(this, '.t-sad-image')">
+                        </div>
+                    </div>
+                </div>
+                <div style="display: flex; flex-direction: column; gap: 4px; align-self: stretch; justify-content: center;">
+                    <button onclick="moveItemUp(this.parentElement)" class="icon-btn" title="انتقال به بالا">▲</button>
+                    <button onclick="moveItemDown(this.parentElement)" class="icon-btn" title="انتقال به پایین">▼</button>
+                    <button onclick="this.parentElement.remove()" class="icon-btn remove-btn" title="حذف">×</button>
+                </div>
+            `;
+            list.appendChild(item);
+            if(typeof refreshIcons === 'function') refreshIcons();
+        }
+
+        function triggerSuperPhotoInput(btn) {
+            const fileInput = btn.parentElement.querySelector('.t-photo-file-input');
+            if (fileInput) fileInput.click();
+        }
+
+        async function handleSuperPhotoSelected(fileInput, targetSelector) {
+            if (!fileInput.files || !fileInput.files[0]) return;
+            const file = fileInput.files[0];
+            try {
+                const base64Data = await cropAndResizeTo16x9(file, 960, 540);
+                const row = fileInput.parentElement;
+                const textInput = row.querySelector(targetSelector);
+                const clearBtn = row.querySelector('.t-clear-img-btn');
+                if (textInput) {
+                    textInput.value = base64Data;
+                    updateTeamImgThumb(textInput);
+                }
+                if (clearBtn) clearBtn.style.display = 'inline-flex';
+                if (typeof showToast === 'function') showToast("عکس ۱۶:۹ با موفقیت تنظیم شد.", "success");
+            } catch (err) {
+                alert("خطا در تنظیم تصویر: " + err.message);
+            } finally {
+                fileInput.value = '';
+            }
+        }
+
+        function clearSuperPhoto(btn) {
+            const row = btn.parentElement;
+            const textInput = row.querySelector('input[type="text"]');
+            if (textInput) {
+                textInput.value = '';
+                updateTeamImgThumb(textInput);
+            }
+            btn.style.display = 'none';
+        }
+
+        function updateTeamImgThumb(textInput) {
+            const row = textInput.parentElement;
+            const thumb = row.querySelector('.t-img-thumb');
+            const clearBtn = row.querySelector('.t-clear-img-btn');
+            if (!thumb) return;
+            const val = textInput.value.trim();
+            if (val) {
+                thumb.innerHTML = `<img src="${val}" style="width: 100%; height: 100%; object-fit: cover;" onerror="this.style.display='none'">`;
+                if (clearBtn) clearBtn.style.display = 'inline-flex';
+            } else {
+                const isHappy = textInput.classList.contains('t-happy-image');
+                const isSad = textInput.classList.contains('t-sad-image');
+                if (isHappy) {
+                    thumb.innerHTML = `<span style="font-size: 11px;">😄</span>`;
+                } else if (isSad) {
+                    thumb.innerHTML = `<span style="font-size: 11px;">😔</span>`;
+                } else {
+                    thumb.innerHTML = `<i data-lucide="image" style="width: 14px; height: 14px; opacity: 0.5;"></i><span style="position: absolute; bottom: 1px; right: 2px; font-size: 7px; font-weight: bold; background: rgba(0,0,0,0.65); color: #fff; padding: 0 2px; border-radius: 2px; pointer-events: none;">16:9</span>`;
+                }
+                if (clearBtn) clearBtn.style.display = 'none';
+                if (typeof refreshIcons === 'function') refreshIcons();
+            }
+        }
+
+        function cropAndResizeTo16x9(file, targetW = 960, targetH = 540) {
+            return new Promise((resolve, reject) => {
+                if (!file || !file.type.startsWith('image/')) {
+                    return reject(new Error('فایل انتخاب شده تصویر نیست.'));
+                }
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                    const img = new Image();
+                    img.onload = () => {
+                        const canvas = document.createElement('canvas');
+                        canvas.width = targetW;
+                        canvas.height = targetH;
+                        const ctx = canvas.getContext('2d');
+
+                        const targetRatio = targetW / targetH;
+                        const imgRatio = img.width / img.height;
+
+                        let srcX = 0, srcY = 0, srcW = img.width, srcH = img.height;
+
+                        if (imgRatio > targetRatio) {
+                            srcW = img.height * targetRatio;
+                            srcX = (img.width - srcW) / 2;
+                        } else {
+                            srcH = img.width / targetRatio;
+                            srcY = (img.height - srcH) / 2;
+                        }
+
+                        ctx.drawImage(img, srcX, srcY, srcW, srcH, 0, 0, targetW, targetH);
+                        const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
+                        resolve(dataUrl);
+                    };
+                    img.onerror = () => reject(new Error('بارگذاری تصویر با خطا مواجه شد.'));
+                    img.src = e.target.result;
+                };
+                reader.onerror = () => reject(new Error('خواندن فایل با خطا مواجه شد.'));
+                reader.readAsDataURL(file);
+            });
+        }
+
+        function updateTeamImgThumb(input) {
+            const row = input.closest('.dynamic-item');
+            if (!row) return;
+            const thumb = row.querySelector('.t-img-thumb');
+            const clearBtn = row.querySelector('.t-clear-img-btn');
+            const url = input.value.trim();
+            if (thumb) {
+                if (url) {
+                    thumb.innerHTML = `<img src="${url}" style="width: 100%; height: 100%; object-fit: cover;" onerror="this.style.display='none'"><span style="position: absolute; bottom: 1px; right: 2px; font-size: 8px; font-weight: bold; background: rgba(0,0,0,0.65); color: #fff; padding: 0 3px; border-radius: 2px; pointer-events: none;">16:9</span>`;
+                } else {
+                    thumb.innerHTML = `<i data-lucide="image" style="width: 16px; height: 16px; opacity: 0.5;"></i><span style="position: absolute; bottom: 1px; right: 2px; font-size: 8px; font-weight: bold; background: rgba(0,0,0,0.65); color: #fff; padding: 0 3px; border-radius: 2px; pointer-events: none;">16:9</span>`;
+                    if(typeof refreshIcons === 'function') refreshIcons();
+                }
+            }
+            if (clearBtn) {
+                clearBtn.style.display = url ? 'inline-flex' : 'none';
+            }
+        }
+
+        function addStage(name = '', id = '', unit = 'points', timeOrder = 'asc', multiplier = 1) {
+            if(!id) id = 's_' + Math.random().toString(36).substr(2, 9);
+            let unitVal = 'points';
+            if (unit === 'time') {
+                unitVal = (timeOrder === 'desc') ? 'time_desc' : 'time_asc';
+            }
+            const list = document.getElementById('stagesList');
+            const item = document.createElement('div');
+            item.className = 'dynamic-item';
+            item.dataset.id = id;
+            item.innerHTML = `
+                <div style="display: flex; gap: 8px; align-items: center; width: 100%; flex-wrap: wrap;">
+                    <input type="text" class="stage-name-input" placeholder="نام مرحله" value="${name}" style="flex: 2; min-width: 140px;">
+                    <select class="stage-unit-select settings-input" style="flex: 1.5; min-width: 180px; margin: 0; padding: 6px 10px; font-size: 13px;" title="واحد سنجش مرحله">
+                        <option value="points" ${unitVal === 'points' ? 'selected' : ''}>🎯 امتیاز (بیشترین = برتر)</option>
+                        <option value="time_asc" ${unitVal === 'time_asc' ? 'selected' : ''}>⚡ زمان - سرعت عمل (کمترین زمان = برتر)</option>
+                        <option value="time_desc" ${unitVal === 'time_desc' ? 'selected' : ''}>⏳ زمان - استقامت (بیشترین زمان = برتر)</option>
+                    </select>
+                    <div style="display: flex; align-items: center; gap: 4px; background: var(--input-bg); padding: 4px 8px; border-radius: 8px; border: 1px solid var(--glass-border);" title="ضریب مرحله (مثلاً ۱ یا ۲ - در مسابقه پلکانی امتیازات مرحله در این ضریب ضرب می‌شوند)">
+                        <span style="font-size: 12px; opacity: 0.85; white-space: nowrap;">ضریب:</span>
+                        <input type="number" step="0.5" min="0.1" class="stage-multiplier-input" placeholder="۱" value="${multiplier !== undefined ? multiplier : 1}" style="width: 55px; margin: 0; padding: 4px; text-align: center; font-size: 13px; font-weight: 800; border-radius: 6px;">
+                    </div>
+                    <div style="display: flex; gap: 4px; align-items: center;">
+                        <button type="button" onclick="moveItemUp(this)" class="icon-btn" title="انتقال به بالا">▲</button>
+                        <button type="button" onclick="moveItemDown(this)" class="icon-btn" title="انتقال به پایین">▼</button>
+                        <button type="button" onclick="this.closest('.dynamic-item').remove()" class="icon-btn remove-btn" title="حذف">×</button>
+                    </div>
+                </div>
+            `;
+            list.appendChild(item);
+        }
+
+        function addUser(firstName = '', lastName = '', username = '', password = '', role = 'operator', profilePic = '', id = '') {
+            if(!id) id = 'u_' + Math.random().toString(36).substr(2, 9);
+            const list = document.getElementById('usersList');
+            const item = document.createElement('div');
+            item.className = 'dynamic-item user-item';
+            item.dataset.id = id;
+            item.style.alignItems = 'flex-start';
+            item.innerHTML = `
+                <div style="display: flex; align-items: center; gap: 12px; width: 100%; padding: 5px;">
+                    <div class="u-pic-circle" style="width: 44px; height: 44px; border-radius: 50%; overflow: hidden; border: 2px solid var(--glass-border); flex-shrink: 0; background: var(--input-bg); display: flex; align-items: center; justify-content: center; box-shadow: 0 2px 6px rgba(0,0,0,0.15);">
+                        ${profilePic ? `<img src="${profilePic}" style="width: 100%; height: 100%; object-fit: cover;" onerror="this.style.display='none'">` : `<i data-lucide="user" style="width: 22px; height: 22px; opacity: 0.6;"></i>`}
+                    </div>
+                    <div style="display: flex; flex-direction: column; gap: 10px; flex-grow: 1;">
+                        <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+                            <input type="text" class="u-first" placeholder="نام" value="${firstName}" style="flex:1; min-width: 80px;">
+                            <input type="text" class="u-last" placeholder="نام خانوادگی" value="${lastName}" style="flex:1; min-width: 80px;">
+                            <select class="u-role settings-input" style="flex:1; min-width: 100px; margin-bottom: 0;">
+                                <option value="operator" ${role === 'operator' ? 'selected' : ''}>اپراتور</option>
+                                <option value="head_referee" ${role === 'head_referee' ? 'selected' : ''}>سرداور</option>
+                                <option value="referee" ${role === 'referee' ? 'selected' : ''}>داور</option>
+                            </select>
+                        </div>
+                        <div style="display: flex; gap: 8px; flex-wrap: wrap; align-items: center;">
+                            <input type="text" class="u-user" placeholder="نام کاربری" value="${username}" style="flex:1; min-width: 80px;">
+                            <input type="password" class="u-pass" placeholder="رمز عبور" value="${password}" style="flex:1; min-width: 80px;">
+                            <div style="display: flex; gap: 6px; align-items: center; flex: 2; min-width: 180px;">
+                                <input type="text" class="u-pic" placeholder="لینک عکس پروفایل" value="${profilePic}" style="flex:1; min-width: 90px; margin: 0;" oninput="updateUserPicCircle(this)">
+                                <button type="button" class="icon-btn" onclick="triggerUserPhotoInput(this)" title="آپلود عکس از فایل" style="padding: 4px 8px; font-size: 11px; display: inline-flex; align-items: center; gap: 3px; white-space: nowrap;"><i data-lucide="upload" style="width: 12px; height: 12px;"></i> آپلود</button>
+                                <button type="button" class="icon-btn remove-btn u-clear-pic-btn" onclick="clearUserPhoto(this)" title="حذف عکس" style="padding: 4px 6px; font-size: 11px; display: ${profilePic ? 'inline-flex' : 'none'};">✕</button>
+                                <input type="file" accept="image/*" class="u-photo-file-input" style="display: none;" onchange="handleUserPhotoSelected(this)">
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <button onclick="this.parentElement.remove()" class="icon-btn remove-btn" title="حذف" style="height: auto; align-self: stretch;">×</button>
+            `;
+            list.appendChild(item);
+            if(typeof refreshIcons === 'function') refreshIcons();
+        }
+
+        function triggerUserPhotoInput(btn) {
+            const fileInput = btn.parentElement.querySelector('.u-photo-file-input');
+            if (fileInput) fileInput.click();
+        }
+
+        async function handleUserPhotoSelected(fileInput) {
+            if (!fileInput.files || !fileInput.files[0]) return;
+            const file = fileInput.files[0];
+            try {
+                const base64Data = await cropAndResizeToSquare(file, 256);
+                const parent = fileInput.parentElement;
+                const textInput = parent.querySelector('.u-pic');
+                const clearBtn = parent.querySelector('.u-clear-pic-btn');
+                if (textInput) {
+                    textInput.value = base64Data;
+                    updateUserPicCircle(textInput);
+                }
+                if (clearBtn) clearBtn.style.display = 'inline-flex';
+                if (typeof showToast === 'function') showToast("عکس کاربر با موفقیت تنظیم شد.", "success");
+            } catch (err) {
+                alert("خطا در تنظیم تصویر: " + err.message);
+            } finally {
+                fileInput.value = '';
+            }
+        }
+
+        function clearUserPhoto(btn) {
+            const parent = btn.parentElement;
+            const textInput = parent.querySelector('.u-pic');
+            if (textInput) {
+                textInput.value = '';
+                updateUserPicCircle(textInput);
+            }
+            btn.style.display = 'none';
+        }
+
+        function cropAndResizeToSquare(file, targetSize = 256) {
+            return new Promise((resolve, reject) => {
+                if (!file || !file.type.startsWith('image/')) {
+                    return reject(new Error('فایل انتخاب شده تصویر نیست.'));
+                }
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                    const img = new Image();
+                    img.onload = () => {
+                        const canvas = document.createElement('canvas');
+                        canvas.width = targetSize;
+                        canvas.height = targetSize;
+                        const ctx = canvas.getContext('2d');
+                        const minDim = Math.min(img.width, img.height);
+                        const srcX = (img.width - minDim) / 2;
+                        const srcY = (img.height - minDim) / 2;
+                        ctx.drawImage(img, srcX, srcY, minDim, minDim, 0, 0, targetSize, targetSize);
+                        const dataUrl = canvas.toDataURL('image/jpeg', 0.88);
+                        resolve(dataUrl);
+                    };
+                    img.onerror = () => reject(new Error('بارگذاری تصویر با خطا مواجه شد.'));
+                    img.src = e.target.result;
+                };
+                reader.onerror = () => reject(new Error('خواندن فایل با خطا مواجه شد.'));
+                reader.readAsDataURL(file);
+            });
+        }
+
+        function updateUserPicCircle(input) {
+            const circle = input.closest('.dynamic-item').querySelector('.u-pic-circle');
+            const clearBtn = input.closest('.dynamic-item').querySelector('.u-clear-pic-btn');
+            if (!circle) return;
+            const url = input.value.trim();
+            if (url) {
+                circle.innerHTML = `<img src="${url}" style="width: 100%; height: 100%; object-fit: cover;" onerror="this.style.display='none'">`;
+                if (clearBtn) clearBtn.style.display = 'inline-flex';
+            } else {
+                circle.innerHTML = `<i data-lucide="user" style="width: 22px; height: 22px; opacity: 0.6;"></i>`;
+                if (clearBtn) clearBtn.style.display = 'none';
+                if(typeof refreshIcons === 'function') refreshIcons();
+            }
+        }
+
+        window.showToast = function(msg, type = 'error') {
+            let existing = document.getElementById('floatingErrorToast');
+            if (existing) existing.remove();
+
+            const toast = document.createElement('div');
+            toast.id = 'floatingErrorToast';
+            toast.className = `floating-toast ${type}`;
+            
+            const content = document.createElement('div');
+            content.className = 'toast-content';
+            content.innerHTML = msg.replace(/\n/g, '<br>');
+            
+            const closeBtn = document.createElement('button');
+            closeBtn.className = 'toast-close';
+            closeBtn.innerHTML = '×';
+            closeBtn.onclick = () => toast.remove();
+            
+            toast.appendChild(content);
+            toast.appendChild(closeBtn);
+            
+            document.body.appendChild(toast);
+
+            if (type === 'success') {
+                setTimeout(() => {
+                    if(document.body.contains(toast)) toast.remove();
+                }, 4000);
+            }
+        }
+        function showFloatingError(msg) {
+            msg = msg.replace(/<span.*?onclick=".*?".*?>.*?<\/span>/gi, '');
+            window.showToast(msg, 'error');
+        }
+
+        function validateData(teams, stages = [], users = []) {
+            document.querySelectorAll('.dynamic-item').forEach(el => {
+                el.style.border = '';
+                el.style.boxShadow = '';
+            });
+
+            let errors = [];
+            let errorIds = new Set();
+
+            const nameMap = new Map();
+            const colorMap = new Map();
+            for (let t of teams) {
+                if (!nameMap.has(t.name)) nameMap.set(t.name, []);
+                nameMap.get(t.name).push(t);
+                
+                if (!colorMap.has(t.color)) colorMap.set(t.color, []);
+                colorMap.get(t.color).push(t);
+            }
+            for (let [name, tms] of nameMap.entries()) {
+                if (tms.length > 1) {
+                    errors.push(`نام تیم "${name}" تکراری است.`);
+                    tms.forEach(t => errorIds.add(t.id));
+                }
+            }
+            for (let [color, tms] of colorMap.entries()) {
+                if (tms.length > 1) {
+                    const teamNames = tms.map(t => t.name).join(' و ');
+                    errors.push(`رنگ تکراری برای تیم‌های: ${teamNames}`);
+                    tms.forEach(t => errorIds.add(t.id));
+                }
+            }
+
+            const stageNameMap = new Map();
+            for (let s of stages) {
+                if (!stageNameMap.has(s.name)) stageNameMap.set(s.name, []);
+                stageNameMap.get(s.name).push(s);
+            }
+            for (let [name, stgs] of stageNameMap.entries()) {
+                if (stgs.length > 1) {
+                    errors.push(`نام مرحله "${name}" تکراری است.`);
+                    stgs.forEach(s => errorIds.add(s.id));
+                }
+            }
+
+            const usernameMap = new Map();
+            for (let u of users) {
+                if (!usernameMap.has(u.username)) usernameMap.set(u.username, []);
+                usernameMap.get(u.username).push(u);
+            }
+            for (let [username, usrs] of usernameMap.entries()) {
+                if (usrs.length > 1) {
+                    errors.push(`نام کاربری "${username}" تکراری است.`);
+                    usrs.forEach(u => errorIds.add(u.id));
+                }
+            }
+
+            if (errors.length > 0) {
+                let firstErrorEl = null;
+                errorIds.forEach(id => {
+                    const el = document.querySelector(`.dynamic-item[data-id="${id}"]`);
+                    if (el) {
+                        el.style.border = '2px solid #ff4c4c';
+                        el.style.boxShadow = '0 0 10px rgba(255, 76, 76, 0.4)';
+                        el.style.borderRadius = '10px';
+                        if (!firstErrorEl) firstErrorEl = el;
+                    }
+                });
+                return { message: "خطاهای زیر یافت شد:\n\n" + errors.join('\n'), element: firstErrorEl };
+            }
+
+            return null;
+        }
+
+        function createCamp() { console.log("createCamp clicked");
+            const campId = document.getElementById('editCampId').value;
+            const orgName = document.getElementById('orgName').value;
+            const campTitle = document.getElementById('campTitle').value;
+            const campType = document.getElementById('campType').value;
+            const password = document.getElementById('opPassword').value;
+            const logo = logoMode === 'url' ? document.getElementById('logoUrl').value : document.getElementById('logoBase64').value;
+            
+            if(!orgName || !password) return alert("نام سازمان و رمز عبور الزامی است.");
+            if(!campTitle) return alert("عنوان مسابقه الزامی است.");
+
+            const teamElements = document.querySelectorAll('#teamsList .dynamic-item');
+            const teams = Array.from(teamElements).map(el => {
+                const nameInput = el.querySelector('.t-name') || el.querySelector('input');
+                const imageInput = el.querySelector('.t-image');
+                const colorBtn = el.querySelector('.color-btn');
+                const happyImgInput = el.querySelector('.t-happy-image');
+                const sadImgInput = el.querySelector('.t-sad-image');
+                return { 
+                    id: el.dataset.id, 
+                    name: nameInput ? nameInput.value.trim() : '', 
+                    color: colorBtn ? colorBtn.dataset.value : '#3b82f6', 
+                    image: imageInput ? imageInput.value.trim() : '',
+                    happyImage: happyImgInput ? happyImgInput.value.trim() : '',
+                    sadImage: sadImgInput ? sadImgInput.value.trim() : '',
+                    score: parseInt(el.dataset.score) || 0,
+                    stageScores: (el.dataset.stagescores && el.dataset.stagescores !== 'undefined') ? JSON.parse(el.dataset.stagescores) : {},
+                    judgeStageScores: (el.dataset.judgestagescores && el.dataset.judgestagescores !== 'undefined') ? JSON.parse(el.dataset.judgestagescores) : {},
+                    scoreLogs: (el.dataset.scorelogs && el.dataset.scorelogs !== 'undefined') ? JSON.parse(el.dataset.scorelogs) : []
+                };
+            }).filter(t => t.name !== '');
+
+            const stageElements = document.querySelectorAll('#stagesList .dynamic-item');
+            const stages = Array.from(stageElements).map(el => {
+                const input = el.querySelector('.stage-name-input') || el.querySelector('input');
+                const unitSelect = el.querySelector('.stage-unit-select');
+                const multInput = el.querySelector('.stage-multiplier-input');
+                const multiplier = multInput ? (parseFloat(multInput.value) || 1) : 1;
+                let unit = 'points';
+                let timeOrder = 'desc';
+                if (unitSelect) {
+                    if (unitSelect.value === 'time_asc') { unit = 'time'; timeOrder = 'asc'; }
+                    else if (unitSelect.value === 'time_desc') { unit = 'time'; timeOrder = 'desc'; }
+                    else { unit = 'points'; timeOrder = 'desc'; }
+                }
+                return {
+                    id: el.dataset.id,
+                    name: input ? input.value.trim() : '',
+                    unit: unit,
+                    timeOrder: timeOrder,
+                    multiplier: multiplier > 0 ? multiplier : 1
+                };
+            }).filter(s => s.name !== '');
+
+            const userElements = document.querySelectorAll('#usersList .dynamic-item');
+            const users = Array.from(userElements).map(el => {
+                return {
+                    id: el.dataset.id,
+                    firstName: el.querySelector('.u-first').value.trim(),
+                    lastName: el.querySelector('.u-last').value.trim(),
+                    username: el.querySelector('.u-user').value.trim(),
+                    password: el.querySelector('.u-pass').value.trim(),
+                    role: el.querySelector('.u-role').value,
+                    profilePic: el.querySelector('.u-pic').value.trim()
+                };
+            }).filter(u => u.username !== '' && u.password !== '');
+
+            if(teams.length < 2) return alert("حداقل ۲ تیم وارد کنید.");
+            if(stages.length < 1) return alert("حداقل ۱ مرحله وارد کنید.");
+
+            const validationError = validateData(teams, stages, users);
+            if (validationError) {
+                showFloatingError(validationError.message);
+                if (validationError.element) {
+                    setTimeout(() => validationError.element.scrollIntoView({ behavior: 'smooth', block: 'center' }), 100);
+                }
+                return;
+            }
+
+            const fieldJudgingMode = document.getElementById('fieldJudgingMode').value;
+            const rawVals = document.getElementById('fieldJudgingValuesInput').value;
+            const fieldJudgingValues = rawVals.split(',').map(x => parseInt(x.trim())).filter(x => !isNaN(x) && x > 0);
+
+            const rawLadder = document.getElementById('tieredPointsLadder') ? document.getElementById('tieredPointsLadder').value : '500, 400, 300, 200, 100';
+            const cleanLadder = rawLadder.split(',').map(x => parseInt(x.trim())).filter(x => !isNaN(x));
+
+            const campData = { 
+                campId: campId || null,
+                orgName: orgName, 
+                title: campTitle,
+                campType: campType,
+                tieredPointsLadder: cleanLadder.length > 0 ? cleanLadder : [500, 400, 300, 200, 100],
+                logo: logo,
+                password: password, 
+                teams: teams, 
+                stages: stages,
+                users: users,
+                fieldJudgingMode: fieldJudgingMode || 'free',
+                fieldJudgingValues: fieldJudgingValues.length > 0 ? fieldJudgingValues : [5, 10, 15, 20],
+                positiveTags: currentPosTags,
+                negativeTags: currentNegTags
+            };
+
+            fetch('api.php?action=setup', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(campData)
+            })
+            .then(res => res.json())
+            .then(data => {
+                if(data.success) {
+                    const link = `operator.html?id=${data.campId}`;
+                    document.getElementById('result').style.display = 'block';
+                    document.getElementById('operatorLink').href = link;
+                    const currentPath = window.location.pathname.substring(0, window.location.pathname.lastIndexOf('/') + 1);
+                    document.getElementById('operatorLink').innerText = window.location.origin + currentPath + link;
+                    
+                    if (campId) {
+                        alert("تغییرات با موفقیت ذخیره شد!");
+                        backToDashboard();
+                    }
+                }
+            });
+        }
+    </script>
+
+    <div class="asva-spacer" style="flex-grow: 1; min-height: 80px;"></div>
+    <div class="asva-footer" ><span class="en-credit">Powered by Asva Studio</span><span class="credit-divider"> | </span><span class="fa-credit">توسعه یافته توسط شرکت داده‌پردازان اسوا</span></div>
+
+    
+    <script>
+        function refreshIcons() {
+            if (window.lucide) {
+                lucide.createIcons();
+            }
+        }
+        document.addEventListener("DOMContentLoaded", () => {
+            refreshIcons();
+            const sm = document.getElementById('setupModal');
+            if (sm) {
+                sm.addEventListener('click', (e) => {
+                    if (e.target.id === 'setupModal') backToDashboard();
+                });
+            }
+            document.addEventListener('keydown', (e) => {
+                if (e.key === 'Escape') {
+                    if (sm && sm.style.display === 'flex') {
+                        backToDashboard();
+                    }
+                }
+            });
+        });
+    </script>
+    
+<script src="validateRealTime.js?v=5"></script>
+    <script src="tooltip.js"></script>
+</body>
+</html>

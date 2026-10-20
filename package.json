@@ -1,0 +1,22 @@
+{
+  "dependencies": {
+    "express": "^5.2.1",
+    "firebase": "^12.18.0",
+    "firebase-admin": "^14.3.0",
+    "jsdom": "^30.0.1",
+    "puppeteer": "^25.9.0"
+  },
+  "name": "applet",
+  "version": "1.0.0",
+  "description": "",
+  "main": "server.js",
+  "type": "module",
+  "scripts": {
+    "dev": "node server.js",
+    "start": "node server.js",
+    "build": "echo 'No build needed'"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC"
+}

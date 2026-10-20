@@ -1,0 +1,41 @@
+# Asva Studio Simulation Camp - cPanel Apache Configuration
+AddDefaultCharset UTF-8
+
+# Security: Deny direct access to local SQLite databases & configuration
+<FilesMatch "\.(sqlite|db)$">
+    <IfModule mod_authz_core.c>
+        Require all denied
+    </IfModule>
+    <IfModule !mod_authz_core.c>
+        Order deny,allow
+        Deny from all
+    </IfModule>
+</FilesMatch>
+
+# Enable clean URL Rewrites if mod_rewrite is available
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+
+    # Prevent looping on existing files or directories
+    RewriteCond %{REQUEST_FILENAME} -f [OR]
+    RewriteCond %{REQUEST_FILENAME} -d
+    RewriteRule ^ - [L]
+
+    # Route Superadmin endpoints
+    RewriteRule ^superadmin/login$ api.php?action=superadmin_login [QSA,L]
+    RewriteRule ^superadmin/camps/([^/]+)/lock$ api.php?action=superadmin_camp_lock&id=$1 [QSA,L]
+    RewriteRule ^superadmin/camps/([^/]+)/archive$ api.php?action=superadmin_camp_archive&id=$1 [QSA,L]
+    RewriteRule ^superadmin/camps/([^/]+)$ api.php?action=superadmin_camp&id=$1 [QSA,L]
+    RewriteRule ^superadmin/camps$ api.php?action=superadmin_camps [QSA,L]
+
+    # Route Core API endpoints
+    RewriteRule ^login$ api.php?action=login [QSA,L]
+    RewriteRule ^setup$ api.php?action=setup [QSA,L]
+    RewriteRule ^api/instant$ api.php?action=instant [QSA,L]
+    RewriteRule ^api/undo_instant$ api.php?action=undo_instant [QSA,L]
+    RewriteRule ^api/judge_stage_score$ api.php?action=judge_stage_score [QSA,L]
+    RewriteRule ^api/stage/close_tiered$ api.php?action=close_tiered [QSA,L]
+    RewriteRule ^api/user/profile-pic$ api.php?action=user_profile_pic [QSA,L]
+    RewriteRule ^api/settings$ api.php?action=settings [QSA,L]
+    RewriteRule ^api$ api.php [QSA,L]
+</IfModule>
