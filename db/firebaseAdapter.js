@@ -41,8 +41,9 @@ async function createAdminDb(serviceAccount) {
             const d = clean(data);
             await db.collection(col).doc(id).set(d, { mergeFields: Object.keys(d) });
         },
-        async list(col) {
-            const snap = await db.collection(col).get();
+        async list(col, fields) {
+            const ref = db.collection(col);
+            const snap = await (fields ? ref.select(...fields) : ref).get();
             return snap.docs.map(d => ({ id: d.id, ...d.data() }));
         }
     };
@@ -101,7 +102,8 @@ export default {
     async setSetting(key, value) {
         await (await getDb()).set('settings', key, { value });
     },
+    // Only the fields shown in the superadmin camp list (avoids downloading every team image).
     async getAllCamps() {
-        return (await getDb()).list('camps');
+        return (await getDb()).list('camps', ['orgName', 'title', 'locked', 'campType', 'archived']);
     }
 };

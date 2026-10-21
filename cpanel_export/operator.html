@@ -6,7 +6,8 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <link rel="stylesheet" href="style.css?v=2">
-    <title>پنل اپراتور</title>    <script src="https://unpkg.com/lucide@latest"></script>
+    <title>پنل اپراتور</title>    <script src="vendor/lucide-1.61.0.min.js"></script>
+    <script src="common.js"></script>
     <script>
     function renderFjValueWheel() {
         const valWheel = document.getElementById('fjValueWheel');
@@ -667,7 +668,7 @@
     }
     </style>
 
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+    <script src="vendor/html2canvas-1.4.1.min.js"></script>
 </head>
 <body>
     <button onclick="toggleTheme()" class="theme-toggle" title="تغییر پوسته"><i data-lucide="moon"></i></button>
@@ -940,6 +941,15 @@
         const pathParts = window.location.pathname.split('/');
         let campId = urlParams.get('id');
         if (!campId && pathParts[pathParts.length - 1] && pathParts[pathParts.length - 1] !== 'operator.html' && pathParts[pathParts.length - 1] !== 'operator') campId = pathParts[pathParts.length - 1];
+        if (campId && !/^[A-Za-z0-9_-]{1,64}$/.test(campId)) campId = null;
+        window.AUTH_STORAGE_KEY = 'camp_token_' + campId;
+        // Older versions kept the password itself in the browser; remove it.
+        try { sessionStorage.removeItem('camp_auth_' + campId); } catch (e) {}
+        window.onAuthExpired = function () {
+            Auth.clear();
+            alert('نشست شما منقضی شده یا دسترسی شما تغییر کرده است. لطفاً دوباره وارد شوید.');
+            window.location.reload();
+        };
 
         if (campId) {
             fetch('api.php?action=info&id=' + campId)
@@ -986,58 +996,49 @@
         if (!campId) document.body.innerHTML = "<h3 style='color: var(--error-color);'>خطا: شناسه مسابقه در لینک وجود ندارد!</h3>";
         else document.getElementById('boardLink').href = `board.html?id=${campId}`;
 
+        // The server is the single source of truth for scores; this only normalises the shape
+        // of the data (PHP may send [] instead of {}) and never invents or rewrites score entries.
         function ensureLogsFormat(teams) {
             teams.forEach(team => {
                 if (!team.scoreLogs || !Array.isArray(team.scoreLogs)) team.scoreLogs = [];
-                // PHP json_encode converts empty {} to [] which breaks JSON.stringify later
                 if (!team.stageScores || typeof team.stageScores !== 'object' || Array.isArray(team.stageScores)) {
                     team.stageScores = {};
                 }
                 if (!team.judgeStageScores || typeof team.judgeStageScores !== 'object' || Array.isArray(team.judgeStageScores)) {
                     team.judgeStageScores = {};
                 }
-                
-                // RECOVERY: If any stage scores were accidentally migrated to scoreLogs, move them back!
-                const migratedLogs = [];
-                team.scoreLogs.forEach(log => {
-                    if (log.type === 'stage') {
-                        team.stageScores[log.stageId] = (parseInt(team.stageScores[log.stageId]) || 0) + parseInt(log.value);
-                    } else {
-                        migratedLogs.push(log);
-                    }
-                });
-                team.scoreLogs = migratedLogs;
-
-                // Calculate stage score as the sum of all judges if judgeStageScores exist
                 for (let sId in team.judgeStageScores) {
                     const jMap = team.judgeStageScores[sId];
-                    if (jMap && typeof jMap === 'object' && Object.keys(jMap).length > 0) {
-                        let jSum = 0;
-                        for (let jk in jMap) {
-                            const entry = jMap[jk];
-                            jSum += typeof entry === 'object' ? (parseInt(entry.score) || 0) : (parseInt(entry) || 0);
-                        }
-                        team.stageScores[sId] = jSum;
-                    }
+                    if (!jMap || typeof jMap !== 'object' || Array.isArray(jMap)) team.judgeStageScores[sId] = {};
                 }
-
-                let stageSum = 0;
-                for (let s in team.stageScores) stageSum += (parseInt(team.stageScores[s]) || 0);
-                let logsSum = team.scoreLogs.reduce((a, b) => a + (b.type !== 'cancelled' ? (parseInt(b.value)||0) : 0), 0);
-                
-                if (team.score !== undefined && team.score !== (stageSum + logsSum)) {
-                    const diff = team.score - (stageSum + logsSum);
-                    if (diff !== 0) {
-                        team.scoreLogs.push({ id: 'log_' + Math.random().toString(36).substr(2, 9), type: 'instant', value: diff, timestamp: Date.now() });
-                        logsSum += diff;
-                    }
-                }
-                
-                team.score = stageSum + logsSum;
+                if (typeof team.score !== 'number') team.score = parseFloat(team.score) || 0;
             });
         }
 
+        // Numeric value of a score entry ('-' / DNF counts as 0); decimals are kept.
+        function scoreNum(v) {
+            if (v === '-' || (typeof v === 'string' && v.toLowerCase() === 'dnf')) return 0;
+            const n = parseFloat(v);
+            return isFinite(n) ? n : 0;
+        }
+
+        // Judge entries of one team/stage, oldest first (rule 1: the first recorded time counts).
+        function sortedJudgeEntries(team, stageId) {
+            const map = (team.judgeStageScores && team.judgeStageScores[stageId]) || {};
+            return Object.keys(map)
+                .map(k => (map[k] && typeof map[k] === 'object') ? Object.assign({ judgeKey: k }, map[k]) : { judgeKey: k, score: map[k], timestamp: 0 })
+                .sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0));
+        }
+
+        // A manual correction by the operator / head referee replaces the judges' values.
+        function relevantJudgeEntries(team, stageId) {
+            const entries = sortedJudgeEntries(team, stageId);
+            const override = entries.find(e => e.judgeKey === '__override__');
+            return override ? [override] : entries;
+        }
+
         setInterval(() => {
+            if (!currentUser || document.hidden) return; // nothing to refresh before login / in a background tab
             fetch(`api.php?action=poll&id=${campId}`)
             .then(res => res.ok ? res.json() : Promise.reject())
             .then(data => {
@@ -1094,25 +1095,13 @@
         function selectColor(color) { if (colorTarget) { colorTarget.dataset.value = color; colorTarget.style.backgroundColor = color; } document.getElementById('colorPickerModal').style.display = 'none'; if (typeof validateRealTime === 'function') validateRealTime(); }
 
         function logout() {
-            sessionStorage.removeItem('camp_auth_' + campId);
+            Auth.clear();
             window.location.reload();
         }
 
-        // Auto-restore login on page refresh
+        // Auto-restore login on page refresh (with the session token, never the password)
         setTimeout(() => {
-            const savedAuth = sessionStorage.getItem('camp_auth_' + campId);
-            if (savedAuth) {
-                try {
-                    const creds = JSON.parse(savedAuth);
-                    if (creds && creds.username) {
-                        const uEl = document.getElementById('opUsername');
-                        const pEl = document.getElementById('opPassword');
-                        if (uEl) uEl.value = creds.username;
-                        if (pEl) pEl.value = creds.password || '';
-                        login();
-                    }
-                } catch(e) {}
-            }
+            if (campId && Auth.get()) login({ restore: true });
         }, 150);
 
         function getUserAvatarHtml(user, size = 38) {
@@ -1126,8 +1115,8 @@
             
             if (photo) {
                 return `
-                    <div class="user-avatar-badge" onclick="openProfilePicModal()" title="عکس پروفایل ${name} (کلیک برای ویرایش)" style="position: relative; width: ${size}px; height: ${size}px; border-radius: 50%; cursor: pointer; flex-shrink: 0; box-shadow: 0 2px 8px rgba(0,0,0,0.18);">
-                        <img src="${photo}" alt="${name}" style="width: 100%; height: 100%; border-radius: 50%; object-fit: cover; border: 2px solid var(--glass-border); display: block;" onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';">
+                    <div class="user-avatar-badge" onclick="openProfilePicModal()" title="عکس پروفایل ${esc(name)} (کلیک برای ویرایش)" style="position: relative; width: ${size}px; height: ${size}px; border-radius: 50%; cursor: pointer; flex-shrink: 0; box-shadow: 0 2px 8px rgba(0,0,0,0.18);">
+                        <img src="${esc(safeUrl(photo))}" alt="${esc(name)}" style="width: 100%; height: 100%; border-radius: 50%; object-fit: cover; border: 2px solid var(--glass-border); display: block;" onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';">
                         <div style="display: none; width: 100%; height: 100%; border-radius: 50%; background: ${gradient}; border: 2px solid var(--glass-border); align-items: center; justify-content: center; color: #fff;">
                             <i data-lucide="user" style="width: ${Math.round(size * 0.52)}px; height: ${Math.round(size * 0.52)}px;"></i>
                         </div>
@@ -1135,19 +1124,20 @@
                 `;
             } else {
                 return `
-                    <div class="user-avatar-badge" onclick="openProfilePicModal()" title="عکس پروفایل ${name} (کلیک برای ثبت عکس)" style="width: ${size}px; height: ${size}px; border-radius: 50%; background: ${gradient}; border: 2px solid var(--glass-border); display: flex; align-items: center; justify-content: center; flex-shrink: 0; box-shadow: 0 2px 8px rgba(0,0,0,0.18); color: #fff; cursor: pointer;">
+                    <div class="user-avatar-badge" onclick="openProfilePicModal()" title="عکس پروفایل ${esc(name)} (کلیک برای ثبت عکس)" style="width: ${size}px; height: ${size}px; border-radius: 50%; background: ${gradient}; border: 2px solid var(--glass-border); display: flex; align-items: center; justify-content: center; flex-shrink: 0; box-shadow: 0 2px 8px rgba(0,0,0,0.18); color: #fff; cursor: pointer;">
                         <i data-lucide="user" style="width: ${Math.round(size * 0.52)}px; height: ${Math.round(size * 0.52)}px;"></i>
                     </div>
                 `;
             }
         }
 
-        function login() {
+        function login(opts) {
+            const restore = !!(opts && opts.restore);
             const username = document.getElementById('opUsername').value.trim();
-            const password = document.getElementById('opPassword').value.trim();
+            const password = document.getElementById('opPassword').value;
             const err = document.getElementById('errorMsg');
             
-            if (!username) {
+            if (!restore && !username) {
                 if (err) { err.innerText = "لطفا نام کاربری را وارد کنید"; err.style.display = 'block'; }
                 return;
             }
@@ -1155,13 +1145,15 @@
             fetch('api.php?action=login', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ id: campId, password: password, username: username })
+                body: JSON.stringify(restore ? { id: campId, token: Auth.get() } : { id: campId, password: password, username: username })
             })
             .then(res => res.json())
             .then(data => {
                 if (data.success) {
                     try {
-                        sessionStorage.setItem('camp_auth_' + campId, JSON.stringify({ username, password }));
+                        if (data.token) Auth.set(data.token);
+                        const pEl = document.getElementById('opPassword');
+                        if (pEl) pEl.value = '';
                         currentUser = data.user;
                         currentTeams = data.teams || [];
                         ensureLogsFormat(currentTeams);
@@ -1207,6 +1199,7 @@
                         document.getElementById('loginSection').style.display = 'block';
                     }
                 } else {
+                    if (restore) Auth.clear();
                     if (err) {
                         err.innerText = data.message || "نام کاربری یا رمز عبور اشتباه است یا مسابقه یافت نشد!";
                         err.style.display = 'block';
@@ -1235,7 +1228,7 @@
                 userContainer.innerHTML = `
                     <div style="display: flex; align-items: center; gap: 10px; background: var(--input-bg); padding: 5px 15px; border-radius: 30px; border: 1px solid var(--glass-border); box-shadow: var(--glass-shadow);">
                         ${photoHtml}
-                        <span style="font-weight: bold; font-size: 16px; color: var(--text-color);">${name}</span>
+                        <span style="font-weight: bold; font-size: 16px; color: var(--text-color);">${esc(name)}</span>
                         <span style="font-size: 12px; opacity: 0.85; display: flex; align-items: center; gap: 4px; background: var(--glass-bg); padding: 3px 8px; border-radius: 12px; border: 1px solid var(--glass-border);"><i data-lucide="${roleIcon}" style="width:14px; height:14px;"></i> ${roleLabel}</span>
                     </div>
                 `;
@@ -1311,7 +1304,7 @@
         function isTeamStageDnf(team, stageId) {
             if (!team) return false;
             if (team.judgeStageScores && team.judgeStageScores[stageId]) {
-                const jEntries = Object.values(team.judgeStageScores[stageId]);
+                const jEntries = relevantJudgeEntries(team, stageId);
                 for (const j of jEntries) {
                     if (j.dnf || j.score === '-' || j.score === 'dnf' || j.score === 'DNF') return true;
                 }
@@ -1323,7 +1316,7 @@
         function getTeamStageValue(team, stageId, isTimeStage = false) {
             if (!team) return 0;
             if (team.judgeStageScores && team.judgeStageScores[stageId]) {
-                const jEntries = Object.values(team.judgeStageScores[stageId]);
+                const jEntries = relevantJudgeEntries(team, stageId);
                 if (jEntries.length > 0) {
                     if (isTimeStage) {
                         // قانون ۱: اولین داوری که زمان معتبر ثبت کرده
@@ -1343,7 +1336,7 @@
         function hasTeamStageRecord(team, stageId) {
             if (!team) return false;
             if (team.judgeStageScores && team.judgeStageScores[stageId]) {
-                const jEntries = Object.values(team.judgeStageScores[stageId]);
+                const jEntries = relevantJudgeEntries(team, stageId);
                 if (jEntries.length > 0) return true;
             }
             if (team.stageScores && team.stageScores[stageId] !== undefined && team.stageScores[stageId] !== null) {
@@ -1451,8 +1444,8 @@
                     multBadge = `<span style="font-size: 11px; margin-right: 5px; background: rgba(99, 102, 241, 0.25); border: 1px solid rgba(99, 102, 241, 0.45); color: #a5b4fc; padding: 2px 7px; border-radius: 6px; font-weight: 800;" title="ضریب این مرحله ${stage.multiplier} است">ضریب ${stage.multiplier}</span>`;
                 }
 
-                btn.innerHTML = `<span style="font-size: 14px; margin-left: 6px;">${criteria.unit === 'time' ? (criteria.timeOrder === 'asc' ? '⚡' : '⏳') : '🎯'}</span> <span>${stage.name}</span> <span style="font-size: 11px; opacity: 0.85; margin-right: 6px; background: rgba(255,255,255,0.12); padding: 2px 7px; border-radius: 6px;">${criteria.badgeText}</span>${multBadge}${tieredBadge}`;
-                btn.title = `ثبت و رده‌بندی برای ${stage.name} (${criteria.descText})`;
+                btn.innerHTML = `<span style="font-size: 14px; margin-left: 6px;">${criteria.unit === 'time' ? (criteria.timeOrder === 'asc' ? '⚡' : '⏳') : '🎯'}</span> <span>${esc(stage.name)}</span> <span style="font-size: 11px; opacity: 0.85; margin-right: 6px; background: rgba(255,255,255,0.12); padding: 2px 7px; border-radius: 6px;">${criteria.badgeText}</span>${multBadge}${tieredBadge}`;
+                btn.title = `ثبت و رده‌بندی برای ${esc(stage.name)} (${criteria.descText})`;
                 btn.style.padding = '8px 16px';
                 btn.style.display = 'inline-flex';
                 btn.style.alignItems = 'center';
@@ -1478,29 +1471,30 @@
             }
         }
 
-        function applyInstant(teamId, teamName) {
+        function applyInstant(teamId) {
             if(isLocked) return;
             const inp = document.getElementById('inp-' + teamId);
             const val = parseInt(inp.value);
             if(isNaN(val) || val === 0) return;
             
             const delta = signs[teamId] === '-' ? -val : val;
+            const typed = inp.value;
+            inp.value = '';
             
             fetch(`api.php?action=instant&id=${campId}`, {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({teamId, delta, teamName, user: currentUser})
-            }).then(r=>r.json()).then(res => {
-                if(res.success && res.logId) {
-                    startUndoTimer(teamId, res.logId);
-                }
+                body: JSON.stringify({teamId, delta})
+            }).then(jsonOrThrow).then(res => {
+                if(res.logId) startUndoTimer(teamId, res.logId);
+            }).catch(e => {
+                if (!inp.value) inp.value = typed;
+                window.showToast('امتیاز ثبت نشد: ' + e.message, 'error');
             });
-            
-            inp.value = ''; 
         }
 
         let instantConfirmState = {};
-        function handleInstantInputKey(event, teamId, teamName) {
+        function handleInstantInputKey(event, teamId) {
             const inp = document.getElementById('inp-' + teamId);
             const btn = inp.parentElement.querySelector('button:last-child');
             if (event.key === '-' || event.key === 'Subtract') {
@@ -1529,7 +1523,7 @@
                     }, 4000);
                 } else {
                     resetConfirm(teamId, inp, btn);
-                    applyInstant(teamId, teamName);
+                    applyInstant(teamId);
                 }
             } else if (event.key === 'ArrowDown') {
                 event.preventDefault();
@@ -1596,15 +1590,15 @@
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
                 body: JSON.stringify({logId})
-            });
+            }).then(jsonOrThrow).catch(e => window.showToast('لغو امتیاز انجام نشد: ' + e.message, 'error'));
         }
         
         function exportCSV() {
             let csv = '\uFEFFشناسه,نام تیم,امتیاز مراحل,امتیاز لحظه‌ای,امتیاز کل\n';
             currentTeams.forEach(t => {
-                let sSum = 0; for(let s in t.stageScores) sSum += (parseInt(t.stageScores[s])||0);
-                let lSum = (t.scoreLogs||[]).reduce((a,b) => a + (b.type!=='cancelled'?(parseInt(b.value)||0):0), 0);
-                csv += `"${t.id}","${t.name}",${sSum},${lSum},${t.score}\n`;
+                let sSum = 0; for(let s in t.stageScores) sSum += scoreNum(t.stageScores[s]);
+                let lSum = (t.scoreLogs||[]).reduce((a,b) => a + (b.type!=='cancelled'?scoreNum(b.value):0), 0);
+                csv += [t.id, t.name, sSum, lSum, t.score].map(csvCell).join(',') + '\n';
             });
             const blob = new Blob([csv], {type: 'text/csv;charset=utf-8;'});
             const link = document.createElement('a');
@@ -1650,22 +1644,22 @@
                     row.className = 'op-board-row';
                     let stageSumForTeam = 0;
                     if (team.stageScores) {
-                        for (let s in team.stageScores) stageSumForTeam += (parseInt(team.stageScores[s]) || 0);
+                        for (let s in team.stageScores) stageSumForTeam += scoreNum(team.stageScores[s]);
                     }
                     row.innerHTML = `
-                        <div class="team-row" style="border-right: 10px solid ${team.color || '#fff'}; padding: 10px 15px; background-color: ${hexToRgba(team.color, 0.3)};">
+                        <div class="team-row" style="border-right: 10px solid ${safeColor(team.color, '#fff')}; padding: 10px 15px; background-color: ${hexToRgba(team.color, 0.3)};">
                             <div style="display: flex; align-items: center; gap: 12px; width: 30%; min-width: 0;">
-                                <div class="team-color-indicator" style="width: 25px; height: 25px; border-radius: 50%; background: ${team.color || '#fff'}; flex-shrink: 0;"></div>
+                                <div class="team-color-indicator" style="width: 25px; height: 25px; border-radius: 50%; background: ${safeColor(team.color, '#fff')}; flex-shrink: 0;"></div>
                                 <div style="display: flex; flex-direction: column; min-width: 0;">
-                                    <h3 class="team-name-op" style="margin: 0; font-size: 17px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${team.name}</h3>
+                                    <h3 class="team-name-op" style="margin: 0; font-size: 17px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${esc(team.name)}</h3>
                                     <span class="team-stages-summary" onclick="openJudgesBreakdownModal()" style="font-size: 11px; opacity: 0.85; cursor: pointer; color: var(--blue-color); display: flex; align-items: center; gap: 4px; margin-top: 2px;" title="مشاهده جدول تفکیک داوران"><i data-lucide="layers" style="width: 12px; height: 12px;"></i> مراحل: <strong>${stageSumForTeam}</strong> (مجموع داوران)</span>
                                 </div>
                             </div>
                             
                             <div class="input-actions-container" id="ic-${team.id}" style="display: flex; align-items: center; justify-content: center; gap: 8px; width: 40%;">
-                                <input type="number" id="inp-${team.id}" class="stage-input" style="width: 60px; height: 35px; font-size: 18px; color: ${signColor}; padding: 0 5px; text-align: center;" value="" inputmode="numeric" onkeydown="handleInstantInputKey(event, '${team.id}', '${team.name}')" oninput="this.value = this.value.replace(/[^0-9]/g, '')">
+                                <input type="number" id="inp-${team.id}" class="stage-input" style="width: 60px; height: 35px; font-size: 18px; color: ${signColor}; padding: 0 5px; text-align: center;" value="" inputmode="numeric" onkeydown="handleInstantInputKey(event, '${team.id}')" oninput="this.value = this.value.replace(/[^0-9]/g, '')">
                                 <button class="instant-btn" id="tgl-${team.id}" title="تغییر بین امتیاز مثبت و منفی" onclick="toggleSign('${team.id}')" style="background: ${signBg}; color: ${signColor}; width: 35px; height: 35px; border-radius: 5px; font-weight: bold; font-size: 20px;">${signs[team.id]}</button>
-                                <button class="instant-btn" onclick="applyInstant('${team.id}', '${team.name}')" title="ثبت امتیاز لحظه‌ای برای این تیم" style="background: rgba(255,255,255,0.1); width: 45px; height: 35px; border-radius: 5px; border: 1px solid var(--glass-border);">ثبت</button>
+                                <button class="instant-btn" onclick="applyInstant('${team.id}')" title="ثبت امتیاز لحظه‌ای برای این تیم" style="background: rgba(255,255,255,0.1); width: 45px; height: 35px; border-radius: 5px; border: 1px solid var(--glass-border);">ثبت</button>
                             </div>
                             <div class="undo-container" id="uc-${team.id}" style="display: none; align-items: center; justify-content: center; width: 40%;">
                                 <button onclick="undoInstant('${team.id}', '')" title="لغو آخرین تغییر امتیاز لحظه‌ای" id="undo-btn-${team.id}" style="background: var(--danger-bg); color: var(--danger-color); height: 35px; border-radius: 5px; border: 1px solid var(--danger-color); padding: 0 15px; font-weight: bold; cursor: pointer; display: flex; align-items: center; gap: 5px;">
@@ -1693,7 +1687,7 @@
                 if (sSumEl) {
                     let curStageSum = 0;
                     if (team.stageScores) {
-                        for (let s in team.stageScores) curStageSum += (parseInt(team.stageScores[s]) || 0);
+                        for (let s in team.stageScores) curStageSum += scoreNum(team.stageScores[s]);
                     }
                     sSumEl.innerHTML = `<i data-lucide="layers" style="width: 12px; height: 12px;"></i> مراحل: <strong>${curStageSum}</strong> (مجموع داوران)`;
                 }
@@ -1724,6 +1718,7 @@
 
         // Logs Modal Logic
         let currentLogsTeamId = null;
+        let logsModalOriginal = {};
         function openLogsModal(teamId) {
             if(isLocked) return;
             currentLogsTeamId = teamId;
@@ -1748,13 +1743,16 @@
                 }
             }
             
+            logsModalOriginal = {};
+            allLogs.forEach(l => { logsModalOriginal[l.id] = l.value; });
+
             if (allLogs.length === 0) {
                 list.innerHTML = '<p style="text-align:center; opacity:0.7;">هیچ امتیازی ثبت نشده است.</p>';
             } else {
                 const sortedLogs = allLogs.sort((a,b) => b.timestamp - a.timestamp);
                 sortedLogs.forEach(log => {
                     let title = log.type === 'stage' ? 'مرحله: ' + (currentStages.find(s => s.id === log.stageId)?.name || 'نامشخص') + ' (مجموع داوران)' : 'امتیاز لحظه‌ای (دستی)';
-                    let tagBadge = log.tag ? `<span class="log-tag-badge"><i data-lucide="tag" style="width: 11px; height: 11px;"></i> ${log.tag}</span>` : '';
+                    let tagBadge = log.tag ? `<span class="log-tag-badge"><i data-lucide="tag" style="width: 11px; height: 11px;"></i> ${esc(log.tag)}</span>` : '';
                     let dateStr = log.timestamp === 0 ? 'ثبت گروهی' : new Date(log.timestamp).toLocaleTimeString('fa-IR');
                     let userStr = '';
                     if (log.user) {
@@ -1762,8 +1760,8 @@
                         const logName = (log.user.firstName ? `${log.user.firstName} ${log.user.lastName || ''}`.trim() : log.user.username) || '';
                         userStr = `
                             <div style="font-size: 11px; color: var(--blue-color); margin-top: 3px; display: flex; align-items: center; gap: 6px;">
-                                ${logPic ? `<img src="${logPic}" alt="${logName}" style="width: 20px; height: 20px; border-radius: 50%; object-fit: cover; border: 1px solid var(--glass-border); display: block;" onerror="this.style.display='none'">` : ''}
-                                <span>توسط: ${logName}</span>
+                                ${logPic ? `<img src="${esc(safeUrl(logPic))}" alt="${esc(logName)}" style="width: 20px; height: 20px; border-radius: 50%; object-fit: cover; border: 1px solid var(--glass-border); display: block;" onerror="this.style.display='none'">` : ''}
+                                <span>توسط: ${esc(logName)}</span>
                             </div>
                         `;
                     }
@@ -1775,7 +1773,7 @@
                             stageJudgesStr = '<div style="font-size: 11px; opacity: 0.9; margin-top: 4px; display: flex; flex-wrap: wrap; gap: 5px;">';
                             jEntries.forEach(je => {
                                 const rBadge = je.judgeRole === 'head_referee' ? 'سرداور' : 'داور';
-                                stageJudgesStr += `<span style="background: rgba(255,255,255,0.08); padding: 2px 7px; border-radius: 8px; border: 1px solid var(--glass-border);">${je.judgeName || 'داور'} (${rBadge}): <strong style="color:var(--blue-color);">${je.score}</strong></span>`;
+                                stageJudgesStr += `<span style="background: rgba(255,255,255,0.08); padding: 2px 7px; border-radius: 8px; border: 1px solid var(--glass-border);">${esc(je.judgeName || 'داور')} (${rBadge}): <strong style="color:var(--blue-color);">${esc(je.score)}</strong></span>`;
                             });
                             stageJudgesStr += '</div>';
                         }
@@ -1785,18 +1783,18 @@
                     if (currentUser && currentUser.role !== 'referee') {
                         editUI = `
                             <div style="display: flex; align-items: center; gap: 10px;">
-                                <input type="number" class="log-val-input" value="${log.value}" style="width: 70px; height: 35px; font-size: 16px; padding: 0 5px; text-align: center; border-radius: 5px; border: 1px solid var(--glass-border); background: var(--input-bg); color: var(--text-color);">
+                                <input type="number" class="log-val-input" value="${esc(log.value)}" style="width: 70px; height: 35px; font-size: 16px; padding: 0 5px; text-align: center; border-radius: 5px; border: 1px solid var(--glass-border); background: var(--input-bg); color: var(--text-color);">
                                 <button onclick="this.parentElement.parentElement.remove()" style="background: var(--danger-bg); color: var(--danger-color); padding: 5px 10px; border-radius: 5px; border:none; cursor:pointer; font-size: 16px;" title="حذف"><svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"></path><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"></path><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"></path><line x1="10" y1="11" x2="10" y2="17"></line><line x1="14" y1="11" x2="14" y2="17"></line></svg></button>
                             </div>
                         `;
                     } else {
-                        editUI = `<div style="font-size: 18px; font-weight: bold; margin-left: 15px;">${log.value}</div>`;
+                        editUI = `<div style="font-size: 18px; font-weight: bold; margin-left: 15px;">${esc(log.value)}</div>`;
                     }
                     
                     list.innerHTML += `
-                        <div class="glass log-item" data-id="${log.id}" style="display: flex; justify-content: space-between; align-items: center; padding: 10px 15px;">
+                        <div class="glass log-item" data-id="${esc(log.id)}" style="display: flex; justify-content: space-between; align-items: center; padding: 10px 15px;">
                             <div>
-                                <div style="font-weight: bold; font-size: 15px; display: flex; align-items: center; gap: 6px;">${title} ${tagBadge}</div>
+                                <div style="font-weight: bold; font-size: 15px; display: flex; align-items: center; gap: 6px;">${esc(title)} ${tagBadge}</div>
                                 <div style="font-size: 12px; opacity: 0.6; margin-top: 3px;">${dateStr}</div>
                                 ${userStr}
                                 ${stageJudgesStr}
@@ -1816,38 +1814,44 @@
             document.getElementById('logsModal').style.display = 'flex';
         }
         
+        // Sends only what the operator changed, so scores recorded meanwhile by others are kept.
         function saveLogs() {
             if(isLocked) return;
             const team = currentTeams.find(t => t.id === currentLogsTeamId);
-            if(team) {
-                const logElements = document.querySelectorAll('.log-item');
-                const newLogs = [];
-                const newStageScores = {};
-                
-                logElements.forEach(el => {
-                    const id = el.dataset.id;
-                    const newVal = parseInt(el.querySelector('.log-val-input').value) || 0;
-                    
-                    if (id.startsWith('stage_')) {
-                        const sId = id.replace('stage_', '');
-                        newStageScores[sId] = newVal;
-                    } else {
-                        const oldLog = (team.scoreLogs || []).find(l => l.id === id);
-                        if (oldLog) {
-                            oldLog.value = newVal;
-                            newLogs.push(oldLog);
-                        }
-                    }
-                });
-                
-                team.scoreLogs = newLogs;
-                team.stageScores = newStageScores;
-                
-                let stageSum = 0; for (let s in team.stageScores) stageSum += (parseInt(team.stageScores[s]) || 0);
-                team.score = stageSum + team.scoreLogs.reduce((sum, l) => sum + (l.type !== 'cancelled' ? l.value : 0), 0);
-            }
-            syncData();
-            document.getElementById('logsModal').style.display = 'none';
+            if (!team) return;
+            const values = {}, stageValues = {}, removed = [], removedStages = [];
+            const present = new Set();
+            document.querySelectorAll('#logsList .log-item').forEach(el => {
+                const id = el.dataset.id;
+                present.add(id);
+                const input = el.querySelector('.log-val-input');
+                if (!input) return;
+                const orig = logsModalOriginal[id];
+                const typed = input.value.trim();
+                const unchanged = typed === '' ? isNaN(parseFloat(orig)) : parseFloat(typed) === scoreNum(orig) && !isNaN(parseFloat(orig));
+                if (unchanged) return;
+                const newVal = parseFloat(typed) || 0;
+                if (id.startsWith('stage_')) stageValues[id.slice(6)] = newVal;
+                else values[id] = newVal;
+            });
+            Object.keys(logsModalOriginal).forEach(id => {
+                if (present.has(id)) return;
+                if (id.startsWith('stage_')) removedStages.push(id.slice(6));
+                else removed.push(id);
+            });
+
+            fetch(`api.php?action=team_logs&id=${campId}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ teamId: team.id, values, stageValues, removed, removedStages })
+            })
+            .then(jsonOrThrow)
+            .then(res => {
+                if (res.teams) { currentTeams = res.teams; ensureLogsFormat(currentTeams); }
+                renderPreviewBoard();
+                document.getElementById('logsModal').style.display = 'none';
+            })
+            .catch(e => window.showToast('ذخیره تغییرات انجام نشد: ' + e.message, 'error'));
         }
         let scoreModalViewMode = 'normal'; // 'normal' | 'ranked'
         let currentScoreModalStageId = null;
@@ -2024,8 +2028,8 @@
                                     <span style="font-weight: 800; min-width: 60px; color: ${r.rank === 1 ? '#fbbf24' : (r.rank === 2 ? '#e2e8f0' : (r.rank === 3 ? '#d97706' : 'var(--text-color)'))};">
                                         ${r.isDnf || r.rank === '-' ? '🚫 عدم اتمام (-)' : `رتبه ${r.rank}`}
                                     </span>
-                                    <span style="display: inline-block; width: 12px; height: 12px; border-radius: 50%; background: ${r.teamColor || '#fff'};"></span>
-                                    <span style="font-weight: 700;">${r.teamName}</span>
+                                    <span style="display: inline-block; width: 12px; height: 12px; border-radius: 50%; background: ${safeColor(r.teamColor, '#fff')};"></span>
+                                    <span style="font-weight: 700;">${esc(r.teamName)}</span>
                                 </div>
                                 <div style="display: flex; align-items: center; gap: 14px;">
                                     <span style="opacity: 0.8; font-size: 12px;">${r.isDnf ? 'بدون زمان (-)' : `${r.rawValue} ${criteria.unitLabel}`}</span>
@@ -2115,8 +2119,9 @@
 
                 // Breakdown of scores from all judges for this stage
                 const jMap = (team.judgeStageScores && team.judgeStageScores[stage.id]) ? team.judgeStageScores[stage.id] : {};
-                const judgeEntries = Object.values(jMap);
-                let judgesSum = 0;
+                const judgeEntries = sortedJudgeEntries(team, stage.id);
+                const relevantEntries = relevantJudgeEntries(team, stage.id);
+                let judgesSum = Math.round(relevantEntries.reduce((sum, j) => sum + ((j.dnf || j.score === '-' || j.score === 'dnf') ? 0 : scoreNum(j.score)), 0) * 100) / 100;
                 let judgesListHtml = '';
 
                 if (judgeEntries.length > 0) {
@@ -2124,16 +2129,15 @@
                     judgeEntries.forEach(j => {
                         const isJDnf = j.dnf || j.score === '-' || j.score === 'dnf';
                         const s = isJDnf ? '-' : (parseFloat(j.score) || 0);
-                        if (!isJDnf) judgesSum += (parseFloat(j.score) || 0);
 
-                        const photoHtml = j.judgePhoto ? `<img src="${j.judgePhoto}" style="width: 22px; height: 22px; border-radius: 50%; object-fit: cover; border: 1px solid var(--glass-border);">` : '';
+                        const photoHtml = j.judgePhoto ? `<img src="${esc(safeUrl(j.judgePhoto))}" style="width: 22px; height: 22px; border-radius: 50%; object-fit: cover; border: 1px solid var(--glass-border);">` : '';
                         const roleBadge = j.judgeRole === 'head_referee' ? 'سرداور' : 'داور';
                         judgesListHtml += `
                             <div style="display: inline-flex; align-items: center; gap: 6px; background: rgba(255,255,255,0.08); border: 1px solid var(--glass-border); padding: 4px 10px; border-radius: 12px; font-size: 12px;">
                                 ${photoHtml}
-                                <span>${j.judgeName || 'داور'} (${roleBadge}):</span>
+                                <span>${esc(j.judgeName || 'داور')} (${roleBadge}):</span>
                                 <strong style="color: ${isJDnf ? '#ef4444' : 'var(--blue-color)'}; font-size: 13px;">${isJDnf ? 'عدم اتمام (-)' : `${s} ${criteria.unitLabel}`}</strong>
-                                <button type="button" onclick="deleteJudgeStageScore('${stage.id}', '${team.id}', '${j.judgeKey}')" style="background: transparent; border: none; color: var(--danger-color); cursor: pointer; padding: 0 4px; font-size: 14px; font-weight: bold;" title="حذف امتیاز این داور">×</button>
+                                <button type="button" onclick="deleteJudgeStageScore('${stage.id}', '${team.id}', ${jsArg(j.judgeKey)})" style="background: transparent; border: none; color: var(--danger-color); cursor: pointer; padding: 0 4px; font-size: 14px; font-weight: bold;" title="حذف امتیاز این داور">×</button>
                             </div>
                         `;
                     });
@@ -2141,7 +2145,7 @@
 
                     if (isTime) {
                         // قانون ۱: نمایش ثبت‌کننده زمان
-                        const validTimes = judgeEntries.map(j => parseFloat(j.score)).filter(v => !isNaN(v));
+                        const validTimes = relevantEntries.map(j => parseFloat(j.score)).filter(v => !isNaN(v));
                         const chosenTime = validTimes.length > 0 ? validTimes[0] : (dnf ? '-' : 0);
                         judgesListHtml += `
                             <div style="display: flex; align-items: center; justify-content: space-between; background: rgba(37,99,235,0.12); border: 1px solid rgba(37,99,235,0.3); border-radius: 8px; padding: 6px 12px; margin-top: 4px;">
@@ -2166,7 +2170,7 @@
                     finalInputVal = '-';
                 } else if (judgeEntries.length > 0) {
                     if (isTime) {
-                        const validTimes = judgeEntries.map(j => parseFloat(j.score)).filter(v => !isNaN(v));
+                        const validTimes = relevantEntries.map(j => parseFloat(j.score)).filter(v => !isNaN(v));
                         finalInputVal = validTimes.length > 0 ? validTimes[0] : '-';
                     } else {
                         finalInputVal = judgesSum;
@@ -2185,17 +2189,17 @@
                 ` : '';
 
                 list.innerHTML += `
-                    <div class="glass" style="display: flex; flex-direction: column; padding: 12px 16px; border-radius: 12px; border-right: 5px solid ${team.color || '#fff'}; gap: 4px;">
+                    <div class="glass" style="display: flex; flex-direction: column; padding: 12px 16px; border-radius: 12px; border-right: 5px solid ${safeColor(team.color, '#fff')}; gap: 4px;">
                         <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px;">
                             <div style="display: flex; align-items: center; gap: 10px;">
                                 ${rankBadgeHtml}
-                                <div style="width: 14px; height: 14px; border-radius: 50%; background: ${team.color || '#fff'}; flex-shrink: 0;"></div>
-                                <span style="font-weight: bold; font-size: 16px;">${team.name}</span>
+                                <div style="width: 14px; height: 14px; border-radius: 50%; background: ${safeColor(team.color, '#fff')}; flex-shrink: 0;"></div>
+                                <span style="font-weight: bold; font-size: 16px;">${esc(team.name)}</span>
                             </div>
                             <div style="display: flex; align-items: center; gap: 8px;">
                                 ${dnfButtonHtml}
                                 <span style="font-size: 12px; opacity: 0.75;">مقدار (${criteria.unitLabel}):</span>
-                                <input type="text" id="score_${team.id}" value="${finalInputVal}" data-dnf="${finalInputVal === '-' ? 'true' : 'false'}" class="stage-input" style="width: 85px; height: 35px; padding: 4px; text-align: center; font-size: 16px; font-weight: 800; color: ${finalInputVal === '-' ? '#ef4444' : 'inherit'};">
+                                <input type="text" id="score_${team.id}" value="${esc(finalInputVal)}" data-orig="${esc(finalInputVal)}" data-dnf="${finalInputVal === '-' ? 'true' : 'false'}" class="stage-input" style="width: 85px; height: 35px; padding: 4px; text-align: center; font-size: 16px; font-weight: 800; color: ${finalInputVal === '-' ? '#ef4444' : 'inherit'};">
                             </div>
                         </div>
                         ${judgesListHtml}
@@ -2219,59 +2223,58 @@
                     singleScore: { teamId, score: 0 }
                 })
             })
-            .then(r => r.json())
+            .then(jsonOrThrow)
             .then(res => {
-                if (res.success) {
-                    fetch(`api.php?action=poll&id=${campId}`)
-                    .then(r => r.json())
-                    .then(data => {
-                        currentTeams = data.teams;
-                        ensureLogsFormat(currentTeams);
-                        openScoreModal(stageId);
-                    });
+                if (res.teams) {
+                    currentTeams = res.teams;
+                    ensureLogsFormat(currentTeams);
                 }
-            });
+                openScoreModal(stageId);
+            })
+            .catch(e => window.showToast('حذف امتیاز انجام نشد: ' + e.message, 'error'));
         }
 
+        // Sends only the values the operator actually changed, as a manual correction for that team.
         function saveScores() {
             if (isLocked) return;
             const stageId = document.getElementById('currentStageId').value;
-            const stage = currentStages.find(s => s.id === stageId);
-            const isTime = stage && (stage.unit === 'time' || stage.unit === 'time_asc' || stage.unit === 'time_desc');
-
+            const scores = {};
             currentTeams.forEach(team => {
                 const input = document.getElementById(`score_${team.id}`);
-                if(input) {
-                    const rawVal = input.value.trim();
-                    const isDnf = rawVal === '-' || rawVal.toLowerCase() === 'dnf' || input.dataset.dnf === 'true';
-                    const val = isDnf ? '-' : (parseFloat(rawVal) || 0);
-
-                    if (!team.stageScores || typeof team.stageScores !== 'object' || Array.isArray(team.stageScores)) team.stageScores = {};
-                    team.stageScores[stageId] = val;
-                    
-                    // In simple or professional mode, sum stage scores into team.score
-                    // In tiered mode: team total score is calculated only when closing the stage
-                    if (currentCampType !== 'tiered') {
-                        let stageSum = 0;
-                        for (let s in team.stageScores) {
-                            const sv = team.stageScores[s];
-                            if (sv !== '-' && sv !== 'dnf') stageSum += (parseFloat(sv) || 0);
-                        }
-                        let logsSum = (team.scoreLogs || []).reduce((a, b) => a + (b.type !== 'cancelled' ? (parseInt(b.value)||0) : 0), 0);
-                        team.score = stageSum + logsSum;
-                    }
-                }
+                if (!input) return;
+                const rawVal = input.value.trim();
+                const isDnf = rawVal === '-' || rawVal.toLowerCase() === 'dnf' || input.dataset.dnf === 'true';
+                const val = isDnf ? '-' : (parseFloat(rawVal) || 0);
+                const orig = input.dataset.orig;
+                const origIsDnf = orig === '-';
+                const changed = isDnf ? !origIsDnf : (origIsDnf || (parseFloat(orig) || 0) !== val);
+                if (changed) scores[team.id] = val;
             });
-            syncData();
-            document.getElementById('scoreModal').style.display = 'none';
+            if (Object.keys(scores).length === 0) {
+                document.getElementById('scoreModal').style.display = 'none';
+                return;
+            }
+            fetch(`api.php?action=stage_scores&id=${campId}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ stageId, scores })
+            })
+            .then(jsonOrThrow)
+            .then(res => {
+                if (res.teams) { currentTeams = res.teams; ensureLogsFormat(currentTeams); }
+                renderPreviewBoard();
+                document.getElementById('scoreModal').style.display = 'none';
+            })
+            .catch(e => window.showToast('ذخیره نمرات انجام نشد: ' + e.message, 'error'));
         }
 
+        // Saves camp settings / team & stage definitions. Scores are never sent from here.
         function syncData() {
-            fetch(`api.php?action=update_camp&id=${campId}`, {
+            return fetch(`api.php?action=update_camp&id=${campId}`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ 
-                    teams: currentTeams, 
+                    teams: currentTeams.map(t => ({ id: t.id, name: t.name, color: t.color, image: t.image || '', happyImage: t.happyImage || '', sadImage: t.sadImage || '' })),
                     stages: currentStages, 
                     orgName: currentOrgName, 
                     title: currentTitle, 
@@ -2285,6 +2288,18 @@
                     campType: currentCampType,
                     tieredPointsLadder: currentTieredPointsLadder
                 })
+            })
+            .then(jsonOrThrow)
+            .then(() => fetch(`api.php?action=poll&id=${campId}`))
+            .then(jsonOrThrow)
+            .then(data => {
+                if (data.teams) { currentTeams = data.teams; ensureLogsFormat(currentTeams); }
+                if (data.stages) currentStages = data.stages;
+                return data;
+            })
+            .catch(e => {
+                window.showToast('ذخیره تنظیمات انجام نشد: ' + e.message, 'error');
+                throw e;
             });
         }
 
@@ -2304,7 +2319,7 @@
             tempEditPosTags.forEach((tag, idx) => {
                 const chip = document.createElement('span');
                 chip.className = 'editable-tag-chip pos';
-                chip.innerHTML = `${tag} <button type="button" class="del-btn" onclick="removeEditPosTag(${idx})" title="حذف">×</button>`;
+                chip.innerHTML = `${esc(tag)} <button type="button" class="del-btn" onclick="removeEditPosTag(${idx})" title="حذف">×</button>`;
                 list.appendChild(chip);
             });
         }
@@ -2316,7 +2331,7 @@
             tempEditNegTags.forEach((tag, idx) => {
                 const chip = document.createElement('span');
                 chip.className = 'editable-tag-chip neg';
-                chip.innerHTML = `${tag} <button type="button" class="del-btn" onclick="removeEditNegTag(${idx})" title="حذف">×</button>`;
+                chip.innerHTML = `${esc(tag)} <button type="button" class="del-btn" onclick="removeEditNegTag(${idx})" title="حذف">×</button>`;
                 list.appendChild(chip);
             });
         }
@@ -2368,9 +2383,7 @@
         function handleFileUpload(e) {
             const file = e.target.files[0];
             if(file) {
-                const reader = new FileReader();
-                reader.onload = (e) => { document.getElementById('editLogoBase64').value = e.target.result; updatePreview(); };
-                reader.readAsDataURL(file);
+                compressImageFile(file, 512).then(url => { document.getElementById('editLogoBase64').value = url; updatePreview(); });
             }
         }
         document.getElementById('editLogoUrl').addEventListener('input', updatePreview);
@@ -2444,7 +2457,7 @@
             item.dataset.id = id;
             item.innerHTML = `
                 <div style="display: flex; gap: 8px; align-items: center; width: 100%; flex-wrap: wrap;">
-                    <input type="text" class="stage-name-input" placeholder="نام مرحله" value="${name}" style="flex: 2; min-width: 140px;">
+                    <input type="text" class="stage-name-input" placeholder="نام مرحله" value="${esc(name)}" style="flex: 2; min-width: 140px;">
                     <select class="stage-unit-select settings-input" style="flex: 1.5; min-width: 180px; margin: 0; padding: 6px 10px; font-size: 13px;" title="واحد سنجش مرحله">
                         <option value="points" ${unitVal === 'points' ? 'selected' : ''}>🎯 امتیاز (بیشترین = برتر)</option>
                         <option value="time_asc" ${unitVal === 'time_asc' ? 'selected' : ''}>⚡ زمان - سرعت عمل (کمترین زمان = برتر)</option>
@@ -2470,17 +2483,17 @@
             item.innerHTML = `
                 <div style="display: flex; flex-direction: column; gap: 8px; width: 100%; padding: 4px;">
                     <div style="display: flex; gap: 8px; align-items: center;">
-                        <input type="text" class="t-name" placeholder="نام تیم" value="${name}" style="flex: 2; min-width: 100px;">
-                        <div class="color-btn" style="background-color: ${color};" data-value="${color}" onclick="openColorPicker(this)" title="انتخاب رنگ تیم"></div>
+                        <input type="text" class="t-name" placeholder="نام تیم" value="${esc(name)}" style="flex: 2; min-width: 100px;">
+                        <div class="color-btn" style="background-color: ${safeColor(color)};" data-value="${esc(color)}" onclick="openColorPicker(this)" title="انتخاب رنگ تیم"></div>
                     </div>
                     
                     <!-- عکس اصلی تیم ۱۶:۹ -->
                     <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
                         <div class="t-img-thumb" style="width: 56px; height: 31px; aspect-ratio: 16/9; border-radius: 6px; overflow: hidden; border: 1px solid var(--glass-border); flex-shrink: 0; background: var(--input-bg); display: flex; align-items: center; justify-content: center; position: relative;" title="پیش‌نمایش عکس اصلی ۱۶:۹">
-                            ${image ? `<img src="${image}" style="width: 100%; height: 100%; object-fit: cover;" onerror="this.style.display='none'">` : `<i data-lucide="image" style="width: 14px; height: 14px; opacity: 0.5;"></i>`}
+                            ${image ? `<img src="${esc(safeUrl(image))}" style="width: 100%; height: 100%; object-fit: cover;" onerror="this.style.display='none'">` : `<i data-lucide="image" style="width: 14px; height: 14px; opacity: 0.5;"></i>`}
                             <span style="position: absolute; bottom: 1px; right: 2px; font-size: 7px; font-weight: bold; background: rgba(0,0,0,0.65); color: #fff; padding: 0 2px; border-radius: 2px; pointer-events: none;">16:9</span>
                         </div>
-                        <input type="text" class="t-image" placeholder="عکس اصلی ۱۶:۹ (پیش‌فرض)" value="${image}" style="flex: 1; min-width: 120px; margin: 0;" oninput="updateTeamImgThumb(this)">
+                        <input type="text" class="t-image" placeholder="عکس اصلی ۱۶:۹ (پیش‌فرض)" value="${esc(image)}" style="flex: 1; min-width: 120px; margin: 0;" oninput="updateTeamImgThumb(this)">
                         <button type="button" class="icon-btn" onclick="triggerCustomPhotoInput(this)" title="آپلود عکس از فایل (نسبت ۱۶:۹)" style="padding: 5px 9px; font-size: 11px; display: inline-flex; align-items: center; gap: 3px; white-space: nowrap;"><i data-lucide="upload" style="width: 12px; height: 12px;"></i> آپلود</button>
                         <button type="button" class="icon-btn remove-btn t-clear-img-btn" onclick="clearCustomPhoto(this)" title="حذف عکس" style="padding: 5px 7px; font-size: 11px; display: ${image ? 'inline-flex' : 'none'};">✕</button>
                         <input type="file" accept="image/*" class="t-photo-file-input" style="display: none;" onchange="handleCustomPhotoSelected(this, '.t-image')">
@@ -2493,9 +2506,9 @@
                         <!-- عکس خوشحالی (+) -->
                         <div style="display: flex; gap: 6px; align-items: center; flex-wrap: wrap;">
                             <div class="t-img-thumb" style="width: 46px; height: 26px; aspect-ratio: 16/9; border-radius: 5px; overflow: hidden; border: 1px solid var(--glass-border); flex-shrink: 0; background: var(--input-bg); display: flex; align-items: center; justify-content: center; position: relative;" title="پیش‌نمایش عکس خوشحالی">
-                                ${happyImage ? `<img src="${happyImage}" style="width: 100%; height: 100%; object-fit: cover;" onerror="this.style.display='none'">` : `<span style="font-size: 11px;">😄</span>`}
+                                ${happyImage ? `<img src="${esc(safeUrl(happyImage))}" style="width: 100%; height: 100%; object-fit: cover;" onerror="this.style.display='none'">` : `<span style="font-size: 11px;">😄</span>`}
                             </div>
-                            <input type="text" class="t-happy-image" placeholder="عکس حالت خوشحالی (+)" value="${happyImage}" style="flex: 1; min-width: 120px; margin: 0; font-size: 12px;" oninput="updateTeamImgThumb(this)">
+                            <input type="text" class="t-happy-image" placeholder="عکس حالت خوشحالی (+)" value="${esc(happyImage)}" style="flex: 1; min-width: 120px; margin: 0; font-size: 12px;" oninput="updateTeamImgThumb(this)">
                             <button type="button" class="icon-btn" onclick="triggerCustomPhotoInput(this)" title="آپلود عکس خوشحالی" style="padding: 4px 8px; font-size: 11px; display: inline-flex; align-items: center; gap: 3px; white-space: nowrap;"><i data-lucide="upload" style="width: 11px; height: 11px;"></i> آپلود</button>
                             <button type="button" class="icon-btn remove-btn t-clear-img-btn" onclick="clearCustomPhoto(this)" title="حذف عکس" style="padding: 4px 6px; font-size: 11px; display: ${happyImage ? 'inline-flex' : 'none'};">✕</button>
                             <input type="file" accept="image/*" class="t-photo-file-input" style="display: none;" onchange="handleCustomPhotoSelected(this, '.t-happy-image')">
@@ -2504,9 +2517,9 @@
                         <!-- عکس ناراحتی (-) -->
                         <div style="display: flex; gap: 6px; align-items: center; flex-wrap: wrap;">
                             <div class="t-img-thumb" style="width: 46px; height: 26px; aspect-ratio: 16/9; border-radius: 5px; overflow: hidden; border: 1px solid var(--glass-border); flex-shrink: 0; background: var(--input-bg); display: flex; align-items: center; justify-content: center; position: relative;" title="پیش‌نمایش عکس ناراحتی">
-                                ${sadImage ? `<img src="${sadImage}" style="width: 100%; height: 100%; object-fit: cover;" onerror="this.style.display='none'">` : `<span style="font-size: 11px;">😔</span>`}
+                                ${sadImage ? `<img src="${esc(safeUrl(sadImage))}" style="width: 100%; height: 100%; object-fit: cover;" onerror="this.style.display='none'">` : `<span style="font-size: 11px;">😔</span>`}
                             </div>
-                            <input type="text" class="t-sad-image" placeholder="عکس حالت ناراحتی (-)" value="${sadImage}" style="flex: 1; min-width: 120px; margin: 0; font-size: 12px;" oninput="updateTeamImgThumb(this)">
+                            <input type="text" class="t-sad-image" placeholder="عکس حالت ناراحتی (-)" value="${esc(sadImage)}" style="flex: 1; min-width: 120px; margin: 0; font-size: 12px;" oninput="updateTeamImgThumb(this)">
                             <button type="button" class="icon-btn" onclick="triggerCustomPhotoInput(this)" title="آپلود عکس ناراحتی" style="padding: 4px 8px; font-size: 11px; display: inline-flex; align-items: center; gap: 3px; white-space: nowrap;"><i data-lucide="upload" style="width: 11px; height: 11px;"></i> آپلود</button>
                             <button type="button" class="icon-btn remove-btn t-clear-img-btn" onclick="clearCustomPhoto(this)" title="حذف عکس" style="padding: 4px 6px; font-size: 11px; display: ${sadImage ? 'inline-flex' : 'none'};">✕</button>
                             <input type="file" accept="image/*" class="t-photo-file-input" style="display: none;" onchange="handleCustomPhotoSelected(this, '.t-sad-image')">
@@ -2532,7 +2545,7 @@
             if (!fileInput.files || !fileInput.files[0]) return;
             const file = fileInput.files[0];
             try {
-                const base64Data = await cropAndResizeTo16x9(file, 960, 540);
+                const base64Data = await cropAndResizeTo16x9(file);
                 const row = fileInput.parentElement;
                 const textInput = row.querySelector(targetSelector);
                 const clearBtn = row.querySelector('.t-clear-img-btn');
@@ -2566,7 +2579,7 @@
             if (!thumb) return;
             const val = textInput.value.trim();
             if (val) {
-                thumb.innerHTML = `<img src="${val}" style="width: 100%; height: 100%; object-fit: cover;" onerror="this.style.display='none'">`;
+                thumb.innerHTML = `<img src="${esc(safeUrl(val))}" style="width: 100%; height: 100%; object-fit: cover;" onerror="this.style.display='none'">`;
                 if (clearBtn) clearBtn.style.display = 'inline-flex';
             } else {
                 const isHappy = textInput.classList.contains('t-happy-image');
@@ -2583,7 +2596,7 @@
             }
         }
 
-        function cropAndResizeTo16x9(file, targetW = 960, targetH = 540) {
+        function cropAndResizeTo16x9(file, targetW = 640, targetH = 360) {
             return new Promise((resolve, reject) => {
                 if (!file || !file.type.startsWith('image/')) {
                     return reject(new Error('فایل انتخاب شده تصویر نیست.'));
@@ -2611,8 +2624,9 @@
                         }
 
                         ctx.drawImage(img, srcX, srcY, srcW, srcH, 0, 0, targetW, targetH);
-                        const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
-                        resolve(dataUrl);
+                        // WebP where supported keeps the camp document small (Firestore limit: 1 MB per camp).
+                        const webp = canvas.toDataURL('image/webp', 0.75);
+                        resolve(webp.startsWith('data:image/webp') ? webp : canvas.toDataURL('image/jpeg', 0.75));
                     };
                     img.onerror = () => reject(new Error('بارگذاری تصویر با خطا مواجه شد.'));
                     img.src = e.target.result;
@@ -2630,7 +2644,7 @@
             const url = input.value.trim();
             if (thumb) {
                 if (url) {
-                    thumb.innerHTML = `<img src="${url}" style="width: 100%; height: 100%; object-fit: cover;" onerror="this.style.display='none'"><span style="position: absolute; bottom: 1px; right: 2px; font-size: 8px; font-weight: bold; background: rgba(0,0,0,0.65); color: #fff; padding: 0 3px; border-radius: 2px; pointer-events: none;">16:9</span>`;
+                    thumb.innerHTML = `<img src="${esc(safeUrl(url))}" style="width: 100%; height: 100%; object-fit: cover;" onerror="this.style.display='none'"><span style="position: absolute; bottom: 1px; right: 2px; font-size: 8px; font-weight: bold; background: rgba(0,0,0,0.65); color: #fff; padding: 0 3px; border-radius: 2px; pointer-events: none;">16:9</span>`;
                 } else {
                     thumb.innerHTML = `<i data-lucide="image" style="width: 16px; height: 16px; opacity: 0.5;"></i><span style="position: absolute; bottom: 1px; right: 2px; font-size: 8px; font-weight: bold; background: rgba(0,0,0,0.65); color: #fff; padding: 0 3px; border-radius: 2px; pointer-events: none;">16:9</span>`;
                     if(typeof refreshIcons === 'function') refreshIcons();
@@ -2651,7 +2665,7 @@
             
             const content = document.createElement('div');
             content.className = 'toast-content';
-            content.innerHTML = msg.replace(/\n/g, '<br>');
+            content.innerHTML = esc(msg).replace(/\n/g, '<br>');
             
             const closeBtn = document.createElement('button');
             closeBtn.className = 'toast-close';
@@ -2824,7 +2838,13 @@
                 currentTieredPointsLadder = cleanL.length > 0 ? cleanL : [500, 400, 300, 200, 100];
             }
 
-            updateHeaderUI(); syncData(); closeSettings(); setTimeout(() => alert("تغییرات با موفقیت ذخیره شد."), 10);
+            updateHeaderUI();
+            syncData().then(() => {
+                closeSettings();
+                renderPreviewBoard();
+                renderStagesButtons();
+                window.showToast("تغییرات با موفقیت ذخیره شد.", "success");
+            }).catch(() => {});
         }
     </script>
 
@@ -3162,7 +3182,7 @@
         const preview = document.getElementById('modalProfilePicPreview');
         if (!preview) return;
         if (src && src.trim()) {
-            preview.innerHTML = `<img src="${src.trim()}" style="width: 100%; height: 100%; object-fit: cover;" onerror="this.parentElement.innerHTML='<i data-lucide=\\\'user\\\' style=\\\'width: 42px; height: 42px; opacity: 0.6;\\\'></i>'; refreshIcons();">`;
+            preview.innerHTML = `<img src="${esc(safeUrl(src.trim()))}" style="width: 100%; height: 100%; object-fit: cover;" onerror="this.parentElement.innerHTML='<i data-lucide=\\\'user\\\' style=\\\'width: 42px; height: 42px; opacity: 0.6;\\\'></i>'; refreshIcons();">`;
         } else {
             preview.innerHTML = `<i data-lucide="user" style="width: 42px; height: 42px; opacity: 0.6;"></i>`;
             if (typeof refreshIcons === 'function') refreshIcons();
@@ -3172,13 +3192,10 @@
     function handleProfilePicFile(input) {
         if (input.files && input.files[0]) {
             const file = input.files[0];
-            const reader = new FileReader();
-            reader.onload = function(e) {
-                const base64 = e.target.result;
+            compressImageFile(file, 256).then(base64 => {
                 previewModalProfilePic(base64);
                 input._tempBase64 = base64;
-            };
-            reader.readAsDataURL(file);
+            });
         }
     }
 
@@ -3201,11 +3218,9 @@
                 username: currentUser.username,
                 profilePic: newPic
             })
-        }).then(r => r.json()).then(data => {
-            if (data.success) {
-                if (typeof showFloatingError === 'function') showFloatingError('عکس پروفایل با موفقیت ذخیره شد.');
-            }
-        }).catch(e => console.error(e));
+        }).then(jsonOrThrow).then(() => {
+            window.showToast('عکس پروفایل با موفقیت ذخیره شد.', 'success');
+        }).catch(e => window.showToast('ذخیره عکس پروفایل انجام نشد: ' + e.message, 'error'));
     }
 
     function removeUserProfilePic() {
@@ -3227,7 +3242,7 @@
                 username: currentUser.username,
                 profilePic: ''
             })
-        }).catch(e => console.error(e));
+        }).then(jsonOrThrow).catch(e => window.showToast('حذف عکس پروفایل انجام نشد: ' + e.message, 'error'));
     }
 
     function updateFjRefereeHeader() {
@@ -3242,7 +3257,7 @@
                 <div style="display: flex; align-items: center; gap: 9px; background: var(--input-bg); padding: 4px 14px; border-radius: 30px; border: 1px solid var(--glass-border); box-shadow: 0 2px 8px rgba(0,0,0,0.06);">
                     ${photoHtml}
                     <div style="display: flex; flex-direction: column; text-align: right; line-height: 1.25;">
-                        <span style="font-weight: bold; font-size: 14px; color: var(--text-color);">${name}</span>
+                        <span style="font-weight: bold; font-size: 14px; color: var(--text-color);">${esc(name)}</span>
                         <span style="font-size: 11px; opacity: 0.75; color: var(--text-color);">${roleLabel}</span>
                     </div>
                 </div>
@@ -3529,7 +3544,7 @@
             const isLight = getPerceivedBrightness(team.color) >= 128;
             const textColor = isLight ? "#000000" : "#ffffff";
 
-            circle.innerHTML = `<span class="fj-orb-text" style="color: ${textColor} !important; text-shadow: ${isLight ? "none" : "0 1.5px 4px rgba(0, 0, 0, 0.75)"} !important;">${team.name}</span>`;
+            circle.innerHTML = `<span class="fj-orb-text" style="color: ${textColor} !important; text-shadow: ${isLight ? "none" : "0 1.5px 4px rgba(0, 0, 0, 0.75)"} !important;">${esc(team.name)}</span>`;
             circle.onclick = () => selectFjTeam(circle, team);
             container.appendChild(circle);
         });
@@ -3798,7 +3813,7 @@
             return `
                 <button type="button" class="fj-stage-pill ${isActive ? 'active' : ''}" onclick="selectJudgingStage('${stage.id}')" title="${stCrit.descText}">
                     <span style="font-size: 12px;">${iconSymbol}</span>
-                    <span>${stage.name}</span>
+                    <span>${esc(stage.name)}</span>
                     ${multPill}
                 </button>
             `;
@@ -3888,14 +3903,14 @@
             // قانون ۱: برای مراحل زمانی، نمایش ثبت اولین داور
             let otherJudgesNotice = '';
             if (isTime) {
-                const otherEntries = Object.values(jMap).filter(j => j.judgeKey !== judgeKey);
+                const otherEntries = sortedJudgeEntries(team, currentJudgingStageId).filter(j => j.judgeKey !== judgeKey);
                 if (otherEntries.length > 0) {
                     const firstOther = otherEntries[0];
                     const isOtherDnf = firstOther.dnf || firstOther.score === '-';
                     otherJudgesNotice = `
                         <div style="font-size: 11px; opacity: 0.9; margin-top: 5px; background: rgba(59,130,246,0.12); border-radius: 6px; padding: 4px 8px; display: flex; align-items: center; gap: 4px;">
                             <i data-lucide="check" style="width: 12px; height: 12px; color: #93c5fd;"></i>
-                            <span>ثبت‌شده توسط ${firstOther.judgeName || 'داور دیگر'}: <strong>${isOtherDnf ? 'عدم اتمام (-)' : `${firstOther.score} ${criteria.unitLabel}`}</strong></span>
+                            <span>ثبت‌شده توسط ${esc(firstOther.judgeName || 'داور دیگر')}: <strong>${isOtherDnf ? 'عدم اتمام (-)' : `${esc(firstOther.score)} ${criteria.unitLabel}`}</strong></span>
                         </div>
                     `;
                 }
@@ -3906,7 +3921,7 @@
                 if (isEntryDnf) {
                     badgeHtml = `<span class="fj-stage-badge dnf" id="stage_badge_${team.id}" style="background: rgba(239, 68, 68, 0.2); color: #ef4444; border: 1px solid rgba(239, 68, 68, 0.4);"><i data-lucide="x-circle" style="width: 13px; height: 13px;"></i> پایان‌نیافته (-)</span>`;
                 } else {
-                    badgeHtml = `<span class="fj-stage-badge scored" id="stage_badge_${team.id}"><i data-lucide="check-circle" style="width: 13px; height: 13px;"></i> سهم شما: ${currentScore} ${criteria.unitLabel}</span>`;
+                    badgeHtml = `<span class="fj-stage-badge scored" id="stage_badge_${team.id}"><i data-lucide="check-circle" style="width: 13px; height: 13px;"></i> سهم شما: ${esc(currentScore)} ${criteria.unitLabel}</span>`;
                 }
             } else {
                 badgeHtml = `<span class="fj-stage-badge pending" id="stage_badge_${team.id}"><i data-lucide="clock" style="width: 13px; height: 13px;"></i> در انتظار ثبت سهم (${criteria.unitLabel})</span>`;
@@ -3920,12 +3935,12 @@
             ` : '';
 
             return `
-                <div class="fj-stage-team-card" id="fj_card_${team.id}" style="--team-color: ${team.color || '#3b82f6'};">
+                <div class="fj-stage-team-card" id="fj_card_${team.id}" style="--team-color: ${safeColor(team.color, '#3b82f6')};">
                     <div class="fj-stage-team-card-header">
                         <div class="fj-stage-team-title-row">
                             ${rankBadgeHtml}
-                            <div class="fj-stage-color-dot" style="background: ${team.color || '#3b82f6'};"></div>
-                            <h4 class="fj-stage-team-name">${team.name}</h4>
+                            <div class="fj-stage-color-dot" style="background: ${safeColor(team.color, '#3b82f6')};"></div>
+                            <h4 class="fj-stage-team-name">${esc(team.name)}</h4>
                         </div>
                         ${badgeHtml}
                     </div>
@@ -3937,7 +3952,7 @@
                         <button type="button" class="fj-stepper-btn minus" onclick="adjustJudgeStageScore('${team.id}', -10)">-۱۰</button>
                         <button type="button" class="fj-stepper-btn minus" onclick="adjustJudgeStageScore('${team.id}', -5)">-۵</button>
                         <button type="button" class="fj-stepper-btn minus" onclick="adjustJudgeStageScore('${team.id}', -1)">-۱</button>
-                        <input type="text" id="judge_score_${team.id}" class="fj-stage-num-input" value="${isEntryDnf ? '-' : currentScore}" data-dnf="${isEntryDnf ? 'true' : 'false'}" style="color: ${isEntryDnf ? '#ef4444' : 'inherit'};" placeholder="${criteria.unitLabel}">
+                        <input type="text" id="judge_score_${team.id}" class="fj-stage-num-input" value="${isEntryDnf ? '-' : esc(currentScore)}" data-dnf="${isEntryDnf ? 'true' : 'false'}" style="color: ${isEntryDnf ? '#ef4444' : 'inherit'};" placeholder="${criteria.unitLabel}">
                         <button type="button" class="fj-stepper-btn plus" onclick="adjustJudgeStageScore('${team.id}', 1)">+۱</button>
                         <button type="button" class="fj-stepper-btn plus" onclick="adjustJudgeStageScore('${team.id}', 5)">+۵</button>
                         <button type="button" class="fj-stepper-btn plus" onclick="adjustJudgeStageScore('${team.id}', 10)">+۱۰</button>
@@ -4009,11 +4024,10 @@
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
                 stageId: currentJudgingStageId,
-                singleScore: { teamId, score: val, dnf: isDnf },
-                user: currentUser
+                singleScore: { teamId, score: val, dnf: isDnf }
             })
         })
-        .then(r => r.json())
+        .then(jsonOrThrow)
         .then(res => {
             if (res.success) {
                 if (window.showToast) window.showToast(isDnf ? "ثبت عدم اتمام مرحله (-)" : "امتیاز با موفقیت ثبت شد", "success");
@@ -4030,13 +4044,13 @@
                         badge.style.background = '';
                         badge.style.color = '';
                         badge.style.border = '';
-                        badge.innerHTML = `<i data-lucide="check-circle" style="width: 13px; height: 13px;"></i> ثبت شده: ${val}`;
+                        badge.innerHTML = `<i data-lucide="check-circle" style="width: 13px; height: 13px;"></i> ثبت شده: ${esc(val)}`;
                     }
                     if (typeof refreshIcons === 'function') refreshIcons();
                 }
             }
         })
-        .catch(() => showFloatingError("خطا در ثبت امتیاز"));
+        .catch(e => showFloatingError("خطا در ثبت امتیاز: " + e.message));
     }
 
     function saveAllStagesScores() {
@@ -4065,11 +4079,10 @@
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
                 stageId: currentJudgingStageId,
-                scores: scores,
-                user: currentUser
+                scores: scores
             })
         })
-        .then(r => r.json())
+        .then(jsonOrThrow)
         .then(res => {
             if (btn) {
                 btn.disabled = false;
@@ -4080,12 +4093,12 @@
                 renderStagesJudgingView();
             }
         })
-        .catch(() => {
+        .catch(e => {
             if (btn) {
                 btn.disabled = false;
                 btn.innerHTML = '<i data-lucide="check-check" style="width: 16px; height: 16px;"></i><span>ثبت نهایی امتیازات این مرحله</span>';
             }
-            showFloatingError("خطا در ثبت امتیازات");
+            showFloatingError("خطا در ثبت امتیازات: " + e.message);
         });
     }
 
@@ -4156,7 +4169,7 @@
             filterHtml += `
                 <button type="button" class="fj-stage-pill ${currentBreakdownStageFilter === stage.id ? 'active' : ''}" onclick="setBreakdownStageFilter('${stage.id}')" title="${stCrit.descText}">
                     <span style="font-size: 12px;">${iconSymbol}</span>
-                    <span>${stage.name}</span>
+                    <span>${esc(stage.name)}</span>
                 </button>
             `;
         });
@@ -4219,12 +4232,12 @@
         } else {
             judgesList.forEach(j => {
                 const roleBadge = j.role === 'head_referee' ? 'سرداور' : 'داور';
-                const photoImg = j.photo ? `<img src="${j.photo}" class="breakdown-judge-avatar" alt="${j.name}">` : '';
+                const photoImg = j.photo ? `<img src="${esc(safeUrl(j.photo))}" class="breakdown-judge-avatar" alt="${esc(j.name)}">` : '';
                 tableHtml += `
                     <th>
                         <div class="breakdown-judge-header">
                             ${photoImg}
-                            <span style="font-weight: bold; font-size: 13px;">${j.name}</span>
+                            <span style="font-weight: bold; font-size: 13px;">${esc(j.name)}</span>
                             <span style="font-size: 10px; opacity: 0.75; background: rgba(255,255,255,0.1); padding: 1px 6px; border-radius: 6px;">${roleBadge}</span>
                         </div>
                     </th>
@@ -4248,8 +4261,8 @@
             tableHtml += `
                 <td style="text-align: right;">
                     <div style="display: flex; align-items: center; gap: 8px;">
-                        <div style="width: 14px; height: 14px; border-radius: 50%; background: ${team.color || '#fff'}; flex-shrink: 0;"></div>
-                        <strong style="font-size: 14px;">${team.name}</strong>
+                        <div style="width: 14px; height: 14px; border-radius: 50%; background: ${safeColor(team.color, '#fff')}; flex-shrink: 0;"></div>
+                        <strong style="font-size: 14px;">${esc(team.name)}</strong>
                     </div>
                 </td>
             `;
@@ -4286,9 +4299,9 @@
             // Sum of all judges for this stage / all stages
             if (judgesList.length === 0) {
                 if (currentBreakdownStageFilter === 'all') {
-                    for (const s in team.stageScores) teamJudgesSum += (parseInt(team.stageScores[s]) || 0);
+                    for (const s in team.stageScores) teamJudgesSum += scoreNum(team.stageScores[s]);
                 } else {
-                    teamJudgesSum = team.stageScores ? (parseInt(team.stageScores[currentBreakdownStageFilter]) || 0) : 0;
+                    teamJudgesSum = team.stageScores ? scoreNum(team.stageScores[currentBreakdownStageFilter]) : 0;
                 }
             }
 
@@ -4309,13 +4322,13 @@
             (currentStages || []).forEach(stage => {
                 const jMap = (team.judgeStageScores && team.judgeStageScores[stage.id]) ? team.judgeStageScores[stage.id] : {};
                 const jKeys = Object.keys(jMap);
-                let sSum = team.stageScores ? (parseInt(team.stageScores[stage.id]) || 0) : 0;
+                let sSum = team.stageScores ? scoreNum(team.stageScores[stage.id]) : 0;
                 if (jKeys.length === 0) {
-                    csv += `"${team.id}","${team.name}","${stage.name}","—","0","${sSum}","${team.score}"\n`;
+                    csv += [team.id, team.name, stage.name, '—', 0, sSum, team.score].map(csvCell).join(',') + '\n';
                 } else {
                     jKeys.forEach(jk => {
                         const entry = jMap[jk];
-                        csv += `"${team.id}","${team.name}","${stage.name}","${entry.judgeName || jk}","${entry.score || 0}","${sSum}","${team.score}"\n`;
+                        csv += [team.id, team.name, stage.name, entry.judgeName || jk, entry.score || 0, sSum, team.score].map(csvCell).join(',') + '\n';
                     });
                 }
             });
@@ -4577,7 +4590,7 @@
             const isPos = sign === '+';
             const isActive = fjSelectedTag === tag;
             pill.className = `fj-tag-pill ${isPos ? 'positive' : 'negative'} ${isActive ? 'active' : ''}`;
-            pill.innerHTML = `<span>${tag}</span>${isActive ? '<span style="font-size: 11px;">✓</span>' : ''}`;
+            pill.innerHTML = `<span>${esc(tag)}</span>${isActive ? '<span style="font-size: 11px;">✓</span>' : ''}`;
             pill.onclick = () => toggleFjTag(tag);
             grid.appendChild(pill);
         });
@@ -4604,7 +4617,7 @@
         const text = fjCurrentSign + formattedNumber;
         if(preview) preview.innerText = text;
         
-        const tagSnippet = fjSelectedTag ? ` <span style="font-size: 16px; margin-right: 6px; font-weight: 500; opacity: 0.95;">(${fjSelectedTag})</span>` : '';
+        const tagSnippet = fjSelectedTag ? ` <span style="font-size: 16px; margin-right: 6px; font-weight: 500; opacity: 0.95;">(${esc(fjSelectedTag)})</span>` : '';
 
         if (fjCurrentSign === '+') {
             const activeColor = isDark ? '#00e676' : '#059669';
@@ -4622,7 +4635,7 @@
                     submitBtn.style.border = '1px solid rgba(255,255,255,0.4)';
                 }
                 submitBtn.style.backdropFilter = 'blur(10px)';
-                submitBtn.innerHTML = `ثبت <span id="fjPreviewValue" dir="ltr" style="font-size: 26px;">${text}</span>${tagSnippet}`;
+                submitBtn.innerHTML = `ثبت <span id="fjPreviewValue" dir="ltr" style="font-size: 26px;">${esc(text)}</span>${tagSnippet}`;
             }
             valWheelItems.forEach(i => i.style.color = i.classList.contains('active') ? activeColor : inactiveColor);
             signWheelItems.forEach(i => i.style.color = i.classList.contains('active') ? activeColor : inactiveColor);
@@ -4642,7 +4655,7 @@
                     submitBtn.style.border = '1px solid rgba(255,255,255,0.4)';
                 }
                 submitBtn.style.backdropFilter = 'blur(10px)';
-                submitBtn.innerHTML = `ثبت <span id="fjPreviewValue" dir="ltr" style="font-size: 26px;">${text}</span>${tagSnippet}`;
+                submitBtn.innerHTML = `ثبت <span id="fjPreviewValue" dir="ltr" style="font-size: 26px;">${esc(text)}</span>${tagSnippet}`;
             }
             valWheelItems.forEach(i => i.style.color = i.classList.contains('active') ? activeColor : inactiveColor);
             signWheelItems.forEach(i => i.style.color = i.classList.contains('active') ? activeColor : inactiveColor);
@@ -4674,8 +4687,6 @@
         const payload = {
             teamId: fjSelectedTeamId,
             delta: delta,
-            teamName: teamName,
-            user: currentUser,
             tag: fjSelectedTag || ''
         };
         
@@ -4683,7 +4694,7 @@
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
             body: JSON.stringify(payload)
-        }).then(r => r.json()).then(res => {
+        }).then(jsonOrThrow).then(res => {
             if(res.success) {
                 if (targetTeam) {
                     targetTeam.score = (targetTeam.score || 0) + delta;
@@ -4701,7 +4712,7 @@
                     backToFjGrid();
                 }, 700);
             }
-        });
+        }).catch(e => showFloatingError("امتیاز ثبت نشد: " + e.message));
     }
 
     // Quick Tag & Mode Config Modal Logic
@@ -4744,7 +4755,7 @@
         quickPosTags.forEach((tag, idx) => {
             const chip = document.createElement('span');
             chip.className = 'editable-tag-chip pos';
-            chip.innerHTML = `${tag} <button type="button" class="del-btn" onclick="quickRemovePosTag(${idx})" title="حذف">×</button>`;
+            chip.innerHTML = `${esc(tag)} <button type="button" class="del-btn" onclick="quickRemovePosTag(${idx})" title="حذف">×</button>`;
             list.appendChild(chip);
         });
     }
@@ -4756,7 +4767,7 @@
         quickNegTags.forEach((tag, idx) => {
             const chip = document.createElement('span');
             chip.className = 'editable-tag-chip neg';
-            chip.innerHTML = `${tag} <button type="button" class="del-btn" onclick="quickRemoveNegTag(${idx})" title="حذف">×</button>`;
+            chip.innerHTML = `${esc(tag)} <button type="button" class="del-btn" onclick="quickRemoveNegTag(${idx})" title="حذف">×</button>`;
             list.appendChild(chip);
         });
     }
@@ -4804,12 +4815,13 @@
         currentPositiveTags = [...quickPosTags];
         currentNegativeTags = [...quickNegTags];
 
-        syncData();
-        renderFjValueWheel();
-        renderFjTags(fjCurrentSign);
-        updateFjPreview();
-        closeFjTagConfigModal();
-        window.showToast("تنظیمات داوری با موفقیت ذخیره شد.", "success");
+        syncData().then(() => {
+            renderFjValueWheel();
+            renderFjTags(fjCurrentSign);
+            updateFjPreview();
+            closeFjTagConfigModal();
+            window.showToast("تنظیمات داوری با موفقیت ذخیره شد.", "success");
+        }).catch(() => {});
     }
 </script>
 

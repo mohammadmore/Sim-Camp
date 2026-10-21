@@ -7,8 +7,9 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <link rel="stylesheet" href="style.css?v=11">
     <title>جدول زنده سیمولیشن کمپ</title>
-    <script src="https://unpkg.com/lucide@latest"></script>
-    <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.9.4/dist/confetti.browser.min.js"></script>
+    <script src="vendor/lucide-1.61.0.min.js"></script>
+    <script src="common.js"></script>
+    <script src="vendor/canvas-confetti-1.9.4.js"></script>
     <script>
         const savedTheme = localStorage.getItem('theme') || 'light';
         document.documentElement.setAttribute('data-theme', savedTheme);
@@ -216,58 +217,45 @@ let lastSeenLogTime = Date.now();
 let isFirstLoad = true;
 
 function pollBoardState() {
+    if (document.hidden) return;
     fetch(`api.php?action=poll&id=${campId}`)
     .then(r => r.ok ? r.json() : Promise.reject())
     .then(state => {
         latestState = state;
         let maxTime = lastSeenLogTime;
-        if (!isFirstLoad) {
-            (state.teams || []).forEach(t => {
-                if (t.scoreLogs && Array.isArray(t.scoreLogs)) {
-                    t.scoreLogs.forEach(log => {
-                        if (log.type === 'instant' && log.timestamp > lastSeenLogTime) {
-                            splashQueue.push({
-                                teamId: t.id, 
-                                delta: log.value, 
-                                teamName: t.name, 
-                                score: t.score, 
-                                logId: log.id,
-                                user: log.user,
-                                tag: log.tag || '',
-                                image: t.image || '',
-                                happyImage: t.happyImage || '',
-                                sadImage: t.sadImage || '',
-                                teamColor: t.color || ''
-                            });
-                        }
-                        if (log.type === 'cancelled' && log.timestamp > lastSeenLogTime) {
-                            const splash = document.getElementById('splash-' + log.id);
-                            if (splash) {
-                                const stamp = document.createElement('div');
-                                stamp.className = 'cancel-stamp';
-                                stamp.innerText = 'لغو شد';
-                                splash.appendChild(stamp);
-                            } else {
-                                const qIdx = splashQueue.findIndex(sq => sq.logId === log.id);
-                                if (qIdx !== -1) {
-                                    splashQueue[qIdx].isCancelled = true;
-                                }
-                            }
-                        }
-                        if (log.timestamp && log.timestamp > maxTime) maxTime = log.timestamp;
+        (state.teams || []).forEach(t => {
+            (Array.isArray(t.scoreLogs) ? t.scoreLogs : []).forEach(log => {
+                if (!isFirstLoad && log.type === 'instant' && log.timestamp > lastSeenLogTime) {
+                    splashQueue.push({
+                        teamId: t.id,
+                        delta: log.value,
+                        teamName: t.name,
+                        score: t.score,
+                        logId: log.id,
+                        user: log.user,
+                        tag: log.tag || '',
+                        image: t.image || '',
+                        happyImage: t.happyImage || '',
+                        sadImage: t.sadImage || '',
+                        teamColor: t.color || ''
                     });
                 }
-            });
-        } else {
-            (state.teams || []).forEach(t => {
-                if (t.scoreLogs && Array.isArray(t.scoreLogs)) {
-                    t.scoreLogs.forEach(log => {
-                        if (log.timestamp && log.timestamp > maxTime) maxTime = log.timestamp;
-                    });
+                if (!isFirstLoad && log.type === 'cancelled' && log.timestamp > lastSeenLogTime) {
+                    const splash = document.getElementById('splash-' + log.id);
+                    if (splash) {
+                        const stamp = document.createElement('div');
+                        stamp.className = 'cancel-stamp';
+                        stamp.innerText = 'لغو شد';
+                        splash.appendChild(stamp);
+                    } else {
+                        const qIdx = splashQueue.findIndex(sq => sq.logId === log.id);
+                        if (qIdx !== -1) splashQueue[qIdx].isCancelled = true;
+                    }
                 }
+                if (log.timestamp && log.timestamp > maxTime) maxTime = log.timestamp;
             });
-            isFirstLoad = false;
-        }
+        });
+        isFirstLoad = false;
         lastSeenLogTime = maxTime;
 
         if (splashQueue.length > 0 && !isSplashing) {
@@ -280,7 +268,7 @@ function pollBoardState() {
 }
 
 pollBoardState();
-setInterval(pollBoardState, 1000);
+setInterval(pollBoardState, 1500);
 }
 
         // --- Audio & Visual Warning / Celebration Systems ---
@@ -541,7 +529,7 @@ setInterval(pollBoardState, 1000);
                 if (splashTagWrap) {
                     if (sp.tag) {
                         splashTagWrap.style.display = 'block';
-                        splashTagWrap.innerHTML = `<div class="splash-tag-badge" style="color: ${color};"><i data-lucide="tag" style="width: 15px; height: 15px;"></i> <span>${sp.tag}</span></div>`;
+                        splashTagWrap.innerHTML = `<div class="splash-tag-badge" style="color: ${color};"><i data-lucide="tag" style="width: 15px; height: 15px;"></i> <span>${esc(sp.tag)}</span></div>`;
                     } else {
                         splashTagWrap.style.display = 'none';
                     }
@@ -675,7 +663,7 @@ setInterval(pollBoardState, 1000);
                     bgLogoEl.style.backdropFilter = 'none';
                     bgLogoEl.style.webkitBackdropFilter = 'none';
                     bgLogoEl.style.boxShadow = 'none';
-                    bgLogoEl.style.backgroundImage = 'url(' + data.logo + ')';
+                    bgLogoEl.style.backgroundImage = 'url(' + JSON.stringify(safeUrl(data.logo)) + ')';
                     bgLogoEl.style.backgroundSize = 'contain';
                     bgLogoEl.style.backgroundRepeat = 'no-repeat';
                     bgLogoEl.style.backgroundPosition = 'center';
@@ -715,11 +703,11 @@ setInterval(pollBoardState, 1000);
                     row.id = 'team-' + teamKey;
                     row.className = 'board-row';
                     row.innerHTML = `
-                        <div class="team-row" style="position: relative; border-inline-start: 12px solid ${team.color || '#fff'};">
+                        <div class="team-row" style="position: relative; border-inline-start: 12px solid ${safeColor(team.color, '#fff')};">
                             <div class="rank-number" style="position: absolute; display: flex; justify-content: center; align-items: center; opacity: 0; transition: opacity 0.5s; font-weight: 800; color: var(--text-color);"></div>
                             <div class="name-container" style="display: flex; align-items: center; min-width: 0;">
                                 <div class="team-color-indicator" style="border-radius: 50%; flex-shrink: 0;"></div>
-                                <h2 class="team-name" style="margin: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0;">${team.name}</h2>
+                                <h2 class="team-name" style="margin: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0;">${esc(team.name)}</h2>
                             </div>
                             <h2 class="score-val" dir="ltr" style="margin: 0; text-shadow: 0 2px 5px rgba(0,0,0,0.3); font-variant-numeric: tabular-nums;">${formatNumber(team.score, data.numLang || 'fa')}</h2>
                         </div>
@@ -738,7 +726,7 @@ setInterval(pollBoardState, 1000);
 
                 const indicator = row.querySelector('.team-color-indicator');
                 indicator.style.background = team.color;
-                indicator.style.boxShadow = `0 0 10px ${team.color}`;
+                indicator.style.boxShadow = `0 0 10px ${safeColor(team.color, '#fff')}`;
                 
                 // Scale indicator
                 const indicatorSize = Math.max(12, ROW_HEIGHT * 0.25);

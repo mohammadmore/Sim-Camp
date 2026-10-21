@@ -6,3 +6,4 @@ cpanel_export/data/
 *.sqlite
 .DS_Store
 service-account*.json
+cpanel_export.zip

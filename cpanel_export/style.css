@@ -1,4 +1,4 @@
-@import url('https://cdn.jsdelivr.net/npm/vazirmatn@33.0.0/Vazirmatn-font-face.css');
+@import url('vendor/vazirmatn/Vazirmatn-font-face.css');
 
 :root {
     --success-color: #059669;
