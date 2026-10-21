@@ -307,10 +307,12 @@ window.ConnectionStatus = (function () {
         else if (!lastOk) { cls = 'warn'; text = 'در حال اتصال…'; }
         else text = age < 3 ? 'به‌روز' : `به‌روزرسانی ${fmtNum(age)} ثانیه پیش`;
         if (lastOk && cls !== 'ok') text += ` — آخرین داده: ${fmtNum(age)} ثانیه پیش`;
-        if (pendingCount) text += ` · ${fmtNum(pendingCount)} مورد در صف ارسال`;
-        el.className = 'conn-status conn-' + cls;
+        el.className = 'conn-status conn-' + cls + (el.dataset.extra ? ' ' + el.dataset.extra : '');
         el.querySelector('.conn-text').textContent = text;
-        el.setAttribute('aria-label', text);
+        const pend = el.querySelector('.conn-pending');
+        pend.textContent = pendingCount ? `${fmtNum(pendingCount)} مورد در صف ارسال` : '';
+        pend.style.display = pendingCount ? '' : 'none';
+        el.setAttribute('aria-label', text + (pendingCount ? ` — ${pendingCount} مورد در صف ارسال` : ''));
     }
     return {
         mount(opts) {
@@ -320,8 +322,8 @@ window.ConnectionStatus = (function () {
             el.className = 'conn-status';
             el.setAttribute('role', 'status');
             el.setAttribute('aria-live', 'polite');
-            el.innerHTML = '<span class="conn-dot"></span><span class="conn-text"></span>';
-            if (opts.className) el.classList.add(opts.className);
+            el.innerHTML = '<span class="conn-dot"></span><span class="conn-text"></span><span class="conn-pending" style="display:none"></span>';
+            if (opts.className) el.dataset.extra = opts.className;
             (opts.parent || document.body).appendChild(el);
             window.addEventListener('online', render);
             window.addEventListener('offline', render);

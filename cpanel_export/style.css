@@ -1164,21 +1164,28 @@ button {
         justify-content: center; /* Center the icon */
         min-width: 44px; /* Minimum touch target size */
     }
+    /* Icon + short label in a 3-column grid: every action stays visible and labelled */
+    .main-action-btn {
+        flex-direction: column;
+        gap: 4px;
+        padding: 10px 4px;
+        font-size: 12px;
+    }
     .main-action-btn .btn-text {
-        display: none;
+        display: block;
+        font-size: 12px;
+        line-height: 1.3;
     }
     .main-action-btn i, .main-action-btn svg {
         width: 20px;
         height: 20px;
         margin: 0; /* Remove any default margins */
     }
-    /* Update the container holding the buttons to prevent wrapping on very small screens */
     .action-buttons-container {
-        gap: 8px !important; /* Smaller gap */
-        flex-wrap: nowrap !important; /* Force single line */
+        display: grid !important;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 8px !important;
         width: 100%;
-        overflow-x: auto; /* Allow scrolling if it gets impossibly narrow (e.g., iPhone SE) */
-        padding-bottom: 5px; /* Space for potential scrollbar */
     }
     .action-buttons-container::-webkit-scrollbar {
         height: 4px;
@@ -1991,6 +1998,7 @@ body.ui-idle .conn-status.conn-ok { opacity: 0; pointer-events: none; }
     transition: opacity 0.4s;
     max-width: calc(100vw - 24px);
 }
+.conn-status .conn-pending { background: #1d4ed8; color: #fff; border-radius: 999px; padding: 1px 8px; font-size: 11px; }
 .conn-status .conn-dot { width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; background: #16a34a; }
 .conn-status.conn-warn { background: #fef3c7; color: #78350f; border-color: #f59e0b; }
 .conn-status.conn-warn .conn-dot { background: #d97706; }
@@ -2150,9 +2158,9 @@ body.ui-idle .conn-status.conn-ok { opacity: 0; pointer-events: none; }
 }
 
 .undo-toast {
-    position: fixed; bottom: 90px; left: 50%; transform: translateX(-50%);
-    z-index: 21000; display: flex; align-items: center; gap: 14px;
-    padding: 12px 16px; border-radius: 14px; max-width: calc(100vw - 24px);
+    position: fixed; bottom: 60px; left: 50%; transform: translateX(-50%);
+    z-index: 21000; display: flex; align-items: center; justify-content: space-between; gap: 14px;
+    padding: 12px 16px; border-radius: 14px; width: min(94vw, 520px);
     background: #0f172a; color: #fff; box-shadow: 0 10px 30px rgba(0,0,0,0.35);
     font-weight: 600; animation: toastIn 0.25s ease-out; transition: opacity 0.3s;
 }
@@ -2167,3 +2175,64 @@ body.ui-idle .conn-status.conn-ok { opacity: 0; pointer-events: none; }
 .fj-sw-use { background: #1d4ed8; color: #fff; border-color: #1d4ed8; }
 .fj-sw-time { font-size: 22px; font-weight: 800; font-variant-numeric: tabular-nums; min-width: 84px; text-align: center; color: var(--text-color); }
 .fj-time-hint { font-size: 11px; opacity: 0.8; margin-top: 6px; color: var(--text-color); }
+
+/* Camp management dialog (operator) */
+.manage-content { max-width: 720px; width: 95%; max-height: 90vh; overflow-y: auto; text-align: right; }
+.manage-tabs { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 14px; border-bottom: 1px solid var(--glass-border); padding-bottom: 10px; }
+.manage-tabs button { padding: 8px 14px; border-radius: 999px; font-size: 14px; font-weight: 700; background: var(--input-bg); border: 1px solid var(--glass-border); color: var(--text-color); cursor: pointer; }
+.manage-tabs button.active { background: #1d4ed8; color: #fff; border-color: #1d4ed8; }
+.manage-section { background: var(--input-bg); border: 1px solid var(--glass-border); border-radius: 14px; padding: 14px; margin-bottom: 12px; }
+.manage-section h3 { margin: 0 0 6px 0; font-size: 16px; }
+.manage-note { font-size: 13px; opacity: 0.85; margin: 0 0 10px 0; line-height: 1.8; }
+.manage-row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.manage-row select { flex: 1; min-width: 160px; padding: 10px; border-radius: 10px; font-family: inherit; }
+.manage-row button, .manage-section > button, .manage-link-btn { padding: 10px 14px; border-radius: 10px; font-weight: 700; font-size: 14px; cursor: pointer; text-align: center; text-decoration: none; color: var(--text-color); background: var(--glass-bg); border: 1px solid var(--glass-border); }
+.manage-primary { background: #1d4ed8 !important; color: #fff !important; border-color: #1d4ed8 !important; }
+.manage-danger { background: #b91c1c !important; color: #fff !important; border-color: #b91c1c !important; }
+.manage-badge { display: inline-block; font-size: 12px; padding: 2px 10px; border-radius: 999px; background: var(--glass-bg); border: 1px solid var(--glass-border); }
+.manage-links { display: flex; gap: 14px; align-items: center; flex-wrap: wrap; }
+.manage-qr { display: flex; flex-direction: column; align-items: center; gap: 4px; font-size: 12px; }
+.manage-qr svg { background: #fff; border-radius: 8px; width: 140px; height: 140px; }
+.manage-user { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 10px 12px; border-bottom: 1px solid var(--glass-border); }
+.manage-user button { padding: 8px 12px; border-radius: 10px; font-weight: 700; cursor: pointer; }
+.audit-list { display: flex; flex-direction: column; gap: 8px; }
+.audit-item { padding: 10px 12px; border-radius: 12px; background: var(--input-bg); border: 1px solid var(--glass-border); }
+.audit-head { display: flex; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+.audit-details { font-size: 13px; margin-top: 4px; line-height: 1.8; }
+
+/* Superadmin dashboard */
+.camp-filters { display: flex; gap: 10px; flex-wrap: wrap; margin: -10px auto 8px auto; max-width: 720px; }
+.camp-filters input { flex: 3; min-width: 200px; margin: 0; }
+.camp-filters select { flex: 1; min-width: 150px; margin: 0; }
+.camps-summary { font-size: 13px; opacity: 0.85; margin-bottom: 14px; }
+.camp-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 15px; }
+.camp-actions button, .camp-actions a {
+    padding: 9px 6px; display: flex; align-items: center; justify-content: center; gap: 6px;
+    border-radius: 12px; font-size: 13px; text-decoration: none; color: var(--text-color);
+}
+.camp-actions .lucide, .camp-actions svg { width: 16px; height: 16px; }
+.camp-actions .camp-wide { background: rgba(79, 172, 254, 0.12); }
+.camp-actions .camp-delete-btn { color: var(--danger-color); border-color: rgba(185, 28, 28, 0.4); background: var(--danger-bg); }
+.team-images { width: 100%; }
+.team-images > summary { cursor: pointer; font-size: 13px; font-weight: 700; padding: 4px 0; color: var(--text-color); }
+.setup-sticky-head {
+    position: sticky; top: -30px; z-index: 6; margin: -30px -30px 10px -30px; padding: 18px 30px 12px 30px;
+    display: flex; justify-content: space-between; align-items: center; gap: 12px;
+    background: var(--sticky-bg); backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);
+    border-bottom: 1px solid var(--glass-border); border-radius: 20px 20px 0 0;
+}
+.setup-save-top { padding: 9px 20px; border-radius: 10px; font-weight: 800; background: #15803d; color: #fff; border: 1px solid #15803d; cursor: pointer; }
+.setup-jump { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 16px; }
+.setup-jump a { font-size: 12px; padding: 4px 12px; border-radius: 999px; background: var(--input-bg); border: 1px solid var(--glass-border); color: var(--text-color); text-decoration: none; }
+.link-block { display: flex; gap: 14px; align-items: center; padding: 12px 0; border-bottom: 1px solid var(--glass-border); flex-wrap: wrap; }
+.link-qr svg { width: 120px; height: 120px; background: #fff; border-radius: 8px; display: block; }
+.link-info { flex: 1; min-width: 200px; display: flex; flex-direction: column; gap: 6px; }
+.link-info input { font-size: 12px; padding: 8px; border-radius: 8px; width: 100%; box-sizing: border-box; }
+@media (max-width: 650px) {
+    .setup-sticky-head { margin: -30px -16px 10px -16px; padding: 14px 16px 10px 16px; }
+}
+
+.setup-sticky-head .close-btn { position: static; font-size: 28px; line-height: 1; }
+
+:root, [data-theme="light"] { --sticky-bg: rgba(238, 234, 252, 0.97); }
+[data-theme="dark"] { --sticky-bg: rgba(22, 20, 48, 0.97); }

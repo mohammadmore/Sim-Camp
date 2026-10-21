@@ -74,6 +74,7 @@
         
     </script>
     <script src="vendor/xlsx-0.18.5.full.min.js"></script>
+    <script src="vendor/qrcode-generator-1.4.4.js"></script>
 </head>
 <body>
     <button onclick="toggleTheme()" class="theme-toggle" title="تغییر پوسته"><i data-lucide="moon"></i></button>
@@ -98,19 +99,31 @@
             <button onclick="showExcelGuide()" class="main-action-btn" style="background: var(--blue-bg); color: var(--blue-color); border: 1px solid var(--blue-border);" title="بارگذاری اطلاعات رویداد از فایل اکسل">
                 <i data-lucide="file-spreadsheet"></i> <span class="btn-text">ورود اکسل</span>
             </button>
-            <button onclick="toggleAllCampsView()" id="toggleAllCampsBtn" class="main-action-btn" style="background: rgba(255, 255, 255, 0.15); color: var(--text-color); border: 1px solid var(--glass-border);" title="نمایش همه مسابقات (آرشیو شده و فعال)">
-                <i data-lucide="layers"></i> <span class="btn-text">مسابقات</span>
-            </button>
+
             <button onclick="openGlobalSettings()" class="main-action-btn" style="background: rgba(255, 255, 255, 0.15); color: var(--text-color); border: 1px solid var(--glass-border);" title="تنظیمات کلی سیستم و سوپرادمین">
                 <i data-lucide="settings"></i> <span class="btn-text">تنظیمات</span>
             </button>
-            <a href="cpanel_export.zip" download class="main-action-btn" style="background: rgba(168, 85, 247, 0.2); color: #c084fc; border: 1px solid rgba(168, 85, 247, 0.4); text-decoration: none;" title="دانلود بسته آماده برای استقرار روی هاست سی‌پنل (cPanel)">
+            <button type="button" id="cpanelPackageBtn" onclick="downloadCpanelPackage()" class="main-action-btn" style="background: rgba(168, 85, 247, 0.18); color: var(--tx-indigo); border: 1px solid rgba(168, 85, 247, 0.5);" title="دانلود بسته آماده برای استقرار روی هاست سی‌پنل">
                 <i data-lucide="archive"></i> <span class="btn-text">بسته cPanel</span>
-            </a>
+            </button>
+            <button type="button" onclick="showSuperadminHelp()" class="main-action-btn" style="background: rgba(255, 255, 255, 0.15); color: var(--text-color); border: 1px solid var(--glass-border);" title="راهنما">
+                <i data-lucide="circle-help"></i> <span class="btn-text">راهنما</span>
+            </button>
             <button onclick="superadminLogout()" class="main-action-btn" style="background: rgba(255, 76, 76, 0.15); color: var(--danger-color); border: 1px solid rgba(255, 76, 76, 0.3);" title="خروج از حساب سوپرادمین">
                 <i data-lucide="log-out"></i> <span class="btn-text">خروج</span>
             </button>
         </div>
+        <div class="camp-filters">
+            <input type="search" id="campSearch" class="settings-input" placeholder="جستجوی عنوان، سازمان یا شناسه…" oninput="renderCampsGrid()" aria-label="جستجوی مسابقات">
+            <select id="campFilter" class="settings-input" onchange="renderCampsGrid()" aria-label="فیلتر وضعیت">
+                <option value="active">فعال و قفل‌شده</option>
+                <option value="open">فقط فعال</option>
+                <option value="locked">قفل / پایان‌یافته</option>
+                <option value="archived">آرشیو</option>
+                <option value="all">همه</option>
+            </select>
+        </div>
+        <div id="campsSummary" class="camps-summary" aria-live="polite"></div>
         <div id="campsGrid" class="dashboard-grid">
             <!-- Cards go here -->
         </div>
@@ -137,6 +150,13 @@
                 </button>
                 <button onclick="closeGlobalSettings()" style="flex: 1; padding: 12px; background: var(--input-bg);" title="انصراف و بستن تنظیمات">لغو</button>
             </div>
+            <form onsubmit="event.preventDefault(); changeSuperadminPassword();" style="margin-top: 25px; padding-top: 18px; border-top: 1px solid var(--glass-border); display: flex; flex-direction: column; gap: 10px;">
+                <h4 style="margin: 0; display: flex; align-items: center; gap: 8px;"><i data-lucide="key-round"></i> تغییر رمز سوپرادمین</h4>
+                <input type="password" id="saCurrentPass" class="settings-input" placeholder="رمز فعلی" autocomplete="current-password">
+                <input type="password" id="saNewPass" class="settings-input" placeholder="رمز جدید (حداقل ۶ کاراکتر)" autocomplete="new-password">
+                <input type="password" id="saNewPass2" class="settings-input" placeholder="تکرار رمز جدید" autocomplete="new-password">
+                <button type="submit" style="padding: 12px;">تغییر رمز</button>
+            </form>
         </div>
     </div>
     
@@ -205,13 +225,21 @@
     </div>
 
     <!-- Setup / Edit Modal Overlay -->
-    <div id="setupModal" class="modal-overlay" style="position: fixed; inset: 0; width: 100vw; height: 100vh; z-index: 1200; overflow-y: auto; padding: 25px 12px; box-sizing: border-box; align-items: center; justify-content: center;">
+    <div id="setupModal" class="modal-overlay" data-guard="setup" style="position: fixed; inset: 0; width: 100vw; height: 100vh; z-index: 1200; overflow-y: auto; padding: 25px 12px; box-sizing: border-box; align-items: center; justify-content: center;">
         <div id="setupSection" class="glass modal-content" style="padding: 30px; width: 95%; max-width: 650px; max-height: 88vh; overflow-y: auto; position: relative; border-radius: 20px; box-sizing: border-box; margin: auto;">
-            <span class="close-btn" onclick="backToDashboard()" title="بستن" style="top: 20px; left: 20px; right: auto;">&times;</span>
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; padding-left: 35px;">
-                <h2 id="setupFormTitle" style="margin: 0; font-size: 24px;">تنظیمات مسابقه</h2>
-                <button onclick="backToDashboard()" class="icon-btn" style="font-size: 14px; padding: 6px 14px;" title="بازگشت به داشبورد و لیست رویدادها">بازگشت به داشبورد</button>
+            <div class="setup-sticky-head">
+                <h2 id="setupFormTitle" style="margin: 0; font-size: 22px;">تنظیمات مسابقه</h2>
+                <div style="display: flex; gap: 8px; align-items: center;">
+                    <button type="button" onclick="createCamp()" class="setup-save-top" title="ذخیره همه تغییرات">ذخیره</button>
+                    <span class="close-btn" onclick="backToDashboard()" title="بستن">&times;</span>
+                </div>
             </div>
+            <nav class="setup-jump" aria-label="بخش‌های فرم">
+                <a href="#orgName" onclick="jumpTo(event, 'orgName')">اطلاعات کلی</a>
+                <a href="#teamsList" onclick="jumpTo(event, 'teamsList')">تیم‌ها</a>
+                <a href="#stagesList" onclick="jumpTo(event, 'stagesList')">مراحل</a>
+                <a href="#usersList" onclick="jumpTo(event, 'usersList')">کاربران</a>
+            </nav>
         
         <input type="hidden" id="editCampId">
 
@@ -433,6 +461,22 @@
         function closeGlobalSettings() {
             hideModal('globalSettingsModal');
         }
+
+        function changeSuperadminPassword() {
+            const cur = document.getElementById('saCurrentPass').value;
+            const p1 = document.getElementById('saNewPass').value;
+            const p2 = document.getElementById('saNewPass2').value;
+            if (p1.length < 6) return window.showToast('رمز جدید باید حداقل ۶ کاراکتر باشد.', 'error');
+            if (p1 !== p2) return window.showToast('تکرار رمز جدید مطابقت ندارد.', 'error');
+            fetch('/superadmin/password', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ currentPassword: cur, newPassword: p1 }) })
+                .then(jsonOrThrow)
+                .then(res => {
+                    if (res.token) Auth.set(res.token);
+                    ['saCurrentPass', 'saNewPass', 'saNewPass2'].forEach(i => { document.getElementById(i).value = ''; });
+                    window.showToast('رمز سوپرادمین تغییر کرد.', 'success');
+                })
+                .catch(e => window.showToast(e.message, 'error'));
+        }
         
         function closeExcelGuide() {
             hideModal('excelGuideModal');
@@ -625,6 +669,7 @@
                     hideModal('loginSection');
                     setTimeout(() => { showModal('dashboardSection', 'block'); }, 280);
                     loadCamps();
+                    Help.once('superadmin', 'راهنمای پنل سوپرادمین', SUPERADMIN_HELP);
                 } else {
                     Auth.clear();
                     document.getElementById('saErrorMsg').innerText = data.message || data.error;
@@ -695,105 +740,77 @@
     
         
         let allFetchedCamps = [];
-        let viewingAllCamps = false;
 
-        function toggleAllCampsView() {
-            const grid = document.getElementById('campsGrid');
-            grid.style.opacity = '0';
-            grid.style.transform = 'translateY(10px)';
-            grid.style.transition = 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)';
-            
-            setTimeout(() => {
-            viewingAllCamps = !viewingAllCamps;
-            const btn = document.getElementById('toggleAllCampsBtn');
-            if (viewingAllCamps) {
-                btn.style.background = 'var(--blue-bg)';
-                btn.style.color = 'var(--blue-color)';
-                btn.innerHTML = '<i data-lucide="layers"></i> <span class="btn-text">فقط فعال‌ها</span>';
-            } else {
-                btn.style.background = 'rgba(255, 255, 255, 0.15)';
-                btn.style.color = 'var(--text-color)';
-                btn.innerHTML = '<i data-lucide="layers"></i> <span class="btn-text">مسابقات</span>';
-            }
-            if(typeof refreshIcons === 'function') refreshIcons();
-            renderCampsGrid();
-            
-            grid.style.opacity = '1';
-            grid.style.transform = 'translateY(0)';
-            }, 200);
+        function campMatchesFilter(camp) {
+            const f = document.getElementById('campFilter').value;
+            const locked = !!camp.locked;
+            if (f === 'archived') return !!camp.archived;
+            if (f === 'all') return true;
+            if (camp.archived) return false;
+            if (f === 'open') return !locked;
+            if (f === 'locked') return locked;
+            return true;
         }
 
         function toggleArchive(id, status, btnElement) {
             const card = btnElement.closest('.camp-card');
-            if(card) {
-                if(!viewingAllCamps) {
-                    const targetBtn = document.getElementById('toggleAllCampsBtn');
-                    const cardRect = card.getBoundingClientRect();
-                    const targetRect = targetBtn.getBoundingClientRect();
-                    
-                    // Calculate translation distance
-                    const deltaX = (targetRect.left + targetRect.width / 2) - (cardRect.left + cardRect.width / 2);
-                    const deltaY = (targetRect.top + targetRect.height / 2) - (cardRect.top + cardRect.height / 2);
-                    
-                    // Set relative position so z-index works to fly over everything
-                    card.style.position = 'relative';
-                    card.style.zIndex = '2500';
-                    card.style.pointerEvents = 'none'; // Avoid intercepting clicks
-                    
-                    // Apply smooth fly-away transform
-                    card.style.transition = 'transform 0.6s cubic-bezier(0.5, 0, 0.2, 1), opacity 0.5s ease-out';
-                    card.style.transform = `translate(${deltaX}px, ${deltaY}px) scale(0.05)`;
-                    card.style.opacity = '0';
-                    
-                    // Pulse the target button slightly when the card "arrives"
-                    setTimeout(() => {
-                        targetBtn.style.transform = 'scale(1.1)';
-                        targetBtn.style.transition = 'transform 0.2s';
-                        setTimeout(() => targetBtn.style.transform = 'scale(1)', 200);
-                    }, 500);
-
-                } else {
-                    card.style.opacity = status ? '0.6' : '1';
-                    btnElement.style.opacity = '0.5';
-                    btnElement.innerText = 'درحال ثبت...';
-                }
+            const willHide = card && !campMatchesFilter({ ...allFetchedCamps.find(c => c.id === id), archived: status });
+            if (card && willHide) {
+                // Fly the card into the filter box so it is clear where it went.
+                const targetBtn = document.getElementById('campFilter');
+                const cardRect = card.getBoundingClientRect();
+                const targetRect = targetBtn.getBoundingClientRect();
+                const deltaX = (targetRect.left + targetRect.width / 2) - (cardRect.left + cardRect.width / 2);
+                const deltaY = (targetRect.top + targetRect.height / 2) - (cardRect.top + cardRect.height / 2);
+                card.style.position = 'relative';
+                card.style.zIndex = '2500';
+                card.style.pointerEvents = 'none';
+                card.style.transition = 'transform 0.6s cubic-bezier(0.5, 0, 0.2, 1), opacity 0.5s ease-out';
+                card.style.transform = `translate(${deltaX}px, ${deltaY}px) scale(0.05)`;
+                card.style.opacity = '0';
+            } else if (card) {
+                btnElement.style.opacity = '0.5';
+                btnElement.innerText = 'درحال ثبت...';
             }
-            
             setTimeout(() => {
                 fetch(`/superadmin/camps/${id}/archive`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ archived: status })
                 })
-                .then(res => res.json())
-                .then(data => {
-                    if (data.success) loadCamps();
-                });
-            }, !viewingAllCamps ? 600 : 0);
+                .then(jsonOrThrow)
+                .then(() => {
+                    loadCamps();
+                    window.showToast(status ? 'مسابقه آرشیو شد (از فیلتر «آرشیو» قابل مشاهده است).' : 'مسابقه از آرشیو خارج شد.', 'success');
+                })
+                .catch(e => { window.showToast(e.message, 'error'); loadCamps(); });
+            }, willHide ? 600 : 0);
         }
 
         function loadCamps() {
             fetch('/superadmin/camps')
-            .then(res => res.json())
+            .then(jsonOrThrow)
             .then(data => {
-                if (data.success) {
-                    allFetchedCamps = data.camps;
-                    renderCampsGrid();
-                }
-            });
+                allFetchedCamps = data.camps;
+                renderCampsGrid();
+            })
+            .catch(e => { if (e.status !== 401) window.showToast('دریافت فهرست مسابقات انجام نشد: ' + e.message, 'error'); });
         }
 
         function renderCampsGrid() {
             const grid = document.getElementById('campsGrid');
             grid.innerHTML = '';
-            
-            let campsToShow = allFetchedCamps;
-            if (!viewingAllCamps) {
-                campsToShow = allFetchedCamps.filter(c => !c.archived);
-            }
-            
+            const q = toEnDigits(document.getElementById('campSearch').value).trim().toLowerCase();
+            const campsToShow = allFetchedCamps.filter(campMatchesFilter).filter(c => !q ||
+                [c.title, c.orgName, c.id].some(v => String(v || '').toLowerCase().includes(q)));
+            const archivedCount = allFetchedCamps.filter(c => c.archived).length;
+            document.getElementById('campsSummary').textContent =
+                `${fmtNum(campsToShow.length)} مورد از ${fmtNum(allFetchedCamps.length)} مسابقه` + (archivedCount ? ` · ${fmtNum(archivedCount)} مسابقه در آرشیو` : '');
+
             if (campsToShow.length === 0) {
-                grid.innerHTML = '<p>هیچ مسابقه‌ای برای نمایش وجود ندارد.</p>';
+                grid.innerHTML = allFetchedCamps.length === 0
+                    ? '<div class="empty-state"><span class="empty-icon">🏕️</span>هنوز مسابقه‌ای ساخته نشده است.<br><small>با «مسابقه جدید» یا «ورود اکسل» شروع کنید.</small></div>'
+                    : '<div class="empty-state"><span class="empty-icon">🔍</span>مسابقه‌ای با این جستجو یا فیلتر پیدا نشد.</div>';
                 return;
             }
 
@@ -801,52 +818,107 @@
                 const card = document.createElement('div');
                 card.className = 'camp-card fade-in-up';
                 card.style.animationDelay = `${index * 0.05}s`;
-                if (camp.archived) card.style.opacity = '0.6';
+                if (camp.archived) card.style.opacity = '0.75';
                 
-                const isLocked = camp.locked === 1;
+                const isLocked = !!camp.locked;
                 const statusBadge = isLocked 
                     ? '<span class="camp-badge badge-locked"><i data-lucide="lock"></i> قفل شده</span>'
                     : '<span class="camp-badge badge-active"><i data-lucide="check-circle" style="width: 14px; height: 14px; margin-left: 5px;"></i> فعال</span>';
-
                 const archiveBtn = camp.archived
-                    ? `<button onclick="toggleArchive('${camp.id}', false, this)" title="خروج از آرشیو" style="width: 100%; padding: 10px; display: flex; align-items: center; justify-content: center; gap: 8px; background: rgba(255, 165, 0, 0.15); color: #ffa500; border: 1px solid rgba(255, 165, 0, 0.3); border-radius: 12px;">
-                            <i data-lucide="arrow-up-circle" style="width: 16px; height: 16px;"></i> خروج از آرشیو
-                        </button>`
-                    : `<button onclick="toggleArchive('${camp.id}', true, this)" title="آرشیو این رویداد" style="width: 100%; padding: 10px; display: flex; align-items: center; justify-content: center; gap: 8px; background: rgba(100, 100, 100, 0.2); border: 1px solid rgba(100,100,100,0.3); border-radius: 12px; color: var(--text-color);">
-                            <i data-lucide="archive" style="width: 16px; height: 16px;"></i> آرشیو
-                        </button>`;
+                    ? `<button onclick="toggleArchive('${camp.id}', false, this)" title="خروج از آرشیو"><i data-lucide="arrow-up-circle"></i> خروج از آرشیو</button>`
+                    : `<button onclick="toggleArchive('${camp.id}', true, this)" title="آرشیو این رویداد"><i data-lucide="archive"></i> آرشیو</button>`;
                 
                 card.innerHTML = `
                     <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 5px;">
-                        <div style="flex-grow: 1; padding-left: 10px;">
+                        <div style="flex-grow: 1; padding-left: 10px; min-width: 0;">
                             <h3 style="margin: 0 0 8px 0; font-size: 18px; line-height: 1.4;">${esc(camp.title || 'بدون عنوان')}</h3>
-                            <div style="font-size: 13px; opacity: 0.7; display: flex; align-items: center; gap: 5px;">
+                            <div style="font-size: 13px; opacity: 0.8; display: flex; align-items: center; gap: 5px;">
                                 <i data-lucide="building-2" style="width: 14px; height: 14px;"></i> 
                                 ${esc(camp.orgName || '-')}
                             </div>
                         </div>
                         ${statusBadge}
                     </div>
-                    
-                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 15px;">
-                        <button onclick="openSetupMode('${camp.id}')" title="ویرایش تنظیمات" style="padding: 10px; display: flex; align-items: center; justify-content: center; gap: 8px; border-radius: 12px;">
-                            <i data-lucide="edit-2" style="width: 16px; height: 16px;"></i> ویرایش
-                        </button>
-                        <button onclick="toggleLock('${camp.id}', ${!isLocked})" title="${isLocked ? 'باز کردن' : 'قفل کردن'}" style="padding: 10px; display: flex; align-items: center; justify-content: center; gap: 8px; background: rgba(255, 76, 76, 0.15); color: var(--danger-color); border: 1px solid rgba(255, 76, 76, 0.3); border-radius: 12px;">
-                            ${isLocked ? '<i data-lucide="unlock" style="width: 16px; height: 16px;"></i> باز' : '<i data-lucide="lock" style="width: 16px; height: 16px;"></i> قفل'}
-                        </button>
-                        <div style="grid-column: span 2;">
-                            ${archiveBtn}
-                        </div>
-                        <a href="operator.html?id=${camp.id}" target="_blank" class="icon-btn" style="grid-column: span 2; display: flex; align-items: center; justify-content: center; gap: 8px; background: rgba(79, 172, 254, 0.1); color: #4facfe; border: 1px solid rgba(79, 172, 254, 0.2); text-decoration: none; font-size: 14px; padding: 12px; border-radius: 12px; width: 100%; box-sizing: border-box; transition: all 0.3s;">
-                            <i data-lucide="external-link" style="width: 16px; height: 16px;"></i> پنل اپراتور
-                        </a>
+                    <div class="camp-actions">
+                        <button onclick="openSetupMode('${camp.id}')" title="ویرایش تنظیمات"><i data-lucide="edit-2"></i> ویرایش</button>
+                        <button onclick="toggleLock('${camp.id}', ${!isLocked})" title="${isLocked ? 'باز کردن قفل و امکان ثبت امتیاز' : 'قفل کردن ثبت امتیاز'}">${isLocked ? '<i data-lucide="unlock"></i> باز کردن' : '<i data-lucide="lock"></i> قفل'}</button>
+                        <button onclick="openCampLinks('${camp.id}')" title="لینک‌ها و QR"><i data-lucide="qr-code"></i> لینک‌ها و QR</button>
+                        <button onclick="duplicateCamp('${camp.id}')" title="ساخت دوره جدید با همین تیم‌ها، مراحل و کاربران"><i data-lucide="copy"></i> تکثیر</button>
+                        ${archiveBtn}
+                        <button onclick="deleteCamp('${camp.id}')" class="camp-delete-btn" title="حذف دائمی مسابقه"><i data-lucide="trash-2"></i> حذف</button>
+                        <a href="operator.html?id=${camp.id}" target="_blank" class="icon-btn camp-wide"><i data-lucide="external-link"></i> پنل اپراتور</a>
+                        <a href="board.html?id=${camp.id}" target="_blank" class="icon-btn camp-wide"><i data-lucide="monitor"></i> تابلوی زنده</a>
                     </div>
                 `;
                 grid.appendChild(card);
             });
             if(typeof refreshIcons === 'function') refreshIcons();
         }
+
+        function campById(id) { return allFetchedCamps.find(c => c.id === id) || {}; }
+
+        function duplicateCamp(id) {
+            const src = campById(id);
+            const title = prompt('عنوان مسابقه جدید (تیم‌ها، مراحل و کاربران کپی می‌شوند؛ امتیازها خیر):', `${src.title || ''} (دوره جدید)`);
+            if (title === null) return;
+            fetch(`/superadmin/camps/${id}/duplicate`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ title }) })
+                .then(jsonOrThrow)
+                .then(() => { window.showToast('مسابقه جدید ساخته شد.', 'success'); loadCamps(); })
+                .catch(e => window.showToast('تکثیر انجام نشد: ' + e.message, 'error'));
+        }
+
+        function deleteCamp(id) {
+            const camp = campById(id);
+            const name = camp.title || 'بدون عنوان';
+            const typed = prompt(`حذف دائمی «${name}»\n\nهمه تیم‌ها، امتیازها، کاربران و تاریخچه این مسابقه برای همیشه پاک می‌شود و قابل بازگشت نیست.\nاگر فقط می‌خواهید از فهرست پنهان شود، «آرشیو» را بزنید.\n\nبرای تأیید، عنوان مسابقه را دقیقاً وارد کنید:`);
+            if (typed === null) return;
+            if (typed.trim() !== name.trim()) return window.showToast('عنوان واردشده مطابقت ندارد؛ مسابقه حذف نشد.', 'error');
+            fetch(`/superadmin/camps/${id}/delete`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' })
+                .then(jsonOrThrow)
+                .then(() => { window.showToast(`«${name}» حذف شد.`, 'success'); loadCamps(); })
+                .catch(e => window.showToast('حذف انجام نشد: ' + e.message, 'error'));
+        }
+
+        function openCampLinks(id) {
+            const camp = campById(id);
+            const op = appUrl('operator.html?id=' + id);
+            const board = appUrl('board.html?id=' + id);
+            const results = appUrl('results.html?id=' + id);
+            const block = (title, url, note) => `
+                <div class="link-block">
+                    <div class="link-qr">${qrSvg(url, 4)}</div>
+                    <div class="link-info">
+                        <b>${title}</b><span class="manage-note">${note}</span>
+                        <input type="text" readonly value="${esc(url)}" dir="ltr" onclick="this.select()" aria-label="${title}">
+                        <div class="manage-row">
+                            <button type="button" onclick="copyText(${jsArg(url)})">کپی لینک</button>
+                            <a class="manage-link-btn" href="${esc(url)}" target="_blank" rel="noopener">باز کردن</a>
+                        </div>
+                    </div>
+                </div>`;
+            Help.show(`لینک‌های «${camp.title || ''}»`,
+                block('ورود اپراتور و داوران', op, 'این لینک را به اپراتور و داورها بدهید؛ با نام کاربری و رمز خود وارد می‌شوند.') +
+                block('تابلوی زنده', board, 'برای نمایش روی تلویزیون یا پروژکتور؛ نیاز به ورود ندارد.') +
+                block('نتایج و تقدیرنامه (چاپ)', results, 'جدول نتایج و تقدیرنامه‌ها برای چاپ یا ذخیره PDF.'));
+        }
+
+        function downloadCpanelPackage() {
+            fetch('cpanel_export.zip', { method: 'HEAD' }).then(r => {
+                if (r.ok) { window.location.href = 'cpanel_export.zip'; return; }
+                window.showToast('بسته cPanel هنوز ساخته نشده است. در سرور دستور «npm run build:cpanel» را اجرا کنید.', 'error');
+            }).catch(() => window.showToast('دریافت بسته انجام نشد.', 'error'));
+        }
+
+        const SUPERADMIN_HELP = `
+            <ul>
+                <li><b>مسابقه جدید:</b> نام سازمان، عنوان، تیم‌ها، مراحل و کاربران (اپراتور، سرداور، داور) را وارد و ذخیره کنید. یا از «ورود اکسل» استفاده کنید.</li>
+                <li><b>لینک‌ها و QR:</b> لینک ورود داوران و تابلوی زنده را کپی کنید یا QR را برای اسکن نشان دهید.</li>
+                <li><b>قفل:</b> ثبت امتیاز را متوقف می‌کند (اپراتور هم می‌تواند با «پایان مسابقه» قفل کند؛ باز کردن فقط از اینجا).</li>
+                <li><b>تکثیر:</b> برای دوره بعدی، همان تیم‌ها، مراحل و کاربران با امتیاز صفر ساخته می‌شوند.</li>
+                <li><b>آرشیو</b> مسابقه را پنهان می‌کند؛ <b>حذف</b> برای همیشه پاک می‌کند.</li>
+                <li><b>تنظیمات:</b> لوگوی سیستم و تغییر رمز سوپرادمین.</li>
+            </ul>`;
+        function showSuperadminHelp() { Help.show('راهنمای پنل سوپرادمین', SUPERADMIN_HELP); }
 
         function toggleLock(id, lockStatus) {
             fetch(`/superadmin/camps/${id}/lock`, {
@@ -860,7 +932,15 @@
             });
         }
 
-        function backToDashboard() {
+        function jumpTo(e, id) {
+            e.preventDefault();
+            const el = document.getElementById(id);
+            if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
+
+        function backToDashboard(force) {
+            if (force !== true && !FormGuard.confirmDiscard('setup')) return;
+            FormGuard.reset('setup');
             const sm = document.getElementById('setupModal');
             if (sm) {
                 sm.style.display = 'none';
@@ -1026,6 +1106,7 @@
     });
                         c.stages.forEach(s => addStage(s.name, s.id, s.unit, s.timeOrder, s.multiplier));
                         if(c.users) c.users.forEach(u => addUser(u.firstName, u.lastName, u.username, '', u.role, u.profilePic, u.id, !!u.hasPassword));
+                        FormGuard.reset('setup');
                     }
                 });
             } else {
@@ -1053,6 +1134,7 @@
                 setLogoMode('url');
                 updatePreview();
                 addTeam(); addStage(); addUser();
+                FormGuard.reset('setup');
             }
         }
 
@@ -1073,8 +1155,10 @@
                         <div class="color-btn" style="background-color: ${safeColor(color)};" data-value="${esc(color)}" onclick="openColorPicker(this)" title="انتخاب رنگ تیم"></div>
                     </div>
                     
+                    <details class="team-images" ${image || happyImage || sadImage ? 'open' : ''}>
+                    <summary>تصاویر تیم (اختیاری)${image || happyImage || sadImage ? ' — تنظیم شده' : ''}</summary>
                     <!-- عکس اصلی تیم ۱۶:۹ -->
-                    <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
+                    <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 8px;">
                         <div class="t-img-thumb" style="width: 56px; height: 31px; aspect-ratio: 16/9; border-radius: 6px; overflow: hidden; border: 1px solid var(--glass-border); flex-shrink: 0; background: var(--input-bg); display: flex; align-items: center; justify-content: center; position: relative;" title="پیش‌نمایش عکس اصلی ۱۶:۹">
                             ${image ? `<img src="${esc(safeUrl(image))}" style="width: 100%; height: 100%; object-fit: cover;" onerror="this.style.display='none'">` : `<i data-lucide="image" style="width: 14px; height: 14px; opacity: 0.5;"></i>`}
                             <span style="position: absolute; bottom: 1px; right: 2px; font-size: 7px; font-weight: bold; background: rgba(0,0,0,0.65); color: #fff; padding: 0 2px; border-radius: 2px; pointer-events: none;">16:9</span>
@@ -1111,6 +1195,7 @@
                             <input type="file" accept="image/*" class="t-photo-file-input" style="display: none;" onchange="handleSuperPhotoSelected(this, '.t-sad-image')">
                         </div>
                     </div>
+                    </details>
                 </div>
                 <div style="display: flex; flex-direction: column; gap: 4px; align-self: stretch; justify-content: center;">
                     <button onclick="moveItemUp(this.parentElement)" class="icon-btn" title="انتقال به بالا">▲</button>
@@ -1614,14 +1699,20 @@
                     return;
                 }
                 if(data.success) {
-                    const link = `operator.html?id=${data.campId}`;
-                    document.getElementById('result').style.display = 'block';
-                    document.getElementById('operatorLink').href = link;
-                    document.getElementById('operatorLink').innerText = window.location.origin + '/' + link;
-                    
+                    FormGuard.reset('setup');
+                    loadCamps();
                     if (campId) {
-                        alert("تغییرات با موفقیت ذخیره شد!");
-                        backToDashboard();
+                        window.showToast("تغییرات با موفقیت ذخیره شد.", 'success');
+                        backToDashboard(true);
+                    } else {
+                        // New camp: keep the form open with the links, then allow editing it right away.
+                        document.getElementById('editCampId').value = data.campId;
+                        document.getElementById('setupFormTitle').innerText = 'ویرایش مسابقه';
+                        const link = `operator.html?id=${data.campId}`;
+                        document.getElementById('result').style.display = 'block';
+                        document.getElementById('operatorLink').href = link;
+                        document.getElementById('operatorLink').innerText = appUrl(link);
+                        window.showToast("مسابقه ساخته شد. لینک‌ها را از «لینک‌ها و QR» در داشبورد هم می‌توانید بگیرید.", 'success');
                     }
                 }
             });
@@ -1646,13 +1737,6 @@
                     if (e.target.id === 'setupModal') backToDashboard();
                 });
             }
-            document.addEventListener('keydown', (e) => {
-                if (e.key === 'Escape') {
-                    if (sm && sm.style.display === 'flex') {
-                        backToDashboard();
-                    }
-                }
-            });
         });
     </script>
     

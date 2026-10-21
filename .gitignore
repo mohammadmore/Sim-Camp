@@ -7,3 +7,4 @@ cpanel_export/data/
 .DS_Store
 service-account*.json
 cpanel_export.zip
+public/cpanel_export.zip

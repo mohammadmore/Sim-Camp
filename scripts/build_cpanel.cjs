@@ -18,7 +18,7 @@ function copyDir(src, dst) {
         const s = path.join(src, entry.name);
         const d = path.join(dst, entry.name);
         if (entry.isDirectory()) copyDir(s, d);
-        else if (!entry.name.endsWith('.html')) fs.copyFileSync(s, d);
+        else if (!entry.name.endsWith('.html') && entry.name !== 'cpanel_export.zip') fs.copyFileSync(s, d);
     }
 }
 
@@ -65,11 +65,8 @@ function assertNoAbsoluteApiUrls(name, html) {
 
 // 1. superadmin.html
 let sa = toPhpUrls(fs.readFileSync(path.join(SRC, 'superadmin.html'), 'utf8'));
-// Operator links must work from a sub-folder (e.g. public_html/camp/)
-sa = sa.replace(
-    "document.getElementById('operatorLink').innerText = window.location.origin + '/' + link;",
-    "const currentPath = window.location.pathname.substring(0, window.location.pathname.lastIndexOf('/') + 1);\n                    document.getElementById('operatorLink').innerText = window.location.origin + currentPath + link;"
-);
+// The cPanel package download only makes sense on the Node server.
+sa = sa.replace(/\s*<button type="button" id="cpanelPackageBtn"[\s\S]*?<\/button>/, '');
 assertNoAbsoluteApiUrls('superadmin.html', sa);
 fs.writeFileSync(path.join(OUT, 'superadmin.html'), sa, 'utf8');
 console.log('✓ superadmin.html');
@@ -161,7 +158,8 @@ for (const name of fs.readdirSync(SRC).filter(f => f.endsWith('.html') && !['sup
 
 // 5. Optional upload bundle
 try {
-    const zipPath = path.join(ROOT, 'cpanel_export.zip');
+    // Served by the Node app so the superadmin can download it ("بسته cPanel").
+    const zipPath = path.join(SRC, 'cpanel_export.zip');
     fs.rmSync(zipPath, { force: true });
     execFileSync('zip', ['-qr', zipPath, '.', '-x', 'data/*'], { cwd: OUT });
     console.log('✓ cpanel_export.zip');
