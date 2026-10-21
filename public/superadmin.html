@@ -1115,7 +1115,7 @@
                 <div style="display: flex; flex-direction: column; gap: 4px; align-self: stretch; justify-content: center;">
                     <button onclick="moveItemUp(this.parentElement)" class="icon-btn" title="انتقال به بالا">▲</button>
                     <button onclick="moveItemDown(this.parentElement)" class="icon-btn" title="انتقال به پایین">▼</button>
-                    <button onclick="this.parentElement.remove()" class="icon-btn remove-btn" title="حذف">×</button>
+                    <button onclick="confirmRemoveItem(this, 'team')" class="icon-btn remove-btn" title="حذف تیم">×</button>
                 </div>
             `;
             list.appendChild(item);
@@ -1265,7 +1265,7 @@
                     <div style="display: flex; gap: 4px; align-items: center;">
                         <button type="button" onclick="moveItemUp(this)" class="icon-btn" title="انتقال به بالا">▲</button>
                         <button type="button" onclick="moveItemDown(this)" class="icon-btn" title="انتقال به پایین">▼</button>
-                        <button type="button" onclick="this.closest('.dynamic-item').remove()" class="icon-btn remove-btn" title="حذف">×</button>
+                        <button type="button" onclick="confirmRemoveItem(this, 'stage')" class="icon-btn remove-btn" title="حذف مرحله">×</button>
                     </div>
                 </div>
             `;
@@ -1307,7 +1307,7 @@
                         </div>
                     </div>
                 </div>
-                <button onclick="this.parentElement.remove()" class="icon-btn remove-btn" title="حذف" style="height: auto; align-self: stretch;">×</button>
+                <button onclick="confirmRemoveItem(this, 'user')" class="icon-btn remove-btn" title="حذف کاربر" style="height: auto; align-self: stretch;">×</button>
             `;
             list.appendChild(item);
             if(typeof refreshIcons === 'function') refreshIcons();

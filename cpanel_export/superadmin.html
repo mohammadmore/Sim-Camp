@@ -4,8 +4,8 @@
     <link rel="icon" type="image/svg+xml" href="favicon.svg">
     <link rel="icon" type="image/png" href="favicon.png">
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <link rel="stylesheet" href="style.css?v=2">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="stylesheet" href="style.css?v=12">
     <title>پنل سوپرادمین - سیمولیشن کمپ</title>    <script src="vendor/lucide-1.61.0.min.js"></script>
     <script src="common.js"></script>
     <script>
@@ -1115,7 +1115,7 @@
                 <div style="display: flex; flex-direction: column; gap: 4px; align-self: stretch; justify-content: center;">
                     <button onclick="moveItemUp(this.parentElement)" class="icon-btn" title="انتقال به بالا">▲</button>
                     <button onclick="moveItemDown(this.parentElement)" class="icon-btn" title="انتقال به پایین">▼</button>
-                    <button onclick="this.parentElement.remove()" class="icon-btn remove-btn" title="حذف">×</button>
+                    <button onclick="confirmRemoveItem(this, 'team')" class="icon-btn remove-btn" title="حذف تیم">×</button>
                 </div>
             `;
             list.appendChild(item);
@@ -1265,7 +1265,7 @@
                     <div style="display: flex; gap: 4px; align-items: center;">
                         <button type="button" onclick="moveItemUp(this)" class="icon-btn" title="انتقال به بالا">▲</button>
                         <button type="button" onclick="moveItemDown(this)" class="icon-btn" title="انتقال به پایین">▼</button>
-                        <button type="button" onclick="this.closest('.dynamic-item').remove()" class="icon-btn remove-btn" title="حذف">×</button>
+                        <button type="button" onclick="confirmRemoveItem(this, 'stage')" class="icon-btn remove-btn" title="حذف مرحله">×</button>
                     </div>
                 </div>
             `;
@@ -1307,7 +1307,7 @@
                         </div>
                     </div>
                 </div>
-                <button onclick="this.parentElement.remove()" class="icon-btn remove-btn" title="حذف" style="height: auto; align-self: stretch;">×</button>
+                <button onclick="confirmRemoveItem(this, 'user')" class="icon-btn remove-btn" title="حذف کاربر" style="height: auto; align-self: stretch;">×</button>
             `;
             list.appendChild(item);
             if(typeof refreshIcons === 'function') refreshIcons();

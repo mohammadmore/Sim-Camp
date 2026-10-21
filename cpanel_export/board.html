@@ -4,8 +4,8 @@
     <link rel="icon" type="image/svg+xml" href="favicon.svg">
     <link rel="icon" type="image/png" href="favicon.png">
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <link rel="stylesheet" href="style.css?v=11">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="stylesheet" href="style.css?v=12">
     <title>جدول زنده سیمولیشن کمپ</title>
     <script src="vendor/lucide-1.61.0.min.js"></script>
     <script src="common.js"></script>
@@ -33,6 +33,9 @@
 <body style="overflow: hidden; height: 100vh; padding: 10px; box-sizing: border-box; margin: 0; display: flex; flex-direction: column;">
     <div id="bgLogo" style="position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 80vmin; height: 80vmin; z-index: -1; pointer-events: none; display: none;"></div>
     <button onclick="toggleTheme()" class="theme-toggle board-theme-toggle" title="تغییر پوسته"><i data-lucide="moon"></i></button>
+    <div class="board-controls">
+        <button type="button" id="fullscreenBtn" class="board-ctrl-btn" onclick="toggleFullscreen()" title="تمام‌صفحه (کلید F)"><i data-lucide="maximize"></i></button>
+    </div>
 
     <div class="header-container" id="boardHeader" style="margin: 0 auto 20px auto; display: flex; justify-content: space-between; align-items: center; max-width: 1400px; width: 95%; height: 15vh;">
         <div class="logo-container">
@@ -45,6 +48,9 @@
             <img id="orgLogo" style="display:none; object-fit: contain;" />
         </div>
     </div>
+
+    <div id="stageStrip" class="stage-strip" style="display: none;" aria-label="مراحل مسابقه"></div>
+    <div id="boardMessage" class="empty-state" style="display: none;"></div>
 
     <!-- FLIP Animation Container -->
     <div id="board" class="board-container" style="max-width: 1400px; width: 95%;">
@@ -82,6 +88,15 @@
     <div class="asva-spacer" style="flex-grow: 1; flex-shrink: 0; min-height: 20px;"></div>
     <div class="asva-footer"><span class="en-credit">Powered by Asva Studio</span><span class="credit-divider"> | </span><span class="fa-credit">توسعه یافته توسط شرکت داده‌پردازان اسوا</span></div>
     
+    <!-- Final results announcement -->
+    <div id="announceOverlay" class="announce-overlay" style="display: none;" aria-live="assertive">
+        <div id="announceCountdown" class="announce-countdown"></div>
+        <div id="announcePodium" class="announce-podium" style="display: none;">
+            <div class="announce-title">🏆 نتایج نهایی</div>
+            <div id="announceSteps" class="podium-steps"></div>
+        </div>
+    </div>
+
     <!-- Splash Screen overlay -->
     <div class="splash-overlay">
         <!-- Emergency Siren Lights & Hazard Strobe (Activated on negative score) -->
@@ -145,7 +160,7 @@
         const board = document.getElementById('board');
         
         let previousScores = {};
-        let medalAssignments = { 1: null, 2: null, 3: null };
+        let previousRanks = {};
         
         // State and Splash Management
         let latestState = null;
@@ -169,9 +184,52 @@
             window.requestAnimationFrame(step);
         }
 
-        if (!campId) {
-            board.innerHTML = "<h3 style='color: var(--error-color);'>خطا: شناسه مسابقه نامعتبر است.</h3>";
+        function showBoardMessage(icon, html) {
+            const m = document.getElementById('boardMessage');
+            m.innerHTML = `<span class="empty-icon">${icon}</span>${html}`;
+            m.style.display = 'block';
+            board.style.display = 'none';
+        }
+        function hideBoardMessage() {
+            document.getElementById('boardMessage').style.display = 'none';
+            board.style.display = '';
+        }
+
+        // Fullscreen + keep the screen awake while the board is shown on a TV
+        let wakeLock = null;
+        async function requestWakeLock() {
+            try { if ('wakeLock' in navigator && !wakeLock) { wakeLock = await navigator.wakeLock.request('screen'); wakeLock.addEventListener('release', () => { wakeLock = null; }); } } catch (e) { /* not allowed */ }
+        }
+        document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') requestWakeLock(); });
+        ['click', 'touchstart', 'keydown'].forEach(evt => window.addEventListener(evt, requestWakeLock, { once: true }));
+        function toggleFullscreen() {
+            if (!document.fullscreenElement) {
+                (document.documentElement.requestFullscreen ? document.documentElement.requestFullscreen() : Promise.reject()).catch(() => {});
+            } else if (document.exitFullscreen) {
+                document.exitFullscreen();
+            }
+            requestWakeLock();
+        }
+        document.addEventListener('fullscreenchange', () => {
+            const b = document.getElementById('fullscreenBtn');
+            if (b) { b.innerHTML = document.fullscreenElement ? '<i data-lucide="minimize"></i>' : '<i data-lucide="maximize"></i>'; refreshIcons(); }
+            setTimeout(() => window.dispatchEvent(new Event('resize')), 200);
+        });
+        document.addEventListener('keydown', e => { if ((e.key === 'f' || e.key === 'F' || e.key === 'ب') && !e.ctrlKey && !e.metaKey) toggleFullscreen(); });
+
+        ConnectionStatus.mount({ staleAfter: 40000 });
+
+        if (!campId || !/^[A-Za-z0-9_-]{1,64}$/.test(campId)) {
+            ConnectionStatus.show(false);
+            showBoardMessage('🔗', 'لینک تابلو نامعتبر است.<br><small>لینک صحیح را از اپراتور مسابقه دریافت کنید.</small>');
         } else {
+        fetch('api.php?action=info&id=' + campId).then(r => r.json()).then(d => {
+            if (!d.success) {
+                if (typeof evtSource !== 'undefined') evtSource.close();
+                ConnectionStatus.show(false);
+                showBoardMessage('🔍', 'مسابقه‌ای با این لینک پیدا نشد.<br><small>ممکن است حذف شده باشد یا لینک اشتباه باشد.</small>');
+            }
+        }).catch(() => {});
 
         const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
         const unlockAudio = () => { if (audioCtx && audioCtx.state === 'suspended') audioCtx.resume(); };
@@ -202,14 +260,19 @@
             }
         }
 
+        // Hide the cursor and the on-screen controls while nobody touches the board.
         let mouseTimer;
-        document.addEventListener('mousemove', () => {
+        function wakeUi() {
             document.body.style.cursor = 'default';
+            document.body.classList.remove('ui-idle');
             clearTimeout(mouseTimer);
             mouseTimer = setTimeout(() => {
                 document.body.style.cursor = 'none';
+                document.body.classList.add('ui-idle');
             }, 3000);
-        });
+        }
+        ['mousemove', 'touchstart', 'keydown'].forEach(evt => document.addEventListener(evt, wakeUi, { passive: true }));
+        wakeUi();
 
 
 // Polling mode for cPanel / PHP Hosting
@@ -219,8 +282,12 @@ let isFirstLoad = true;
 function pollBoardState() {
     if (document.hidden) return;
     fetch(`api.php?action=poll&id=${campId}`)
-    .then(r => r.ok ? r.json() : Promise.reject())
+    .then(r => {
+        if (r.status === 404) { clearInterval(boardPollTimer); ConnectionStatus.show(false); showBoardMessage('🔍', 'مسابقه‌ای با این لینک پیدا نشد.<br><small>ممکن است حذف شده باشد یا لینک اشتباه باشد.</small>'); return Promise.reject(); }
+        return r.ok ? r.json() : Promise.reject(new Error('http'));
+    })
     .then(state => {
+        ConnectionStatus.ok();
         latestState = state;
         let maxTime = lastSeenLogTime;
         (state.teams || []).forEach(t => {
@@ -264,11 +331,11 @@ function pollBoardState() {
             renderBoard(latestState);
         }
     })
-    .catch(e => {});
+    .catch(e => { if (e) ConnectionStatus.fail(); });
 }
 
 pollBoardState();
-setInterval(pollBoardState, 1500);
+const boardPollTimer = setInterval(pollBoardState, 1500);
 }
 
         // --- Audio & Visual Warning / Celebration Systems ---
@@ -643,6 +710,89 @@ setInterval(pollBoardState, 1500);
             if (latestState) renderBoard(latestState);
         }
 
+        // Stage progress: closed (tiered) stages and the stage that is running now.
+        function renderStageStrip(data) {
+            const strip = document.getElementById('stageStrip');
+            const stages = Array.isArray(data.stages) ? data.stages : [];
+            if (!stages.length) { strip.style.display = 'none'; return; }
+            const closed = data.closedStages || {};
+            const active = data.activeStageId;
+            const activeStage = stages.find(st => st.id === active);
+            const chips = stages.map((st, i) => {
+                const cls = st.id === active ? 'active' : (closed[st.id] ? 'done' : '');
+                const mark = st.id === active ? '▶' : (closed[st.id] ? '✓' : formatNumber(i + 1, data.numLang || 'fa'));
+                return `<span class="stage-chip ${cls}"><span class="stage-chip-mark">${mark}</span>${esc(st.name)}</span>`;
+            }).join('');
+            const label = activeStage ? `<span class="stage-now">مرحله در حال اجرا: <b>${esc(activeStage.name)}</b></span>` : '';
+            const html = label + `<div class="stage-chips">${chips}</div>`;
+            if (strip.dataset.html !== html) { strip.innerHTML = html; strip.dataset.html = html; }
+            strip.style.display = '';
+        }
+
+        // Final results: short countdown, then a podium (ties share a step).
+        let announcedAt = null;
+        let countdownTimer = null;
+        function handleAnnouncement(data) {
+            const ov = document.getElementById('announceOverlay');
+            const a = data.announcement;
+            if (!a || !a.active) {
+                ov.style.display = 'none';
+                announcedAt = null;
+                clearInterval(countdownTimer);
+                return;
+            }
+            if (announcedAt === a.at) { renderPodium(data); return; }
+            announcedAt = a.at;
+            ov.style.display = 'flex';
+            const cd = document.getElementById('announceCountdown');
+            const podium = document.getElementById('announcePodium');
+            const reveal = () => {
+                cd.style.display = 'none';
+                podium.style.display = 'flex';
+                renderPodium(data);
+                if (typeof confetti === 'function') {
+                    confetti({ particleCount: 220, spread: 120, origin: { y: 0.6 } });
+                    setTimeout(() => confetti({ particleCount: 150, spread: 160, origin: { y: 0.4 } }), 700);
+                }
+                try { playSound('success'); } catch (e) { /* audio locked */ }
+            };
+            clearInterval(countdownTimer);
+            // Boards opened later skip the countdown and show the podium straight away.
+            if (Date.now() - a.at > 15000) { reveal(); return; }
+            let n = 5;
+            podium.style.display = 'none';
+            cd.style.display = 'flex';
+            cd.textContent = formatNumber(n, data.numLang || 'fa');
+            countdownTimer = setInterval(() => {
+                n--;
+                if (n <= 0) { clearInterval(countdownTimer); reveal(); return; }
+                cd.textContent = formatNumber(n, data.numLang || 'fa');
+                cd.classList.remove('pulse'); void cd.offsetWidth; cd.classList.add('pulse');
+            }, 1000);
+        }
+
+        function renderPodium(data) {
+            const lang = data.numLang || 'fa';
+            const teams = [...(data.teams || [])].sort((a, b) => b.score - a.score);
+            const groups = [];
+            teams.forEach((t, i) => {
+                const rank = (i > 0 && t.score === teams[i - 1].score) ? groups[groups.length - 1].rank : i + 1;
+                if (rank > 3) return;
+                if (groups.length && groups[groups.length - 1].rank === rank) groups[groups.length - 1].teams.push(t);
+                else groups.push({ rank, teams: [t] });
+            });
+            const order = [groups[1], groups[0], groups[2]].filter(Boolean); // 2nd, 1st, 3rd
+            const html = order.map(g => `
+                <div class="podium-step podium-rank-${g.rank}">
+                    <div class="podium-medal">${document.getElementById('medal-' + g.rank).innerHTML}</div>
+                    ${g.teams.map(t => `<div class="podium-team" style="border-color: ${safeColor(t.color, '#fff')}">${esc(t.name)}</div>`).join('')}
+                    <div class="podium-score">${formatNumber(g.teams[0].score, lang)} امتیاز</div>
+                    <div class="podium-block">${formatNumber(g.rank, lang)}</div>
+                </div>`).join('');
+            const steps = document.getElementById('announceSteps');
+            if (steps.dataset.html !== html) { steps.innerHTML = html; steps.dataset.html = html; }
+        }
+
         function renderBoard(data) {
             document.documentElement.dir = data.dir || 'rtl';
             // Update Header
@@ -678,21 +828,45 @@ setInterval(pollBoardState, 1500);
                 }
             }
 
-            if (!data.teams || data.teams.length === 0) return;
-            
+            renderStageStrip(data);
+            handleAnnouncement(data);
+
+            if (!data.teams || data.teams.length === 0) {
+                showBoardMessage('⏳', 'هنوز تیمی برای این مسابقه تعریف نشده است.<br><small>به محض ثبت تیم‌ها، جدول اینجا نمایش داده می‌شود.</small>');
+                return;
+            }
+            hideBoardMessage();
+
+            const lang = data.numLang || 'fa';
             const sortedTeams = data.teams.sort((a, b) => b.score - a.score);
-            
+            // Standard competition ranking: equal scores share a rank (1, 1, 3 …).
+            const ranks = {};
+            sortedTeams.forEach((t, i) => {
+                ranks[t.id] = (i > 0 && t.score === sortedTeams[i - 1].score) ? ranks[sortedTeams[i - 1].id] : i + 1;
+            });
+            // Medals only once a team actually has points.
+            const hasMedal = t => ranks[t.id] <= 3 && t.score > 0;
+
             // Dynamic Sizing
+            const narrow = window.innerWidth < 640;
             const headerHeight = document.getElementById('boardHeader').offsetHeight;
+            const stripEl = document.getElementById('stageStrip');
+            const stripHeight = stripEl && stripEl.style.display !== 'none' ? stripEl.offsetHeight + 10 : 0;
             const footerEl = document.querySelector('.asva-footer');
             const footerHeight = footerEl ? footerEl.offsetHeight + 40 : 40;
-            const availableHeight = window.innerHeight - headerHeight - footerHeight - 60; // 60px padding
+            const availableHeight = window.innerHeight - headerHeight - stripHeight - footerHeight - 60; // 60px padding
             const numTeams = sortedTeams.length;
-            const useTwoColumns = numTeams > 12;
+            const useTwoColumns = numTeams > 12 && !narrow;
             const numRows = useTwoColumns ? Math.ceil(numTeams / 2) : numTeams;
             // Calculate best row height
-            let ROW_HEIGHT = Math.max(30, Math.min(200, Math.floor(availableHeight / numRows))); 
+            let ROW_HEIGHT = Math.max(narrow ? 52 : 30, Math.min(200, Math.floor(availableHeight / numRows)));
             const innerHeight = Math.max(10, ROW_HEIGHT - (ROW_HEIGHT > 40 ? 10 : 4)); // margin bottom
+            const rowWidth = useTwoColumns ? board.clientWidth / 2 : board.clientWidth;
+            // On phones, sizes follow the width so long names stay readable.
+            const nameFont = Math.max(14, Math.min(ROW_HEIGHT * 0.35, rowWidth / 16));
+            const scoreFont = Math.max(16, Math.min(ROW_HEIGHT * 0.45, rowWidth / 9));
+            const paddingStart = narrow ? Math.max(30, Math.min(ROW_HEIGHT * 0.55, 44)) : Math.max(30, ROW_HEIGHT * (useTwoColumns ? 0.5 : 0.8));
+            const medalW = Math.max(18, Math.min(ROW_HEIGHT * 0.5, paddingStart - 6));
 
             sortedTeams.forEach((team, index) => {
                 const teamKey = team.id;
@@ -704,58 +878,76 @@ setInterval(pollBoardState, 1500);
                     row.className = 'board-row';
                     row.innerHTML = `
                         <div class="team-row" style="position: relative; border-inline-start: 12px solid ${safeColor(team.color, '#fff')};">
-                            <div class="rank-number" style="position: absolute; display: flex; justify-content: center; align-items: center; opacity: 0; transition: opacity 0.5s; font-weight: 800; color: var(--text-color);"></div>
+                            <div class="rank-number" style="position: absolute; display: flex; justify-content: center; align-items: center; transition: opacity 0.5s; font-weight: 800; color: var(--text-color);"></div>
                             <div class="name-container" style="display: flex; align-items: center; min-width: 0;">
                                 <div class="team-color-indicator" style="border-radius: 50%; flex-shrink: 0;"></div>
-                                <h2 class="team-name" style="margin: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0;">${esc(team.name)}</h2>
+                                <h2 class="team-name" style="margin: 0; min-width: 0;">${esc(team.name)}</h2>
                             </div>
-                            <h2 class="score-val" dir="ltr" style="margin: 0; text-shadow: 0 2px 5px rgba(0,0,0,0.3); font-variant-numeric: tabular-nums;">${formatNumber(team.score, data.numLang || 'fa')}</h2>
+                            <div class="score-wrap">
+                                <span class="rank-change" aria-hidden="true"></span>
+                                <h2 class="score-val" dir="ltr" style="margin: 0; font-variant-numeric: tabular-nums;">${formatNumber(team.score, lang)}</h2>
+                            </div>
                         </div>
                     `;
                     board.appendChild(row);
                 }
-                refreshIcons();
                 
                 // Update content and dynamic styling
                 const tr = row.querySelector('.team-row');
                 tr.style.height = innerHeight + 'px';
                 tr.style.padding = Math.max(2, innerHeight * 0.1) + 'px ' + Math.max(5, innerHeight * 0.2) + 'px';
-                tr.style.borderInlineStartColor = team.color;
+                tr.style.borderInlineStartColor = safeColor(team.color, '#fff');
                 // Add 30% tint of team color to the background
-                tr.style.backgroundColor = `${hexToRgba(team.color, 0.3)}`;
+                tr.style.backgroundColor = `${hexToRgba(safeColor(team.color, '#ffffff'), 0.45)}`;
 
                 const indicator = row.querySelector('.team-color-indicator');
-                indicator.style.background = team.color;
+                indicator.style.background = safeColor(team.color, '#fff');
                 indicator.style.boxShadow = `0 0 10px ${safeColor(team.color, '#fff')}`;
                 
                 // Scale indicator
-                const indicatorSize = Math.max(12, ROW_HEIGHT * 0.25);
+                const indicatorSize = Math.max(10, Math.min(ROW_HEIGHT * 0.25, narrow ? 14 : 999));
                 indicator.style.width = indicatorSize + 'px';
                 indicator.style.height = indicatorSize + 'px';
                 
                 // Adjust border width
-                tr.style.borderInlineStartWidth = Math.max(4, ROW_HEIGHT * 0.1) + 'px';
+                const borderW = Math.max(4, Math.min(ROW_HEIGHT * 0.1, narrow ? 6 : 999));
+                tr.style.borderInlineStartWidth = borderW + 'px';
                 
                 const nameContainer = tr.querySelector('.name-container');
-                const paddingStart = Math.max(30, ROW_HEIGHT * (useTwoColumns ? 0.5 : 0.8));
                 nameContainer.style.paddingInlineStart = paddingStart + 'px';
-                nameContainer.style.gap = Math.max(5, ROW_HEIGHT * 0.15) + 'px';
+                nameContainer.style.gap = Math.max(5, Math.min(ROW_HEIGHT * 0.15, narrow ? 8 : 999)) + 'px';
                 
                 const nameEl = row.querySelector('.team-name');
                 nameEl.innerText = team.name;
-                nameEl.style.fontSize = Math.max(14, ROW_HEIGHT * 0.35) + 'px';
+                nameEl.title = team.name;
+                nameEl.style.fontSize = nameFont + 'px';
+                nameEl.classList.toggle('team-name-wrap', narrow);
 
                 const scoreEl = row.querySelector('.score-val');
-                scoreEl.style.fontSize = Math.max(16, ROW_HEIGHT * 0.45) + 'px';
+                scoreEl.style.fontSize = scoreFont + 'px';
                 
                 // Analog Score Update
                 const oldScore = previousScores[teamKey];
                 if (oldScore !== undefined && oldScore !== team.score) {
-                    animateValue(scoreEl, oldScore, team.score, 1000, data.numLang || 'fa');
+                    animateValue(scoreEl, oldScore, team.score, 1000, lang);
                 } else if (oldScore === undefined) {
-                    scoreEl.innerText = formatNumber(team.score, data.numLang || 'fa');
+                    scoreEl.innerText = formatNumber(team.score, lang);
                 }
                 previousScores[teamKey] = team.score;
+
+                // Rank change arrow (shown for a few seconds after a team moves)
+                const rank = ranks[teamKey];
+                const prevRank = previousRanks[teamKey];
+                const arrow = row.querySelector('.rank-change');
+                if (prevRank !== undefined && prevRank !== rank) {
+                    const up = rank < prevRank;
+                    arrow.textContent = (up ? '▲ ' : '▼ ') + formatNumber(Math.abs(prevRank - rank), lang);
+                    arrow.className = 'rank-change show ' + (up ? 'up' : 'down');
+                    arrow.style.fontSize = Math.max(12, scoreFont * 0.38) + 'px';
+                    clearTimeout(arrow._t);
+                    arrow._t = setTimeout(() => { arrow.className = 'rank-change'; }, 8000);
+                }
+                previousRanks[teamKey] = rank;
 
                 // FLIP Animation & Layout Logic
                 if (useTwoColumns) {
@@ -781,99 +973,31 @@ setInterval(pollBoardState, 1500);
                     row.style.top = `${index * ROW_HEIGHT}px`;
                 }
 
-                // Rank Number Logic (for 4th place onwards)
+                // Rank slot: a medal for ranks 1-3 (shared on ties), otherwise the rank number.
                 const rankEl = row.querySelector('.rank-number');
-                const borderW = Math.max(4, ROW_HEIGHT * 0.1);
-                const medalW = Math.max(18, ROW_HEIGHT * 0.5);
-                const rightPos = borderW + (paddingStart - medalW) / 2;
-                
-                if (index >= 3) {
-                    rankEl.innerText = formatNumber(index + 1, data.numLang || 'fa');
-                    rankEl.style.fontSize = Math.max(12, ROW_HEIGHT * 0.35) + 'px';
-                    rankEl.style.width = medalW + 'px';
-                    rankEl.style.height = medalW + 'px';
-                    rankEl.style.insetInlineStart = rightPos + 'px';
-                    rankEl.style.top = '50%';
-                    rankEl.style.transform = 'translateY(-50%)';
-                    rankEl.style.opacity = '0.7';
-                } else {
-                    rankEl.style.opacity = '0';
+                rankEl.style.width = medalW + 'px';
+                rankEl.style.height = medalW + 'px';
+                rankEl.style.insetInlineStart = (borderW + (paddingStart - medalW) / 2) + 'px';
+                rankEl.style.top = '50%';
+                rankEl.style.transform = 'translateY(-50%)';
+                const medalKey = hasMedal(team) ? 'medal-' + rank : 'rank-' + rank;
+                if (rankEl.dataset.key !== medalKey) {
+                    rankEl.dataset.key = medalKey;
+                    if (hasMedal(team)) {
+                        rankEl.innerHTML = document.getElementById('medal-' + rank).innerHTML;
+                        rankEl.setAttribute('aria-label', 'رتبه ' + rank);
+                        rankEl.classList.add('has-medal');
+                    } else {
+                        rankEl.textContent = formatNumber(rank, lang);
+                        rankEl.classList.remove('has-medal');
+                    }
                 }
+                rankEl.style.fontSize = (hasMedal(team) ? medalW : Math.max(12, Math.min(ROW_HEIGHT * 0.35, medalW))) + 'px';
+                rankEl.style.opacity = hasMedal(team) ? '1' : '0.75';
             });
 
             board.style.height = `${numRows * ROW_HEIGHT}px`;
             
-            // --- Medal Logic ---
-            const newMedals = { 1: sortedTeams[0]?.id, 2: sortedTeams[1]?.id, 3: sortedTeams[2]?.id };
-            
-            for (let rank = 1; rank <= 3; rank++) {
-                let medalEl = document.getElementById('medal-' + rank);
-                let currentOwner = medalAssignments[rank];
-                let newOwner = newMedals[rank];
-                
-                if (!newOwner) {
-                    medalEl.style.display = 'none';
-                    continue;
-                }
-                medalEl.style.display = 'block';
-
-                // Size of medal
-                medalEl.style.fontSize = Math.max(18, ROW_HEIGHT * 0.5) + 'px';
-
-                function positionMedalAtTeam(teamId) {
-                    const tIndex = sortedTeams.findIndex(t => t.id === teamId);
-                    if(tIndex !== -1) {
-                        let topPos = tIndex * ROW_HEIGHT;
-                        let inlineStartOffset = '0px';
-                        
-                        if (useTwoColumns) {
-                            const rowIdx = Math.floor(tIndex / 2);
-                            const colIdx = tIndex % 2;
-                            topPos = rowIdx * ROW_HEIGHT;
-                            
-                            const isLastOdd = (tIndex === numTeams - 1) && (numTeams % 2 !== 0);
-                            if (isLastOdd) {
-                                inlineStartOffset = 'calc(25% + 5px)';
-                            } else {
-                                if (colIdx === 0) {
-                                    inlineStartOffset = '0px';
-                                } else {
-                                    inlineStartOffset = 'calc(50% + 10px)';
-                                }
-                            }
-                        }
-                        
-                        medalEl.style.top = (topPos + (ROW_HEIGHT/2) - (parseInt(medalEl.style.fontSize)/2)) + 'px';
-                        const borderW = Math.max(4, ROW_HEIGHT * 0.1);
-                        const paddingStart = Math.max(30, ROW_HEIGHT * (useTwoColumns ? 0.5 : 0.8));
-                        const medalW = parseInt(medalEl.style.fontSize);
-                        const rightPos = borderW + (paddingStart - medalW) / 2;
-                        
-                        if (inlineStartOffset !== '0px') {
-                            medalEl.style.insetInlineStart = `calc(${inlineStartOffset} + ${rightPos}px)`;
-                        } else {
-                            medalEl.style.insetInlineStart = rightPos + 'px';
-                        }
-                    }
-                }
-
-                if (!currentOwner) {
-                    medalAssignments[rank] = newOwner;
-                    positionMedalAtTeam(newOwner);
-                } else if (currentOwner !== newOwner) {
-                    // It changed! Instantly move it with the CURRENT owner (so it slides down with them)
-                    positionMedalAtTeam(currentOwner);
-                    // Playfully jump to the NEW owner after 1 second
-                    setTimeout(() => {
-                        medalAssignments[rank] = newOwner;
-                        positionMedalAtTeam(newOwner);
-                    }, 1000);
-                } else {
-                    // Stayed same
-                    positionMedalAtTeam(currentOwner);
-                }
-            }
-
             // Cleanup deleted teams
             const existingIds = new Set(sortedTeams.map(t => 'team-' + t.id));
             Array.from(board.children).forEach(child => {

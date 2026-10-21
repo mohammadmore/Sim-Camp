@@ -195,7 +195,7 @@ window.fmtNum = function (n, lang) {
 
     document.addEventListener('keydown', e => {
         const dlg = topDialog();
-        if (e.key === 'Escape' && dlg) {
+        if (e.key === 'Escape' && dlg && dlg.id !== 'fieldJudgingModal') { // the referee screen is a page, not a dialog
             const closer = dlg.querySelector('.close-btn, [id$="CloseBtn"], button[onclick^="close"]');
             if (closer) { e.preventDefault(); closer.click(); }
         } else if (e.key === 'Tab' && dlg) {
@@ -307,10 +307,12 @@ window.ConnectionStatus = (function () {
         else if (!lastOk) { cls = 'warn'; text = 'در حال اتصال…'; }
         else text = age < 3 ? 'به‌روز' : `به‌روزرسانی ${fmtNum(age)} ثانیه پیش`;
         if (lastOk && cls !== 'ok') text += ` — آخرین داده: ${fmtNum(age)} ثانیه پیش`;
-        if (pendingCount) text += ` · ${fmtNum(pendingCount)} مورد در صف ارسال`;
-        el.className = 'conn-status conn-' + cls;
+        el.className = 'conn-status conn-' + cls + (el.dataset.extra ? ' ' + el.dataset.extra : '');
         el.querySelector('.conn-text').textContent = text;
-        el.setAttribute('aria-label', text);
+        const pend = el.querySelector('.conn-pending');
+        pend.textContent = pendingCount ? `${fmtNum(pendingCount)} مورد در صف ارسال` : '';
+        pend.style.display = pendingCount ? '' : 'none';
+        el.setAttribute('aria-label', text + (pendingCount ? ` — ${pendingCount} مورد در صف ارسال` : ''));
     }
     return {
         mount(opts) {
@@ -320,8 +322,8 @@ window.ConnectionStatus = (function () {
             el.className = 'conn-status';
             el.setAttribute('role', 'status');
             el.setAttribute('aria-live', 'polite');
-            el.innerHTML = '<span class="conn-dot"></span><span class="conn-text"></span>';
-            if (opts.className) el.classList.add(opts.className);
+            el.innerHTML = '<span class="conn-dot"></span><span class="conn-text"></span><span class="conn-pending" style="display:none"></span>';
+            if (opts.className) el.dataset.extra = opts.className;
             (opts.parent || document.body).appendChild(el);
             window.addEventListener('online', render);
             window.addEventListener('offline', render);
@@ -388,9 +390,36 @@ window.OfflineQueue = (function () {
                 return { success: true, queued: true };
             });
         },
+        // Removes a not-yet-sent instant score (undo while offline). Returns true when it was still queued.
+        cancel(clientLogId) {
+            const q = load();
+            const rest = q.filter(x => !(x.body && x.body.clientLogId === clientLogId));
+            if (rest.length === q.length) return false;
+            save(rest);
+            return true;
+        },
         flush
     };
 })();
+
+// Bottom toast with an "undo" button and a countdown.
+window.undoToast = function (text, onUndo, seconds) {
+    let left = seconds || 8;
+    document.querySelectorAll('.undo-toast').forEach(t => t.remove());
+    const t = document.createElement('div');
+    t.className = 'undo-toast';
+    t.setAttribute('role', 'status');
+    t.innerHTML = '<span class="undo-toast-text"></span><button type="button" class="undo-toast-btn"></button>';
+    t.querySelector('.undo-toast-text').textContent = text;
+    const btn = t.querySelector('.undo-toast-btn');
+    const label = () => { btn.textContent = `لغو (${fmtNum(left)})`; };
+    label();
+    document.body.appendChild(t);
+    const timer = setInterval(() => { left--; if (left <= 0) close(); else label(); }, 1000);
+    function close() { clearInterval(timer); t.classList.add('hide'); setTimeout(() => t.remove(), 300); }
+    btn.onclick = () => { close(); onUndo(); };
+    return { close };
+};
 
 window.newClientLogId = function () {
     const r = (window.crypto && crypto.getRandomValues) ? Array.from(crypto.getRandomValues(new Uint8Array(8)), b => b.toString(16).padStart(2, '0')).join('') : Math.random().toString(36).slice(2) + Date.now().toString(36);
@@ -454,4 +483,44 @@ window.qrSvg = function (text, cellSize) {
 window.appUrl = function (page) {
     const base = window.location.pathname.substring(0, window.location.pathname.lastIndexOf('/') + 1);
     return window.location.origin + base + page;
+};
+
+// Remove a row of a form list (team / stage / user / history entry) after confirmation.
+window.confirmRemoveItem = function (btn, kind) {
+    const item = btn.closest('.dynamic-item, .log-item');
+    if (!item) return;
+    const field = item.querySelector('.t-name, .stage-name-input, .u-user, input[type="text"]');
+    const name = field && field.value ? field.value.trim() : '';
+    const msgs = {
+        team: `تیم «${name || 'بدون نام'}» حذف شود؟\nبا ذخیره، همه امتیازها و سوابق این تیم برای همیشه پاک می‌شود.`,
+        stage: `مرحله «${name || 'بدون نام'}» حذف شود؟\nنمرات ثبت‌شده برای این مرحله دیگر نمایش داده نمی‌شوند.`,
+        user: `کاربر «${name || 'بدون نام'}» حذف شود؟ این کاربر دیگر نمی‌تواند وارد شود.`,
+        log: 'این ردیف از تاریخچه حذف شود؟ (پس از زدن «ذخیره تغییرات» اعمال می‌شود)'
+    };
+    if (!confirm(msgs[kind] || 'این مورد حذف شود؟')) return;
+    const guard = item.closest('[data-guard]');
+    if (guard && window.FormGuard) FormGuard.touch(guard.getAttribute('data-guard'));
+    item.remove();
+};
+
+// Score / time typed by a referee: "83.5", "۸۳٫۵", "1:23.5" (min:sec) or "1:02:03" (h:min:sec) -> number.
+window.parseScoreInput = function (raw) {
+    const v = toEnDigits(raw).trim();
+    if (v === '') return NaN;
+    if (v.includes(':')) {
+        const parts = v.split(':').map(p => p.trim());
+        if (parts.length > 3 || parts.some(p => p === '' || isNaN(Number(p)))) return NaN;
+        return Math.round(parts.reduce((acc, p) => acc * 60 + Number(p), 0) * 100) / 100;
+    }
+    const n = Number(v);
+    return isFinite(n) ? n : NaN;
+};
+
+// 83.45 -> "1:23.45"
+window.formatSeconds = function (sec) {
+    const total = Math.max(0, Number(sec) || 0);
+    const m = Math.floor(total / 60);
+    const s = total - m * 60;
+    const sStr = s.toFixed(2).padStart(5, '0').replace(/\.00$/, '');
+    return m > 0 ? `${m}:${sStr}` : String(Math.round(total * 100) / 100);
 };

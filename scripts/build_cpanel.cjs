@@ -33,19 +33,25 @@ console.log('✓ Copied static assets');
 // Node route -> PHP action
 function toPhpUrls(html) {
     const q = "['`]";
+    // Matches both fetch('/...') and OfflineQueue.send('/...')
+    const call = '(fetch|OfflineQueue\\.send)\\(';
     const rules = [
-        [new RegExp(`fetch\\((${q})/api/settings\\1`, 'g'), "fetch($1api.php?action=settings$1"],
-        [new RegExp(`fetch\\((${q})/api\\?action=`, 'g'), 'fetch($1api.php?action='],
-        [new RegExp(`fetch\\((${q})/api\\?id=`, 'g'), 'fetch($1api.php?action=update_camp&id='],
-        [new RegExp(`fetch\\((${q})/api/(instant|undo_instant|judge_stage_score|stage_scores|team_logs)\\?id=`, 'g'), 'fetch($1api.php?action=$2&id='],
-        [new RegExp(`fetch\\((${q})/api/stage/close_tiered\\1`, 'g'), 'fetch($1api.php?action=close_tiered$1'],
-        [new RegExp(`fetch\\((${q})/api/user/profile-pic\\1`, 'g'), 'fetch($1api.php?action=user_profile_pic$1'],
-        [new RegExp(`fetch\\((${q})/login\\1`, 'g'), 'fetch($1api.php?action=login$1'],
-        [new RegExp(`fetch\\((${q})/setup\\1`, 'g'), 'fetch($1api.php?action=setup$1'],
-        [new RegExp(`fetch\\((${q})/superadmin/login\\1`, 'g'), 'fetch($1api.php?action=superadmin_login$1'],
-        [new RegExp(`fetch\\((${q})/superadmin/camps\\1`, 'g'), 'fetch($1api.php?action=superadmin_camps$1'],
-        [/fetch\(`\/superadmin\/camps\/\$\{(\w+)\}\/archive`/g, 'fetch(`api.php?action=superadmin_camp_archive&id=${$1}`'],
-        [/fetch\(`\/superadmin\/camps\/\$\{(\w+)\}\/lock`/g, 'fetch(`api.php?action=superadmin_camp_lock&id=${$1}`'],
+        [new RegExp(`${call}(${q})/api/settings\\2`, 'g'), "$1($2api.php?action=settings$2"],
+        [new RegExp(`${call}(${q})/api\\?action=`, 'g'), '$1($2api.php?action='],
+        [new RegExp(`${call}(${q})/api\\?id=`, 'g'), '$1($2api.php?action=update_camp&id='],
+        [new RegExp(`${call}(${q})/api/(instant|undo_instant|judge_stage_score|stage_scores|team_logs|board|finish|audit|users)\\?id=`, 'g'), '$1($2api.php?action=$3&id='],
+        [new RegExp(`${call}(${q})/api/users/reset_password\\?id=`, 'g'), '$1($2api.php?action=users_reset_password&id='],
+        [new RegExp(`${call}(${q})/api/stage/reset\\?id=`, 'g'), '$1($2api.php?action=stage_reset&id='],
+        [new RegExp(`${call}(${q})/api/scores/reset\\?id=`, 'g'), '$1($2api.php?action=scores_reset&id='],
+        [new RegExp(`${call}(${q})/api/stage/close_tiered\\2`, 'g'), '$1($2api.php?action=close_tiered$2'],
+        [new RegExp(`${call}(${q})/api/user/profile-pic\\2`, 'g'), '$1($2api.php?action=user_profile_pic$2'],
+        [new RegExp(`${call}(${q})/api/user/password\\2`, 'g'), '$1($2api.php?action=user_password$2'],
+        [new RegExp(`${call}(${q})/login\\2`, 'g'), '$1($2api.php?action=login$2'],
+        [new RegExp(`${call}(${q})/setup\\2`, 'g'), '$1($2api.php?action=setup$2'],
+        [new RegExp(`${call}(${q})/superadmin/login\\2`, 'g'), '$1($2api.php?action=superadmin_login$2'],
+        [new RegExp(`${call}(${q})/superadmin/password\\2`, 'g'), '$1($2api.php?action=superadmin_password$2'],
+        [new RegExp(`${call}(${q})/superadmin/camps\\2`, 'g'), '$1($2api.php?action=superadmin_camps$2'],
+        [/fetch\(`\/superadmin\/camps\/\$\{(\w+)\}\/(archive|lock|delete|duplicate)`/g, 'fetch(`api.php?action=superadmin_camp_$2&id=${$1}`'],
         [/fetch\(`\/superadmin\/camps\/\$\{(\w+)\}`/g, 'fetch(`api.php?action=superadmin_camp&id=${$1}`']
     ];
     for (const [re, rep] of rules) html = html.replace(re, rep);
@@ -53,7 +59,7 @@ function toPhpUrls(html) {
 }
 
 function assertNoAbsoluteApiUrls(name, html) {
-    const left = html.match(/fetch\(\s*['`]\/[^'`]*/g);
+    const left = html.match(/(fetch|OfflineQueue\.send)\(\s*['`]\/[^'`]*/g);
     if (left) throw new Error(`${name}: unconverted API URLs: ${left.join(', ')}`);
 }
 
@@ -145,7 +151,15 @@ assertNoAbsoluteApiUrls('board.html', board);
 fs.writeFileSync(path.join(OUT, 'board.html'), board, 'utf8');
 console.log('✓ board.html (SSE replaced with polling)');
 
-// 4. Optional upload bundle
+// 4. Any other page only needs its API URLs converted.
+for (const name of fs.readdirSync(SRC).filter(f => f.endsWith('.html') && !['superadmin.html', 'operator.html', 'board.html'].includes(f))) {
+    const html = toPhpUrls(fs.readFileSync(path.join(SRC, name), 'utf8'));
+    assertNoAbsoluteApiUrls(name, html);
+    fs.writeFileSync(path.join(OUT, name), html, 'utf8');
+    console.log(`✓ ${name}`);
+}
+
+// 5. Optional upload bundle
 try {
     const zipPath = path.join(ROOT, 'cpanel_export.zip');
     fs.rmSync(zipPath, { force: true });
