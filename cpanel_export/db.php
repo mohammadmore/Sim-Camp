@@ -125,7 +125,10 @@ function ensure_database_schema($conn, $active_driver) {
                 'fieldJudgingValues' => 'TEXT',
                 'positiveTags' => 'TEXT',
                 'negativeTags' => 'TEXT',
-                'archived' => 'TINYINT DEFAULT 0'
+                'archived' => 'TINYINT DEFAULT 0',
+                'auditLog' => 'LONGTEXT',
+                'announcement' => 'TEXT',
+                'activeStageId' => 'VARCHAR(64)'
             ];
             foreach ($columns_to_check as $col => $type) {
                 try {
@@ -180,7 +183,10 @@ function ensure_database_schema($conn, $active_driver) {
                 'fieldJudgingValues' => 'TEXT',
                 'positiveTags' => 'TEXT',
                 'negativeTags' => 'TEXT',
-                'archived' => 'INTEGER DEFAULT 0'
+                'archived' => 'INTEGER DEFAULT 0',
+                'auditLog' => 'TEXT',
+                'announcement' => 'TEXT',
+                'activeStageId' => 'TEXT'
             ];
             foreach ($sqlite_cols as $col => $type) {
                 try {

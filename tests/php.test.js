@@ -22,11 +22,14 @@ function phpPath(method, p) {
         '/api/settings': 'settings', '/superadmin/login': 'superadmin_login', '/superadmin/camps': 'superadmin_camps',
         '/setup': 'setup', '/login': 'login', '/api/instant': 'instant', '/api/undo_instant': 'undo_instant',
         '/api/judge_stage_score': 'judge_stage_score', '/api/stage_scores': 'stage_scores', '/api/team_logs': 'team_logs',
-        '/api/stage/close_tiered': 'close_tiered', '/api/user/profile-pic': 'user_profile_pic'
+        '/api/stage/close_tiered': 'close_tiered', '/api/user/profile-pic': 'user_profile_pic',
+        '/superadmin/password': 'superadmin_password', '/api/user/password': 'user_password',
+        '/api/users/reset_password': 'users_reset_password', '/api/users': 'users', '/api/stage/reset': 'stage_reset',
+        '/api/scores/reset': 'scores_reset', '/api/board': 'board', '/api/finish': 'finish', '/api/audit': 'audit'
     };
     let m;
     if (map[route]) params.set('action', map[route]);
-    else if ((m = route.match(/^\/superadmin\/camps\/([^/]+)\/(lock|archive)$/))) { params.set('action', `superadmin_camp_${m[2]}`); params.set('id', m[1]); }
+    else if ((m = route.match(/^\/superadmin\/camps\/([^/]+)\/(lock|archive|delete|duplicate)$/))) { params.set('action', `superadmin_camp_${m[2]}`); params.set('id', m[1]); }
     else if ((m = route.match(/^\/superadmin\/camps\/([^/]+)$/))) { params.set('action', 'superadmin_camp'); params.set('id', m[1]); }
     else if (route === '/api' && method === 'POST') params.set('action', 'update_camp');
     return `/api.php?${params.toString()}`;

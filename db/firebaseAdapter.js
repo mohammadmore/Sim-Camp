@@ -41,6 +41,9 @@ async function createAdminDb(serviceAccount) {
             const d = clean(data);
             await db.collection(col).doc(id).set(d, { mergeFields: Object.keys(d) });
         },
+        async remove(col, id) {
+            await db.collection(col).doc(id).delete();
+        },
         async list(col, fields) {
             const ref = db.collection(col);
             const snap = await (fields ? ref.select(...fields) : ref).get();
@@ -52,7 +55,7 @@ async function createAdminDb(serviceAccount) {
 // Fallback: Web SDK. Only works while firestore.rules allow access, which is insecure.
 async function createClientDb() {
     const { initializeApp } = await import('firebase/app');
-    const { getFirestore, doc, setDoc, getDoc, collection, getDocs, setLogLevel } = await import('firebase/firestore');
+    const { getFirestore, doc, setDoc, getDoc, deleteDoc, collection, getDocs, setLogLevel } = await import('firebase/firestore');
     setLogLevel('silent');
     const db = getFirestore(initializeApp(config), config.firestoreDatabaseId);
     return {
@@ -63,6 +66,9 @@ async function createClientDb() {
         async set(col, id, data) {
             const d = clean(data);
             await setDoc(doc(db, col, id), d, { mergeFields: Object.keys(d) });
+        },
+        async remove(col, id) {
+            await deleteDoc(doc(db, col, id));
         },
         async list(col) {
             const snap = await getDocs(collection(db, col));
@@ -101,6 +107,9 @@ export default {
     },
     async setSetting(key, value) {
         await (await getDb()).set('settings', key, { value });
+    },
+    async deleteCamp(id) {
+        await (await getDb()).remove('camps', id);
     },
     // Only the fields shown in the superadmin camp list (avoids downloading every team image).
     async getAllCamps() {

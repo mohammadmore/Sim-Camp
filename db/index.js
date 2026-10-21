@@ -16,3 +16,4 @@ export const updateCamp = dbAdapter.updateCamp;
 export const getSetting = dbAdapter.getSetting;
 export const setSetting = dbAdapter.setSetting;
 export const getAllCamps = dbAdapter.getAllCamps;
+export const deleteCamp = dbAdapter.deleteCamp;

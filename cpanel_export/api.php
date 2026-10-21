@@ -19,6 +19,8 @@ const OVERRIDE_KEY = '__override__';
 const ROLES = ['operator', 'head_referee', 'referee'];
 const MANAGER_ROLES = ['operator', 'head_referee'];
 const MAX_CAMP_BYTES = 15 * 1024 * 1024;
+const AUDIT_LIMIT = 500;
+const MIN_PASSWORD = 6;
 
 class HttpError extends Exception {
     public $status;
@@ -397,6 +399,11 @@ function parse_camp($raw) {
     if (!is_array($c['stageTieredResults'])) $c['stageTieredResults'] = [];
     $c['numLang'] = $raw['numLang'] ?: 'fa';
     $c['dir'] = $raw['dir'] ?: 'rtl';
+    $c['auditLog'] = json_field($raw['auditLog'] ?? null, []);
+    if (!is_array($c['auditLog'])) $c['auditLog'] = [];
+    $c['announcement'] = json_field($raw['announcement'] ?? null, null);
+    if (!is_array($c['announcement'])) $c['announcement'] = null;
+    $c['activeStageId'] = !empty($raw['activeStageId']) ? $raw['activeStageId'] : null;
     $c['locked'] = !empty($raw['locked']);
     $c['archived'] = !empty($raw['archived']);
     foreach ($c['teams'] as &$t) normalize_team($t);
@@ -435,7 +442,7 @@ function public_state($c) {
         $teams[] = $t;
     }
     $s = $c;
-    unset($s['password'], $s['users']);
+    unset($s['password'], $s['users'], $s['auditLog']);
     $s['teams'] = teams_for_json($teams);
     $s['closedStages'] = as_map($c['closedStages']);
     $s['stageTieredResults'] = as_map($c['stageTieredResults']);
@@ -475,6 +482,8 @@ function column_values($changes) {
             case 'fieldJudgingValues': case 'positiveTags': case 'negativeTags':
                 $vals[$k] = enc(array_values($v)); break;
             case 'locked': case 'archived': $vals[$k] = $v ? 1 : 0; break;
+            case 'auditLog': $vals[$k] = enc(array_values($v)); break;
+            case 'announcement': $vals[$k] = $v === null ? null : enc($v); break;
             default: $vals[$k] = $v;
         }
     }
@@ -482,7 +491,8 @@ function column_values($changes) {
 }
 
 const CAMP_COLUMNS = ['orgName', 'password', 'title', 'logo', 'locked', 'archived', 'numLang', 'dir', 'teams', 'stages', 'users',
-    'campType', 'tieredPointsLadder', 'closedStages', 'stageTieredResults', 'fieldJudgingMode', 'fieldJudgingValues', 'positiveTags', 'negativeTags'];
+    'campType', 'tieredPointsLadder', 'closedStages', 'stageTieredResults', 'fieldJudgingMode', 'fieldJudgingValues', 'positiveTags', 'negativeTags',
+    'auditLog', 'announcement', 'activeStageId'];
 
 function save_camp_changes($id, $changes) {
     global $conn;
@@ -513,6 +523,17 @@ function mutate_camp($id, $allowLocked, callable $fn) {
         if (!$camp) throw new HttpError(404, 'مسابقه یافت نشد.');
         if (!$allowLocked && $camp['locked']) throw new HttpError(403, 'این مسابقه قفل شده است.');
         $result = $fn($camp) ?: [];
+        if (!empty($result['changes']) && !empty($result['audit'])) {
+            $a = $result['audit'];
+            $log = $camp['auditLog'];
+            $log[] = [
+                'ts' => now_ms(),
+                'by' => ['username' => $a['user']['username'] ?? '', 'name' => display_name($a['user']), 'role' => $a['user']['role'] ?? ''],
+                'action' => $a['action'],
+                'details' => (object)($a['details'] ?? [])
+            ];
+            $result['changes']['auditLog'] = array_slice($log, -AUDIT_LIMIT);
+        }
         if (!empty($result['changes'])) {
             save_camp_changes($id, $result['changes']);
             $camp = array_merge($camp, $result['changes']);
@@ -648,6 +669,23 @@ function judge_entry_for($user, $rawVal, $dnfFlag, $judgeKey) {
         'dnf' => $isDnf,
         'timestamp' => (int)round(microtime(true) * 1000)
     ];
+}
+
+function stage_name($camp, $stageId) {
+    foreach ($camp['stages'] as $s) if (($s['id'] ?? '') === $stageId) return $s['name'] ?? $stageId;
+    return $stageId;
+}
+
+function require_new_password($pw) {
+    if (!is_string($pw) || mb_strlen($pw) < MIN_PASSWORD) throw new HttpError(400, 'رمز عبور جدید باید حداقل ' . MIN_PASSWORD . ' کاراکتر باشد.');
+    return $pw;
+}
+
+function reset_team_scores(&$t) {
+    $t['scoreLogs'] = [];
+    $t['stageScores'] = [];
+    $t['judgeStageScores'] = [];
+    $t['score'] = 0;
 }
 
 function now_ms() {
@@ -794,7 +832,7 @@ try {
     case 'update_camp':
         if ($method !== 'POST') throw new HttpError(405, 'Method not allowed');
         mutate_camp($_GET['id'] ?? '', false, function ($camp) use ($data) {
-            require_camp_user($camp, MANAGER_ROLES);
+            $user = require_camp_user($camp, MANAGER_ROLES);
             $c = [];
             if (isset($data['teams'])) $c['teams'] = merge_teams($camp['teams'], clean_team_defs($data['teams']));
             if (isset($data['stages'])) $c['stages'] = clean_stages($data['stages']);
@@ -809,7 +847,14 @@ try {
             if (isset($data['negativeTags'])) $c['negativeTags'] = clean_string_list($data['negativeTags'], DEFAULT_NEGATIVE_TAGS);
             if (isset($data['campType'])) $c['campType'] = in_array($data['campType'], ['simple', 'professional', 'tiered'], true) ? $data['campType'] : $camp['campType'];
             if (isset($data['tieredPointsLadder'])) $c['tieredPointsLadder'] = parse_ladder($data['tieredPointsLadder']);
-            return ['changes' => $c];
+            $details = [];
+            if (isset($c['teams'])) {
+                $before = array_column($camp['teams'], 'name', 'id');
+                $after = array_column($c['teams'], 'name', 'id');
+                $details['addedTeams'] = array_values(array_diff_key($after, $before));
+                $details['removedTeams'] = array_values(array_diff_key($before, $after));
+            }
+            return ['changes' => $c, 'audit' => ['user' => $user, 'action' => 'settings', 'details' => $details]];
         });
         out(['success' => true, 'status' => 'success']);
 
@@ -817,9 +862,14 @@ try {
         $teamId = require_id($data['teamId'] ?? null, 'شناسه تیم');
         $value = $data['delta'] ?? null;
         if (!is_numeric($value) || (float)$value == 0 || abs((float)$value) > 1000000) throw new HttpError(400, 'مقدار امتیاز نامعتبر است.');
-        $logId = 'log_' . bin2hex(random_bytes(6));
-        mutate_camp($_GET['id'] ?? '', false, function ($camp) use ($teamId, $value, $logId, $data) {
+        // Offline clients send their own id so a retried request is never counted twice.
+        $clientLogId = $data['clientLogId'] ?? null;
+        $logId = (is_string($clientLogId) && preg_match('/^log_[A-Za-z0-9_-]{6,40}$/', $clientLogId)) ? $clientLogId : 'log_' . bin2hex(random_bytes(6));
+        $res = mutate_camp($_GET['id'] ?? '', false, function ($camp) use ($teamId, $value, $logId, $data) {
             $user = require_camp_user($camp);
+            foreach ($camp['teams'] as $tt) {
+                foreach ($tt['scoreLogs'] as $ll) if (is_array($ll) && ($ll['id'] ?? null) === $logId) return ['duplicate' => true];
+            }
             $teams = $camp['teams'];
             foreach ($teams as &$t) {
                 if ($t['id'] !== $teamId) continue;
@@ -832,7 +882,7 @@ try {
             }
             throw new HttpError(404, 'تیم یافت نشد.');
         });
-        out(['success' => true, 'logId' => $logId]);
+        out(array_merge(['success' => true, 'logId' => $logId], !empty($res['duplicate']) ? ['duplicate' => true] : []));
 
     case 'undo_instant':
         $logId = require_id($data['logId'] ?? null, 'شناسه امتیاز');
@@ -873,14 +923,16 @@ try {
                 $target = $data['targetJudgeKey'] ?? null;
                 if (!is_safe_key($target)) throw new HttpError(400, 'شناسه داور نامعتبر است.');
                 $onlyTeam = $single['teamId'] ?? null;
+                $affected = [];
                 foreach ($teams as &$t) {
                     if ($onlyTeam && $t['id'] !== $onlyTeam) continue;
                     if (!isset($t['judgeStageScores'][$stageId][$target])) continue;
                     unset($t['judgeStageScores'][$stageId][$target]);
+                    $affected[] = $t['name'] ?? '';
                     if (!$isTiered) { apply_judges_to_stage($t, $stageId, true); recompute_score($t); }
                 }
                 unset($t);
-                return ['changes' => ['teams' => $teams]];
+                return ['changes' => ['teams' => $teams], 'audit' => ['user' => $user, 'action' => 'judge_score_delete', 'details' => ['stage' => stage_name($camp, $stageId), 'judge' => $target, 'teams' => $affected]]];
             }
 
             $target = $data['targetJudgeKey'] ?? null;
@@ -918,17 +970,20 @@ try {
                 if (!$isTiered) { apply_judges_to_stage($t, $stageId); recompute_score($t); }
             }
             unset($t);
-            return ['changes' => ['teams' => $teams]];
+            $changed = [];
+            foreach ($teams as $t) if (array_key_exists($t['id'], $scores)) $changed[] = ['team' => $t['name'] ?? '', 'value' => $scores[$t['id']]];
+            return ['changes' => ['teams' => $teams], 'audit' => ['user' => $user, 'action' => 'stage_scores', 'details' => ['stage' => stage_name($camp, $stageId), 'changed' => $changed]]];
         });
         out(['success' => true, 'teams' => public_state($res['camp'])['teams']]);
 
     case 'team_logs':
         $teamId = require_id($data['teamId'] ?? null, 'شناسه تیم');
         $res = mutate_camp($_GET['id'] ?? '', false, function ($camp) use ($teamId, $data) {
-            require_camp_user($camp, MANAGER_ROLES);
+            $user = require_camp_user($camp, MANAGER_ROLES);
             $teams = $camp['teams'];
             foreach ($teams as &$t) {
                 if ($t['id'] !== $teamId) continue;
+                $scoreBefore = $t['score'] ?? 0;
                 $removed = is_array($data['removed'] ?? null) ? $data['removed'] : [];
                 $t['scoreLogs'] = array_values(array_filter($t['scoreLogs'], function ($l) use ($removed) {
                     return !(is_array($l) && in_array($l['id'] ?? null, $removed, true));
@@ -945,7 +1000,7 @@ try {
                     unset($t['stageScores'][$sId]);
                 }
                 recompute_score($t);
-                return ['changes' => ['teams' => $teams]];
+                return ['changes' => ['teams' => $teams], 'audit' => ['user' => $user, 'action' => 'team_logs', 'details' => ['team' => $t['name'] ?? '', 'scoreBefore' => $scoreBefore, 'scoreAfter' => $t['score']]]];
             }
             throw new HttpError(404, 'تیم یافت نشد.');
         });
@@ -954,7 +1009,7 @@ try {
     case 'close_tiered':
         $stageId = require_id($data['stageId'] ?? null, 'شناسه مرحله');
         $res = mutate_camp($data['id'] ?? ($_GET['id'] ?? ''), false, function ($camp) use ($stageId, $data) {
-            require_camp_user($camp, MANAGER_ROLES);
+            $user = require_camp_user($camp, MANAGER_ROLES);
             $stages = $camp['stages'];
             $idx = null;
             foreach ($stages as $i => $s) if (($s['id'] ?? '') === $stageId) $idx = $i;
@@ -969,7 +1024,8 @@ try {
                 unset($t);
                 return [
                     'changes' => ['teams' => $teams, 'closedStages' => $closed, 'stageTieredResults' => $results],
-                    'payload' => ['success' => true, 'reopened' => true, 'closedStages' => as_map($closed)]
+                    'payload' => ['success' => true, 'reopened' => true, 'closedStages' => as_map($closed)],
+                    'audit' => ['user' => $user, 'action' => 'stage_reopen', 'details' => ['stage' => $stages[$idx]['name'] ?? '']]
                 ];
             }
 
@@ -989,7 +1045,8 @@ try {
             return [
                 'changes' => ['teams' => $teams, 'stages' => $stages, 'closedStages' => $closed, 'stageTieredResults' => $results],
                 'payload' => ['success' => true, 'closed' => true, 'stageId' => $stageId, 'ladder' => $ladder, 'multiplier' => $multiplier,
-                              'results' => $rows, 'stages' => $stages, 'closedStages' => as_map($closed)]
+                              'results' => $rows, 'stages' => $stages, 'closedStages' => as_map($closed)],
+                'audit' => ['user' => $user, 'action' => 'stage_close', 'details' => ['stage' => $stages[$idx]['name'] ?? '', 'multiplier' => $multiplier]]
             ];
         });
         out(array_merge($res['payload'], ['teams' => public_state($res['camp'])['teams']]));
@@ -1011,6 +1068,158 @@ try {
             return [];
         });
         out(['success' => true, 'profilePic' => $pic]);
+
+    case 'superadmin_camp_delete':
+        require_superadmin();
+        $id = require_id($_GET['id'] ?? '');
+        if (!load_camp($id)) throw new HttpError(404, 'مسابقه یافت نشد.');
+        $conn->prepare("DELETE FROM camps WHERE id = ?")->execute([$id]);
+        $conn->prepare("DELETE FROM settings WHERE `key` = ?")->execute(['admin_pic_' . $id]);
+        out(['success' => true]);
+
+    case 'superadmin_camp_duplicate':
+        require_superadmin();
+        $src = load_camp(require_id($_GET['id'] ?? ''));
+        if (!$src) throw new HttpError(404, 'مسابقه یافت نشد.');
+        $newId = 'camp_' . bin2hex(random_bytes(6));
+        $title = (is_string($data['title'] ?? null) && trim($data['title']) !== '') ? str_or_empty(trim($data['title']), 200) : (($src['title'] ?? '') . ' (کپی)');
+        $teams = $src['teams'];
+        foreach ($teams as &$t) reset_team_scores($t);
+        unset($t);
+        $conn->prepare("INSERT INTO camps (id, locked, archived, closedStages, stageTieredResults) VALUES (?, 0, 0, '{}', '{}')")->execute([$newId]);
+        save_camp_changes($newId, [
+            'orgName' => $src['orgName'] ?? '', 'title' => $title, 'logo' => $src['logo'] ?? '', 'password' => $src['password'] ?? '',
+            'teams' => $teams, 'stages' => $src['stages'], 'users' => $src['users'], 'numLang' => $src['numLang'], 'dir' => $src['dir'],
+            'campType' => $src['campType'], 'tieredPointsLadder' => $src['tieredPointsLadder'], 'fieldJudgingMode' => $src['fieldJudgingMode'],
+            'fieldJudgingValues' => $src['fieldJudgingValues'], 'positiveTags' => $src['positiveTags'], 'negativeTags' => $src['negativeTags'],
+            'auditLog' => []
+        ]);
+        out(['success' => true, 'campId' => $newId]);
+
+    case 'superadmin_password':
+        require_superadmin();
+        if (!verify_password($data['currentPassword'] ?? '', superadmin_secret())) throw new HttpError(400, 'رمز عبور فعلی اشتباه است.');
+        set_setting('superadmin_password_hash', make_hash(require_new_password($data['newPassword'] ?? null)));
+        out(['success' => true, 'token' => create_token(['t' => 'sa', 'pv' => fingerprint(superadmin_secret())])]);
+
+    case 'user_password':
+        $newPassword = require_new_password($data['newPassword'] ?? null);
+        $id = require_id($data['campId'] ?? '', 'شناسه مسابقه');
+        $res = mutate_camp($id, true, function ($camp) use ($data, $newPassword) {
+            $me = require_camp_user($camp);
+            $found = find_camp_user($camp, $me['username']);
+            if (!verify_password($data['currentPassword'] ?? '', $found['secret'])) throw new HttpError(400, 'رمز عبور فعلی اشتباه است.');
+            $hash = make_hash($newPassword);
+            $audit = ['user' => $me, 'action' => 'password_change', 'details' => []];
+            if (!empty($found['builtin'])) return ['secret' => $hash, 'username' => $me['username'], 'changes' => ['password' => $hash], 'audit' => $audit];
+            $users = $camp['users'];
+            foreach ($users as &$u) if (($u['username'] ?? null) === $me['username']) $u['password'] = $hash;
+            unset($u);
+            return ['secret' => $hash, 'username' => $me['username'], 'changes' => ['users' => $users], 'audit' => $audit];
+        });
+        out(['success' => true, 'token' => create_token(['t' => 'camp', 'campId' => $id, 'username' => $res['username'], 'pv' => fingerprint($res['secret'])])]);
+
+    case 'users_reset_password':
+        $newPassword = require_new_password($data['newPassword'] ?? null);
+        mutate_camp($_GET['id'] ?? '', true, function ($camp) use ($data, $newPassword) {
+            $me = require_camp_user($camp, MANAGER_ROLES);
+            $allowed = $me['role'] === 'operator' ? ['head_referee', 'referee'] : ['referee'];
+            $users = $camp['users'];
+            foreach ($users as &$u) {
+                if (($u['username'] ?? null) !== ($data['username'] ?? '')) continue;
+                if (!in_array($u['role'] ?? '', $allowed, true)) throw new HttpError(403, 'شما اجازه تغییر رمز این کاربر را ندارید.');
+                $u['password'] = make_hash($newPassword);
+                $name = display_name($u);
+                unset($u);
+                return ['changes' => ['users' => $users], 'audit' => ['user' => $me, 'action' => 'password_reset', 'details' => ['target' => $name]]];
+            }
+            unset($u);
+            throw new HttpError(404, 'کاربر یافت نشد.');
+        });
+        out(['success' => true]);
+
+    case 'users':
+        $camp = load_camp($_GET['id'] ?? '');
+        if (!$camp) throw new HttpError(404, 'مسابقه یافت نشد.');
+        $me = require_camp_user($camp, MANAGER_ROLES);
+        $allowed = $me['role'] === 'operator' ? ['head_referee', 'referee'] : ['referee'];
+        $list = [];
+        foreach ($camp['users'] as $u) {
+            $pu = public_user($u);
+            $pu['canReset'] = in_array($pu['role'], $allowed, true);
+            $list[] = $pu;
+        }
+        out(['success' => true, 'users' => $list]);
+
+    case 'stage_reset':
+        $stageId = require_id($data['stageId'] ?? null, 'شناسه مرحله');
+        $res = mutate_camp($_GET['id'] ?? '', false, function ($camp) use ($stageId) {
+            $user = require_camp_user($camp, MANAGER_ROLES);
+            $found = false;
+            foreach ($camp['stages'] as $st) if (($st['id'] ?? '') === $stageId) $found = true;
+            if (!$found) throw new HttpError(404, 'مرحله یافت نشد.');
+            $closed = $camp['closedStages'];
+            $results = $camp['stageTieredResults'];
+            unset($closed[$stageId], $results[$stageId]);
+            $teams = $camp['teams'];
+            foreach ($teams as &$t) {
+                unset($t['judgeStageScores'][$stageId], $t['stageScores'][$stageId]);
+                recompute_score($t);
+            }
+            unset($t);
+            return ['changes' => ['teams' => $teams, 'closedStages' => $closed, 'stageTieredResults' => $results],
+                    'audit' => ['user' => $user, 'action' => 'stage_reset', 'details' => ['stage' => stage_name($camp, $stageId)]]];
+        });
+        out(['success' => true, 'teams' => public_state($res['camp'])['teams']]);
+
+    case 'scores_reset':
+        if (($data['confirm'] ?? '') !== 'RESET') throw new HttpError(400, 'تأیید بازنشانی دریافت نشد.');
+        $res = mutate_camp($_GET['id'] ?? '', false, function ($camp) {
+            $user = require_camp_user($camp, ['operator']);
+            $teams = $camp['teams'];
+            foreach ($teams as &$t) reset_team_scores($t);
+            unset($t);
+            return ['changes' => ['teams' => $teams, 'closedStages' => [], 'stageTieredResults' => [], 'announcement' => null],
+                    'audit' => ['user' => $user, 'action' => 'scores_reset', 'details' => []]];
+        });
+        out(['success' => true, 'teams' => public_state($res['camp'])['teams']]);
+
+    case 'board':
+        mutate_camp($_GET['id'] ?? '', true, function ($camp) use ($data) {
+            $user = require_camp_user($camp, MANAGER_ROLES);
+            $c = [];
+            $details = [];
+            if (array_key_exists('activeStageId', $data)) {
+                $sid = $data['activeStageId'];
+                if ($sid !== null) {
+                    $found = false;
+                    foreach ($camp['stages'] as $st) if (($st['id'] ?? '') === $sid) $found = true;
+                    if (!$found) throw new HttpError(404, 'مرحله یافت نشد.');
+                }
+                $c['activeStageId'] = $sid;
+                $details['activeStage'] = $sid === null ? null : stage_name($camp, $sid);
+            }
+            if (($data['announcement'] ?? '') === 'show') $c['announcement'] = ['active' => true, 'at' => now_ms()];
+            if (($data['announcement'] ?? '') === 'hide') $c['announcement'] = null;
+            if (isset($data['announcement'])) $details['announcement'] = $data['announcement'];
+            return ['changes' => $c, 'audit' => ['user' => $user, 'action' => 'board', 'details' => $details]];
+        });
+        out(['success' => true]);
+
+    case 'finish':
+        mutate_camp($_GET['id'] ?? '', false, function ($camp) use ($data) {
+            $user = require_camp_user($camp, MANAGER_ROLES);
+            $c = ['locked' => true];
+            if (!empty($data['announce'])) $c['announcement'] = ['active' => true, 'at' => now_ms()];
+            return ['changes' => $c, 'audit' => ['user' => $user, 'action' => 'finish', 'details' => []]];
+        });
+        out(['success' => true]);
+
+    case 'audit':
+        $camp = load_camp($_GET['id'] ?? '');
+        if (!$camp) throw new HttpError(404, 'مسابقه یافت نشد.');
+        require_camp_user($camp, MANAGER_ROLES);
+        out(['success' => true, 'entries' => array_reverse($camp['auditLog'])]);
 
     default:
         throw new HttpError(400, 'درخواست نامعتبر است.');

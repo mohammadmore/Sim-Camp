@@ -41,6 +41,12 @@ export default {
         // await db('settings').insert({ key, value }).onConflict('key').merge();
     },
 
+    async deleteCamp(id) {
+        throw new Error("deleteCamp not implemented in SQL adapter yet.");
+        // Example:
+        // await db('camps').where({ id }).delete();
+    },
+
     async getAllCamps() {
         throw new Error("getAllCamps not implemented in SQL adapter yet.");
         // Example:

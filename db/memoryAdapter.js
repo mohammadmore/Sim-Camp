@@ -20,6 +20,9 @@ export default {
     async setSetting(key, value) {
         settings.set(key, copy(value));
     },
+    async deleteCamp(id) {
+        camps.delete(id);
+    },
     async getAllCamps() {
         return [...camps.entries()].map(([id, c]) => ({ ...copy(c), id }));
     }

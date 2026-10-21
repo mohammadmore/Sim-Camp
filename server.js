@@ -3,7 +3,7 @@ import path from 'path';
 import crypto from 'crypto';
 import { fileURLToPath } from 'url';
 
-import { getCamp, updateCamp, getSetting, setSetting, getAllCamps } from './db/index.js';
+import { getCamp, updateCamp, getSetting, setSetting, getAllCamps, deleteCamp } from './db/index.js';
 import {
     DEFAULT_POSITIVE_TAGS, DEFAULT_NEGATIVE_TAGS, DEFAULT_FIELD_JUDGING_VALUES, DEFAULT_LADDER, OVERRIDE_KEY,
     isValidId, isPlainObject, parseMaybeJson, isDnfValue, num, round2, parseLadder, normalizeTeam, recomputeTeamScore,
@@ -18,6 +18,8 @@ const PORT = parseInt(process.env.PORT, 10) || 3000;
 // Firestore rejects documents above 1 MiB; keep a safety margin.
 const MAX_CAMP_BYTES = (process.env.DB_ADAPTER || 'firebase') === 'firebase' ? 950 * 1024 : 15 * 1024 * 1024;
 const ROLES = ['operator', 'head_referee', 'referee'];
+const AUDIT_LIMIT = 500;
+const MIN_PASSWORD = 6;
 const MANAGER_ROLES = ['operator', 'head_referee'];
 
 const app = express();
@@ -101,6 +103,9 @@ function parseCamp(raw) {
         tieredPointsLadder: parseLadder(parseMaybeJson(raw.tieredPointsLadder, DEFAULT_LADDER)),
         closedStages: parseMaybeJson(raw.closedStages, {}),
         stageTieredResults: parseMaybeJson(raw.stageTieredResults, {}),
+        auditLog: parseMaybeJson(raw.auditLog, []),
+        announcement: parseMaybeJson(raw.announcement, null),
+        activeStageId: raw.activeStageId || null,
         numLang: raw.numLang || 'fa',
         dir: raw.dir || 'rtl'
     };
@@ -112,6 +117,8 @@ function parseCamp(raw) {
     if (!Array.isArray(camp.negativeTags) || !camp.negativeTags.length) camp.negativeTags = DEFAULT_NEGATIVE_TAGS;
     if (!isPlainObject(camp.closedStages)) camp.closedStages = {};
     if (!isPlainObject(camp.stageTieredResults)) camp.stageTieredResults = {};
+    if (!Array.isArray(camp.auditLog)) camp.auditLog = [];
+    if (!isPlainObject(camp.announcement)) camp.announcement = null;
     camp.teams.forEach(normalizeTeam);
     return camp;
 }
@@ -135,7 +142,7 @@ function publicTeam(t) {
 
 // What the live board and everyone with the link may see: no passwords, no user list.
 function publicState(camp) {
-    const { password, users, ...rest } = camp;
+    const { password, users, auditLog, ...rest } = camp;
     return { ...rest, locked: isLocked(camp), archived: !!camp.archived, teams: camp.teams.map(publicTeam) };
 }
 
@@ -193,7 +200,12 @@ async function mutateCamp(id, { allowLocked = false } = {}, mutate) {
         const camp = await loadCampOr404(id);
         if (!allowLocked && isLocked(camp)) throw new HttpError(403, 'این مسابقه قفل شده است.');
         const result = await mutate(camp);
-        const changes = result && result.changes;
+        let changes = result && result.changes;
+        if (changes && result.audit) {
+            const { user, action, details } = result.audit;
+            const entry = { ts: Date.now(), by: { username: user.username, name: displayName(user), role: user.role }, action, details: details || {} };
+            changes = { ...changes, auditLog: [...camp.auditLog, entry].slice(-AUDIT_LIMIT) };
+        }
         if (changes) {
             Object.assign(camp, changes);
             assertSize(camp);
@@ -219,7 +231,12 @@ async function initSecurity() {
             await setSetting('session_secret', SESSION_SECRET);
         }
     }
-    if (process.env.SUPERADMIN_PASS) {
+    // A password changed from the panel wins over the environment variable,
+    // unless SUPERADMIN_PASS_RESET=1 is set (recovery when the password is forgotten).
+    const custom = process.env.SUPERADMIN_PASS_RESET === '1' ? null : await getSetting('superadmin_password_custom');
+    if (custom) {
+        superadminHash = custom;
+    } else if (process.env.SUPERADMIN_PASS) {
         if (process.env.SUPERADMIN_PASS === 'admin123') {
             console.warn('⚠️  SUPERADMIN_PASS is the well-known default "admin123". Please change it.');
         }
@@ -567,7 +584,7 @@ app.post('/api', route(async (req, res) => {
     const id = requireId(req.query.id, 'شناسه مسابقه');
     const b = req.body || {};
     await mutateCamp(id, {}, camp => {
-        requireCampUser(req, camp, MANAGER_ROLES);
+        const user = requireCampUser(req, camp, MANAGER_ROLES);
         const changes = {};
         if (b.teams !== undefined) changes.teams = mergeTeams(camp.teams, cleanTeamDefs(b.teams));
         if (b.stages !== undefined) changes.stages = cleanStages(b.stages);
@@ -582,7 +599,14 @@ app.post('/api', route(async (req, res) => {
         if (b.negativeTags !== undefined) changes.negativeTags = cleanStringList(b.negativeTags, DEFAULT_NEGATIVE_TAGS);
         if (b.campType !== undefined) changes.campType = ['simple', 'professional', 'tiered'].includes(b.campType) ? b.campType : camp.campType;
         if (b.tieredPointsLadder !== undefined) changes.tieredPointsLadder = parseLadder(b.tieredPointsLadder);
-        return { changes };
+        const details = {};
+        if (changes.teams) {
+            const before = new Set(camp.teams.map(t => t.id));
+            const after = new Set(changes.teams.map(t => t.id));
+            details.addedTeams = changes.teams.filter(t => !before.has(t.id)).map(t => t.name);
+            details.removedTeams = camp.teams.filter(t => !after.has(t.id)).map(t => t.name);
+        }
+        return { changes, audit: { user, action: 'settings', details } };
     });
     res.json({ success: true, status: 'success' });
 }));
@@ -592,16 +616,19 @@ app.post('/api', route(async (req, res) => {
 // ---------------------------------------------------------------------------
 app.post('/api/instant', route(async (req, res) => {
     const id = requireId(req.query.id, 'شناسه مسابقه');
-    const { teamId, delta, tag } = req.body || {};
+    const { teamId, delta, tag, clientLogId } = req.body || {};
     requireId(teamId, 'شناسه تیم');
     const value = Number(delta);
     if (!Number.isFinite(value) || value === 0 || Math.abs(value) > 1_000_000) throw new HttpError(400, 'مقدار امتیاز نامعتبر است.');
-    const logId = 'log_' + crypto.randomBytes(6).toString('hex');
+    // Offline clients send their own id so a retried request is never counted twice.
+    const logId = typeof clientLogId === 'string' && /^log_[A-Za-z0-9_-]{6,40}$/.test(clientLogId)
+        ? clientLogId : 'log_' + crypto.randomBytes(6).toString('hex');
 
-    const { team } = await mutateCamp(id, {}, camp => {
+    const { team, duplicate } = await mutateCamp(id, {}, camp => {
         const user = requireCampUser(req, camp);
         const team = camp.teams.find(t => t.id === teamId);
         if (!team) throw new HttpError(404, 'تیم یافت نشد.');
+        if (camp.teams.some(t => t.scoreLogs.some(l => l && l.id === logId))) return { team, duplicate: true };
         team.scoreLogs.push({
             id: logId, type: 'instant', value: round2(value), timestamp: Date.now(),
             user: publicUser(user), tag: strOrEmpty(tag, 100)
@@ -609,6 +636,7 @@ app.post('/api/instant', route(async (req, res) => {
         recomputeTeamScore(team);
         return { team, changes: { teams: camp.teams } };
     });
+    if (duplicate) return res.json({ success: true, logId, duplicate: true });
 
     sendToClients(id, `event: splash\ndata: ${JSON.stringify({
         teamId, delta: round2(value), teamName: team.name, score: team.score,
@@ -640,6 +668,11 @@ app.post('/api/undo_instant', route(async (req, res) => {
     res.json({ success: true });
 }));
 
+function stageName(camp, stageId) {
+    const st = camp.stages.find(s => s.id === stageId);
+    return st ? st.name : stageId;
+}
+
 function judgeEntryFor(user, rawVal, dnfFlag, judgeKey) {
     const isDnf = isDnfValue(rawVal) || !!dnfFlag;
     return {
@@ -669,14 +702,16 @@ app.post('/api/judge_stage_score', route(async (req, res) => {
             if (!isManager) throw new HttpError(403, 'فقط اپراتور یا سرداور می‌تواند نمره داوران را حذف کند.');
             if (!isSafeKey(targetJudgeKey)) throw new HttpError(400, 'شناسه داور نامعتبر است.');
             const onlyTeam = singleScore && singleScore.teamId;
+            const affected = [];
             for (const team of camp.teams) {
                 if (onlyTeam && team.id !== onlyTeam) continue;
                 const map = team.judgeStageScores[stageId];
                 if (!map || !map[targetJudgeKey]) continue;
                 delete map[targetJudgeKey];
+                affected.push(team.name);
                 if (!isTiered) { applyJudgesToStage(team, stageId, true); recomputeTeamScore(team); }
             }
-            return { changes: { teams: camp.teams } };
+            return { changes: { teams: camp.teams }, audit: { user, action: 'judge_score_delete', details: { stage: stageName(camp, stageId), judge: targetJudgeKey, teams: affected } } };
         }
 
         // Referees always score as themselves; managers may record on behalf of another judge key.
@@ -715,7 +750,8 @@ app.post('/api/stage_scores', route(async (req, res) => {
             team.judgeStageScores[stageId][OVERRIDE_KEY] = entry;
             if (!isTiered) { applyJudgesToStage(team, stageId); recomputeTeamScore(team); }
         }
-        return { changes: { teams: camp.teams } };
+        const changed = camp.teams.filter(t => scores[t.id] !== undefined).map(t => ({ team: t.name, value: scores[t.id] }));
+        return { changes: { teams: camp.teams }, audit: { user, action: 'stage_scores', details: { stage: stageName(camp, stageId), changed } } };
     });
     res.json({ success: true, teams: publicState(camp).teams });
 }));
@@ -726,9 +762,10 @@ app.post('/api/team_logs', route(async (req, res) => {
     const { teamId, values, removed, stageValues, removedStages } = req.body || {};
     requireId(teamId, 'شناسه تیم');
     const { camp } = await mutateCamp(id, {}, camp => {
-        requireCampUser(req, camp, MANAGER_ROLES);
+        const user = requireCampUser(req, camp, MANAGER_ROLES);
         const team = camp.teams.find(t => t.id === teamId);
         if (!team) throw new HttpError(404, 'تیم یافت نشد.');
+        const scoreBefore = team.score;
         const removedSet = new Set(Array.isArray(removed) ? removed : []);
         team.scoreLogs = team.scoreLogs.filter(l => !(l && removedSet.has(l.id)));
         if (isPlainObject(values)) {
@@ -745,7 +782,7 @@ app.post('/api/team_logs', route(async (req, res) => {
             for (const sId of removedStages) delete team.stageScores[sId];
         }
         recomputeTeamScore(team);
-        return { changes: { teams: camp.teams } };
+        return { changes: { teams: camp.teams }, audit: { user, action: 'team_logs', details: { team: team.name, scoreBefore, scoreAfter: team.score } } };
     });
     res.json({ success: true, teams: publicState(camp).teams });
 }));
@@ -757,7 +794,7 @@ app.post('/api/stage/close_tiered', route(async (req, res) => {
     requireId(stageId, 'شناسه مرحله');
 
     const { camp, payload } = await mutateCamp(id, {}, camp => {
-        requireCampUser(req, camp, MANAGER_ROLES);
+        const user = requireCampUser(req, camp, MANAGER_ROLES);
         const stage = camp.stages.find(s => s.id === stageId);
         if (!stage) throw new HttpError(404, 'مرحله یافت نشد.');
         const closedStages = { ...camp.closedStages };
@@ -769,7 +806,8 @@ app.post('/api/stage/close_tiered', route(async (req, res) => {
             camp.teams.forEach(t => { delete t.stageScores[stageId]; recomputeTeamScore(t); });
             return {
                 changes: { teams: camp.teams, closedStages, stageTieredResults },
-                payload: { success: true, reopened: true, closedStages }
+                payload: { success: true, reopened: true, closedStages },
+                audit: { user, action: 'stage_reopen', details: { stage: stage.name } }
             };
         }
 
@@ -789,10 +827,192 @@ app.post('/api/stage/close_tiered', route(async (req, res) => {
         stageTieredResults[stageId] = { closedAt: Date.now(), ladder, multiplier, results };
         return {
             changes: { teams: camp.teams, stages: camp.stages, closedStages, stageTieredResults },
-            payload: { success: true, closed: true, stageId, ladder, multiplier, results, stages: camp.stages, closedStages }
+            payload: { success: true, closed: true, stageId, ladder, multiplier, results, stages: camp.stages, closedStages },
+            audit: { user, action: 'stage_close', details: { stage: stage.name, multiplier } }
         };
     });
     res.json({ ...payload, teams: publicState(camp).teams });
+}));
+
+// ---------------------------------------------------------------------------
+// Camp management (superadmin)
+// ---------------------------------------------------------------------------
+function requireNewPassword(pw) {
+    if (typeof pw !== 'string' || pw.length < MIN_PASSWORD) throw new HttpError(400, `رمز عبور جدید باید حداقل ${MIN_PASSWORD} کاراکتر باشد.`);
+    return pw;
+}
+
+function resetTeamScores(team) {
+    team.scoreLogs = [];
+    team.stageScores = {};
+    team.judgeStageScores = {};
+    team.score = 0;
+}
+
+app.post('/superadmin/camps/:id/delete', route(async (req, res) => {
+    requireSuperadmin(req);
+    const id = requireId(req.params.id);
+    await withLock(id, async () => {
+        await loadCampOr404(id);
+        await deleteCamp(id);
+    });
+    sendToClients(id, `event: deleted\ndata: {}\n\n`);
+    res.json({ success: true });
+}));
+
+app.post('/superadmin/camps/:id/duplicate', route(async (req, res) => {
+    requireSuperadmin(req);
+    const src = await loadCampOr404(requireId(req.params.id));
+    const newId = 'camp_' + crypto.randomBytes(6).toString('hex');
+    const title = typeof (req.body || {}).title === 'string' && req.body.title.trim() ? strOrEmpty(req.body.title.trim(), 200) : `${src.title || ''} (کپی)`;
+    const teams = src.teams.map(t => {
+        const copy = { ...t };
+        resetTeamScores(copy);
+        return copy;
+    });
+    const camp = {
+        id: newId, orgName: src.orgName || '', title, logo: src.logo || '', password: src.password || '',
+        teams, stages: src.stages, users: src.users, numLang: src.numLang, dir: src.dir, campType: src.campType,
+        tieredPointsLadder: src.tieredPointsLadder, fieldJudgingMode: src.fieldJudgingMode, fieldJudgingValues: src.fieldJudgingValues,
+        positiveTags: src.positiveTags, negativeTags: src.negativeTags,
+        locked: 0, archived: false, closedStages: {}, stageTieredResults: {}, auditLog: [], announcement: null, activeStageId: null
+    };
+    assertSize(camp);
+    await updateCamp(newId, camp);
+    res.json({ success: true, campId: newId });
+}));
+
+app.post('/superadmin/password', route(async (req, res) => {
+    requireSuperadmin(req);
+    const { currentPassword, newPassword } = req.body || {};
+    if (!verifyPassword(currentPassword, superadminHash)) throw new HttpError(400, 'رمز عبور فعلی اشتباه است.');
+    superadminHash = hashPassword(requireNewPassword(newPassword));
+    await setSetting('superadmin_password_custom', superadminHash);
+    // The fingerprint changed, so hand back a fresh token for this browser.
+    res.json({ success: true, token: createToken({ t: 'sa', pv: fingerprint(superadminHash) }, SESSION_SECRET) });
+}));
+
+// ---------------------------------------------------------------------------
+// Passwords of camp users
+// ---------------------------------------------------------------------------
+app.post('/api/user/password', route(async (req, res) => {
+    const { campId, currentPassword, newPassword } = req.body || {};
+    const id = requireId(campId, 'شناسه مسابقه');
+    requireNewPassword(newPassword);
+    const { username, secret } = await mutateCamp(id, { allowLocked: true }, camp => {
+        const me = requireCampUser(req, camp);
+        const found = findCampUser(camp, me.username);
+        if (!verifyPassword(currentPassword, found.secret)) throw new HttpError(400, 'رمز عبور فعلی اشتباه است.');
+        const hash = hashPassword(newPassword);
+        const user = camp.users.find(u => u.username === me.username);
+        if (user) {
+            user.password = hash;
+            return { username: me.username, secret: hash, changes: { users: camp.users }, audit: { user: me, action: 'password_change', details: {} } };
+        }
+        return { username: me.username, secret: hash, changes: { password: hash }, audit: { user: me, action: 'password_change', details: {} } };
+    });
+    res.json({ success: true, token: createToken({ t: 'camp', campId: id, username, pv: fingerprint(secret) }, SESSION_SECRET) });
+}));
+
+// Operators may reset head referees' and referees' passwords; head referees may reset referees'.
+app.post('/api/users/reset_password', route(async (req, res) => {
+    const id = requireId(req.query.id, 'شناسه مسابقه');
+    const { username, newPassword } = req.body || {};
+    requireNewPassword(newPassword);
+    await mutateCamp(id, { allowLocked: true }, camp => {
+        const me = requireCampUser(req, camp, MANAGER_ROLES);
+        const target = camp.users.find(u => u.username === username);
+        if (!target) throw new HttpError(404, 'کاربر یافت نشد.');
+        const allowed = me.role === 'operator' ? ['head_referee', 'referee'] : ['referee'];
+        if (!allowed.includes(target.role)) throw new HttpError(403, 'شما اجازه تغییر رمز این کاربر را ندارید.');
+        target.password = hashPassword(newPassword);
+        return { changes: { users: camp.users }, audit: { user: me, action: 'password_reset', details: { target: displayName(target) } } };
+    });
+    res.json({ success: true });
+}));
+
+// Users a manager may manage (no credentials).
+app.get('/api/users', route(async (req, res) => {
+    const camp = await loadCampOr404(requireId(req.query.id, 'شناسه مسابقه'));
+    const me = requireCampUser(req, camp, MANAGER_ROLES);
+    const allowed = me.role === 'operator' ? ['head_referee', 'referee'] : ['referee'];
+    res.json({ success: true, users: camp.users.map(publicUser).map(u => ({ ...u, canReset: allowed.includes(u.role) })) });
+}));
+
+// ---------------------------------------------------------------------------
+// Resets, live board control and audit log
+// ---------------------------------------------------------------------------
+app.post('/api/stage/reset', route(async (req, res) => {
+    const id = requireId(req.query.id, 'شناسه مسابقه');
+    const stageId = requireId((req.body || {}).stageId, 'شناسه مرحله');
+    const { camp } = await mutateCamp(id, {}, camp => {
+        const user = requireCampUser(req, camp, MANAGER_ROLES);
+        if (!camp.stages.some(s => s.id === stageId)) throw new HttpError(404, 'مرحله یافت نشد.');
+        const closedStages = { ...camp.closedStages };
+        const stageTieredResults = { ...camp.stageTieredResults };
+        delete closedStages[stageId];
+        delete stageTieredResults[stageId];
+        camp.teams.forEach(t => {
+            delete t.judgeStageScores[stageId];
+            delete t.stageScores[stageId];
+            recomputeTeamScore(t);
+        });
+        return {
+            changes: { teams: camp.teams, closedStages, stageTieredResults },
+            audit: { user, action: 'stage_reset', details: { stage: stageName(camp, stageId) } }
+        };
+    });
+    res.json({ success: true, teams: publicState(camp).teams });
+}));
+
+app.post('/api/scores/reset', route(async (req, res) => {
+    const id = requireId(req.query.id, 'شناسه مسابقه');
+    if ((req.body || {}).confirm !== 'RESET') throw new HttpError(400, 'تأیید بازنشانی دریافت نشد.');
+    const { camp } = await mutateCamp(id, {}, camp => {
+        const user = requireCampUser(req, camp, ['operator']);
+        camp.teams.forEach(resetTeamScores);
+        return {
+            changes: { teams: camp.teams, closedStages: {}, stageTieredResults: {}, announcement: null },
+            audit: { user, action: 'scores_reset', details: {} }
+        };
+    });
+    res.json({ success: true, teams: publicState(camp).teams });
+}));
+
+// Which stage is running now, and the final-results announcement on the live board.
+app.post('/api/board', route(async (req, res) => {
+    const id = requireId(req.query.id, 'شناسه مسابقه');
+    const b = req.body || {};
+    await mutateCamp(id, { allowLocked: true }, camp => {
+        const user = requireCampUser(req, camp, MANAGER_ROLES);
+        const changes = {};
+        if (b.activeStageId !== undefined) {
+            if (b.activeStageId !== null && !camp.stages.some(s => s.id === b.activeStageId)) throw new HttpError(404, 'مرحله یافت نشد.');
+            changes.activeStageId = b.activeStageId;
+        }
+        if (b.announcement === 'show') changes.announcement = { active: true, at: Date.now() };
+        if (b.announcement === 'hide') changes.announcement = null;
+        return { changes, audit: { user, action: 'board', details: { activeStage: changes.activeStageId !== undefined ? (changes.activeStageId ? stageName(camp, changes.activeStageId) : null) : undefined, announcement: b.announcement } } };
+    });
+    res.json({ success: true });
+}));
+
+// Ends the competition: locks scoring and (optionally) starts the results announcement.
+app.post('/api/finish', route(async (req, res) => {
+    const id = requireId(req.query.id, 'شناسه مسابقه');
+    await mutateCamp(id, {}, camp => {
+        const user = requireCampUser(req, camp, MANAGER_ROLES);
+        const changes = { locked: 1 };
+        if ((req.body || {}).announce) changes.announcement = { active: true, at: Date.now() };
+        return { changes, audit: { user, action: 'finish', details: {} } };
+    });
+    res.json({ success: true });
+}));
+
+app.get('/api/audit', route(async (req, res) => {
+    const camp = await loadCampOr404(requireId(req.query.id, 'شناسه مسابقه'));
+    requireCampUser(req, camp, MANAGER_ROLES);
+    res.json({ success: true, entries: [...camp.auditLog].reverse() });
 }));
 
 process.on('unhandledRejection', (reason, promise) => {
