@@ -173,7 +173,7 @@ function broadcastState(id, camp) {
 setInterval(() => {
     for (const [id, clients] of sseClients.entries()) {
         if (clients.size === 0) { sseClients.delete(id); continue; }
-        sendToClients(id, ':\n\n');
+        sendToClients(id, 'event: ping\ndata: 1\n\n'); // keeps proxies open and lets boards detect a dead connection
     }
 }, 15000).unref();
 

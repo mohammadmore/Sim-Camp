@@ -84,8 +84,12 @@ let isFirstLoad = true;
 function pollBoardState() {
     if (document.hidden) return;
     fetch(\`api.php?action=poll&id=\${campId}\`)
-    .then(r => r.ok ? r.json() : Promise.reject())
+    .then(r => {
+        if (r.status === 404) { clearInterval(boardPollTimer); ConnectionStatus.show(false); showBoardMessage('🔍', 'مسابقه‌ای با این لینک پیدا نشد.<br><small>ممکن است حذف شده باشد یا لینک اشتباه باشد.</small>'); return Promise.reject(); }
+        return r.ok ? r.json() : Promise.reject(new Error('http'));
+    })
     .then(state => {
+        ConnectionStatus.ok();
         latestState = state;
         let maxTime = lastSeenLogTime;
         (state.teams || []).forEach(t => {
@@ -129,11 +133,11 @@ function pollBoardState() {
             renderBoard(latestState);
         }
     })
-    .catch(e => {});
+    .catch(e => { if (e) ConnectionStatus.fail(); });
 }
 
 pollBoardState();
-setInterval(pollBoardState, 1500);
+const boardPollTimer = setInterval(pollBoardState, 1500);
 }`;
 if (!sseBlockRegex.test(board)) throw new Error('board.html: EventSource block not found; update scripts/build_cpanel.cjs');
 board = board.replace(sseBlockRegex, pollingReplacement);
