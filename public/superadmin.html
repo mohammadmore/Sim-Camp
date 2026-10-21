@@ -6,7 +6,18 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <link rel="stylesheet" href="style.css?v=2">
-    <title>پنل سوپرادمین - سیمولیشن کمپ</title>    <script src="https://unpkg.com/lucide@latest"></script>
+    <title>پنل سوپرادمین - سیمولیشن کمپ</title>    <script src="vendor/lucide-1.61.0.min.js"></script>
+    <script src="common.js"></script>
+    <script>
+        window.AUTH_STORAGE_KEY = 'sa_token';
+        // Older versions stored the superadmin password itself in the browser; remove it.
+        try { sessionStorage.removeItem('sa_auth'); } catch (e) {}
+        window.onAuthExpired = function () {
+            Auth.clear();
+            if (typeof superadminLogout === 'function') superadminLogout();
+            alert('نشست سوپرادمین منقضی شده است. لطفاً دوباره وارد شوید.');
+        };
+    </script>
     <script>
         const savedTheme = localStorage.getItem('theme') || 'light';
         document.documentElement.setAttribute('data-theme', savedTheme);
@@ -27,13 +38,11 @@
         document.addEventListener('DOMContentLoaded', () => { 
             updateThemeIcon(); 
             fetch('/api/settings').then(r=>r.json()).then(d=>{if(d.systemLogo)applySystemLogo(d.systemLogo)}); 
-            const savedSa = sessionStorage.getItem('sa_auth');
-            if (savedSa) {
-                const passInput = document.getElementById('saPassword');
-                if (passInput) {
-                    passInput.value = savedSa;
-                    superadminLogin();
-                }
+            if (Auth.get()) {
+                // Session token from this tab: go straight to the dashboard (an expired token brings the login back).
+                hideModal('loginSection');
+                setTimeout(() => { showModal('dashboardSection', 'block'); }, 280);
+                loadCamps();
             }
         });
 
@@ -64,7 +73,7 @@
         }
         
     </script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <script src="vendor/xlsx-0.18.5.full.min.js"></script>
 </head>
 <body>
     <button onclick="toggleTheme()" class="theme-toggle" title="تغییر پوسته"><i data-lucide="moon"></i></button>
@@ -352,12 +361,10 @@
         function handleFileUpload(e) {
             const file = e.target.files[0];
             if(file) {
-                const reader = new FileReader();
-                reader.onload = (e) => { 
-                    document.getElementById('logoBase64').value = e.target.result; 
+                compressImageFile(file, 512).then(url => {
+                    document.getElementById('logoBase64').value = url;
                     updatePreview();
-                };
-                reader.readAsDataURL(file);
+                });
             }
         }
 
@@ -382,7 +389,7 @@
         // --- Superadmin Logic ---
 
         function superadminLogout() {
-            sessionStorage.removeItem('sa_auth');
+            Auth.clear();
             // Clear password field
             const passInput = document.getElementById('saPassword');
             if(passInput) passInput.value = '';
@@ -550,14 +557,15 @@
                             if (errors.length > 0) {
                                 // show errors
                                 if (errDiv) {
-                                    errDiv.innerHTML = "<b>ایرادات یافت شده در فایل اکسل:</b><ul style='margin-top: 10px; margin-bottom: 0; padding-right: 20px;'>" + errors.map(e => "<li>" + e + "</li>").join('') + "</ul>";
+                                    errDiv.innerHTML = "<b>ایرادات یافت شده در فایل اکسل:</b><ul style='margin-top: 10px; margin-bottom: 0; padding-right: 20px;'>" + errors.map(e => "<li>" + esc(e) + "</li>").join('') + "</ul>";
                                     errDiv.style.display = "block";
                                 }
                                 return;
                             }
 
                             const firstOp = users.find(u => u.role === 'operator' || u.role === 'head_referee');
-                            let opPassword = firstOp ? firstOp.password : "admin123";
+                            const generatedOpPassword = firstOp ? null : Array.from(crypto.getRandomValues(new Uint8Array(9)), b => 'abcdefghjkmnpqrstuvwxyz23456789'[b % 31]).join('');
+                            let opPassword = firstOp ? firstOp.password : generatedOpPassword;
 
                             const newCamp = {
                                 orgName: orgName,
@@ -581,18 +589,18 @@
                             .then(res => res.json())
                             .then(resData => {
                                 if (resData.success) {
-                                    alert("مسابقه با موفقیت از اکسل ایجاد شد!");
+                                    alert("مسابقه با موفقیت از اکسل ایجاد شد!" + (generatedOpPassword ? "\n\nرمز ورود اپراتور اصلی (نام کاربری admin): " + generatedOpPassword + "\nاین رمز را یادداشت کنید." : ""));
                                     closeExcelGuide();
                                     loadCamps();
                                 } else {
-                                    alert("خطا در ایجاد مسابقه: " + resData.message);
+                                    alert("خطا در ایجاد مسابقه: " + (resData.message || resData.error));
                                 }
                             });
                         }
                     }
                 } catch (error) {
                     if (errDiv) {
-                        errDiv.innerHTML = "<b>خطا در پردازش فایل:</b> " + error;
+                        errDiv.innerHTML = "<b>خطا در پردازش فایل:</b> " + esc(error);
                         errDiv.style.display = "block";
                     } else {
                         alert("خطا در پردازش فایل اکسل: " + error);
@@ -612,13 +620,14 @@
             .then(res => res.json())
             .then(data => {
                 if (data.success) {
-                    sessionStorage.setItem('sa_auth', pass);
+                    Auth.set(data.token);
+                    document.getElementById('saPassword').value = '';
                     hideModal('loginSection');
                     setTimeout(() => { showModal('dashboardSection', 'block'); }, 280);
                     loadCamps();
                 } else {
-                    sessionStorage.removeItem('sa_auth');
-                    document.getElementById('saErrorMsg').innerText = data.message;
+                    Auth.clear();
+                    document.getElementById('saErrorMsg').innerText = data.message || data.error;
                     document.getElementById('saErrorMsg').style.display = 'block';
                 }
             });
@@ -651,24 +660,25 @@
             const fileInput = document.getElementById('sysLogoFile');
             
             const finishSave = async (url) => {
-                await fetch('/api/settings', {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({ key: 'systemLogo', value: url })
-                });
+                try {
+                    await fetch('/api/settings', {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({ key: 'systemLogo', value: url })
+                    }).then(jsonOrThrow);
+                } catch (e) {
+                    window.showToast('ذخیره تنظیمات انجام نشد: ' + e.message, 'error');
+                    return;
+                }
                 applySystemLogo(url);
                 closeGlobalSettings();
                 setTimeout(() => alert('تنظیمات ذخیره شد'), 10);
             };
 
             if (fileInput.files && fileInput.files[0]) {
-                const reader = new FileReader();
-                reader.onload = async (e) => {
-                    logoUrl = e.target.result;
-                    document.getElementById('sysLogoLink').value = '';
-                    await finishSave(logoUrl);
-                };
-                reader.readAsDataURL(fileInput.files[0]);
+                logoUrl = await compressImageFile(fileInput.files[0], 512);
+                document.getElementById('sysLogoLink').value = '';
+                await finishSave(logoUrl);
             } else {
                 await finishSave(logoUrl);
             }
@@ -679,7 +689,7 @@
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
                 body: JSON.stringify({ key, value })
-            });
+            }).then(jsonOrThrow);
             applySystemLogo(value);
         }
     
@@ -809,10 +819,10 @@
                 card.innerHTML = `
                     <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 5px;">
                         <div style="flex-grow: 1; padding-left: 10px;">
-                            <h3 style="margin: 0 0 8px 0; font-size: 18px; line-height: 1.4;">${camp.title || 'بدون عنوان'}</h3>
+                            <h3 style="margin: 0 0 8px 0; font-size: 18px; line-height: 1.4;">${esc(camp.title || 'بدون عنوان')}</h3>
                             <div style="font-size: 13px; opacity: 0.7; display: flex; align-items: center; gap: 5px;">
                                 <i data-lucide="building-2" style="width: 14px; height: 14px;"></i> 
-                                ${camp.orgName || '-'}
+                                ${esc(camp.orgName || '-')}
                             </div>
                         </div>
                         ${statusBadge}
@@ -902,7 +912,7 @@
             currentPosTags.forEach((tag, idx) => {
                 const chip = document.createElement('span');
                 chip.className = 'editable-tag-chip pos';
-                chip.innerHTML = `${tag} <button type="button" class="del-btn" onclick="removePosTag(${idx})" title="حذف">×</button>`;
+                chip.innerHTML = `${esc(tag)} <button type="button" class="del-btn" onclick="removePosTag(${idx})" title="حذف">×</button>`;
                 list.appendChild(chip);
             });
         }
@@ -914,7 +924,7 @@
             currentNegTags.forEach((tag, idx) => {
                 const chip = document.createElement('span');
                 chip.className = 'editable-tag-chip neg';
-                chip.innerHTML = `${tag} <button type="button" class="del-btn" onclick="removeNegTag(${idx})" title="حذف">×</button>`;
+                chip.innerHTML = `${esc(tag)} <button type="button" class="del-btn" onclick="removeNegTag(${idx})" title="حذف">×</button>`;
                 list.appendChild(chip);
             });
         }
@@ -979,7 +989,8 @@
                         document.getElementById('editCampId').value = c.id;
                         document.getElementById('orgName').value = c.orgName;
                         document.getElementById('campTitle').value = c.title || '';
-                        document.getElementById('opPassword').value = c.password;
+                        document.getElementById('opPassword').value = '';
+                        document.getElementById('opPassword').placeholder = c.hasPassword ? 'بدون تغییر (برای تغییر رمز جدید وارد کنید)' : 'رمز عبور اپراتور';
                         document.getElementById('campType').value = c.campType || 'simple';
                         if (document.getElementById('tieredPointsLadder')) {
                             document.getElementById('tieredPointsLadder').value = (c.tieredPointsLadder && Array.isArray(c.tieredPointsLadder)) ? c.tieredPointsLadder.join(', ') : '500, 400, 300, 200, 100';
@@ -1014,7 +1025,7 @@
         }
     });
                         c.stages.forEach(s => addStage(s.name, s.id, s.unit, s.timeOrder, s.multiplier));
-                        if(c.users) c.users.forEach(u => addUser(u.firstName, u.lastName, u.username, u.password, u.role, u.profilePic, u.id));
+                        if(c.users) c.users.forEach(u => addUser(u.firstName, u.lastName, u.username, '', u.role, u.profilePic, u.id, !!u.hasPassword));
                     }
                 });
             } else {
@@ -1036,6 +1047,7 @@
                 document.getElementById('orgName').value = '';
                 document.getElementById('campTitle').value = '';
                 document.getElementById('opPassword').value = '';
+                document.getElementById('opPassword').placeholder = 'رمز عبور اپراتور';
                 document.getElementById('logoUrl').value = '';
                 document.getElementById('logoBase64').value = '';
                 setLogoMode('url');
@@ -1057,17 +1069,17 @@
             item.innerHTML = `
                 <div style="display: flex; flex-direction: column; gap: 8px; width: 100%; padding: 4px;">
                     <div style="display: flex; gap: 8px; align-items: center;">
-                        <input type="text" class="t-name" placeholder="نام تیم" value="${name}" style="flex: 2; min-width: 100px;">
-                        <div class="color-btn" style="background-color: ${color};" data-value="${color}" onclick="openColorPicker(this)" title="انتخاب رنگ تیم"></div>
+                        <input type="text" class="t-name" placeholder="نام تیم" value="${esc(name)}" style="flex: 2; min-width: 100px;">
+                        <div class="color-btn" style="background-color: ${safeColor(color)};" data-value="${esc(color)}" onclick="openColorPicker(this)" title="انتخاب رنگ تیم"></div>
                     </div>
                     
                     <!-- عکس اصلی تیم ۱۶:۹ -->
                     <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
                         <div class="t-img-thumb" style="width: 56px; height: 31px; aspect-ratio: 16/9; border-radius: 6px; overflow: hidden; border: 1px solid var(--glass-border); flex-shrink: 0; background: var(--input-bg); display: flex; align-items: center; justify-content: center; position: relative;" title="پیش‌نمایش عکس اصلی ۱۶:۹">
-                            ${image ? `<img src="${image}" style="width: 100%; height: 100%; object-fit: cover;" onerror="this.style.display='none'">` : `<i data-lucide="image" style="width: 14px; height: 14px; opacity: 0.5;"></i>`}
+                            ${image ? `<img src="${esc(safeUrl(image))}" style="width: 100%; height: 100%; object-fit: cover;" onerror="this.style.display='none'">` : `<i data-lucide="image" style="width: 14px; height: 14px; opacity: 0.5;"></i>`}
                             <span style="position: absolute; bottom: 1px; right: 2px; font-size: 7px; font-weight: bold; background: rgba(0,0,0,0.65); color: #fff; padding: 0 2px; border-radius: 2px; pointer-events: none;">16:9</span>
                         </div>
-                        <input type="text" class="t-image" placeholder="عکس اصلی ۱۶:۹ (پیش‌فرض)" value="${image}" style="flex: 1; min-width: 120px; margin: 0;" oninput="updateTeamImgThumb(this)">
+                        <input type="text" class="t-image" placeholder="عکس اصلی ۱۶:۹ (پیش‌فرض)" value="${esc(image)}" style="flex: 1; min-width: 120px; margin: 0;" oninput="updateTeamImgThumb(this)">
                         <button type="button" class="icon-btn" onclick="triggerSuperPhotoInput(this)" title="آپلود عکس از فایل (نسبت ۱۶:۹)" style="padding: 5px 9px; font-size: 11px; display: inline-flex; align-items: center; gap: 3px; white-space: nowrap;"><i data-lucide="upload" style="width: 12px; height: 12px;"></i> آپلود</button>
                         <button type="button" class="icon-btn remove-btn t-clear-img-btn" onclick="clearSuperPhoto(this)" title="حذف عکس" style="padding: 5px 7px; font-size: 11px; display: ${image ? 'inline-flex' : 'none'};">✕</button>
                         <input type="file" accept="image/*" class="t-photo-file-input" style="display: none;" onchange="handleSuperPhotoSelected(this, '.t-image')">
@@ -1080,9 +1092,9 @@
                         <!-- عکس خوشحالی (+) -->
                         <div style="display: flex; gap: 6px; align-items: center; flex-wrap: wrap;">
                             <div class="t-img-thumb" style="width: 46px; height: 26px; aspect-ratio: 16/9; border-radius: 5px; overflow: hidden; border: 1px solid var(--glass-border); flex-shrink: 0; background: var(--input-bg); display: flex; align-items: center; justify-content: center; position: relative;" title="پیش‌نمایش عکس خوشحالی">
-                                ${happyImage ? `<img src="${happyImage}" style="width: 100%; height: 100%; object-fit: cover;" onerror="this.style.display='none'">` : `<span style="font-size: 11px;">😄</span>`}
+                                ${happyImage ? `<img src="${esc(safeUrl(happyImage))}" style="width: 100%; height: 100%; object-fit: cover;" onerror="this.style.display='none'">` : `<span style="font-size: 11px;">😄</span>`}
                             </div>
-                            <input type="text" class="t-happy-image" placeholder="عکس حالت خوشحالی (+)" value="${happyImage}" style="flex: 1; min-width: 120px; margin: 0; font-size: 12px;" oninput="updateTeamImgThumb(this)">
+                            <input type="text" class="t-happy-image" placeholder="عکس حالت خوشحالی (+)" value="${esc(happyImage)}" style="flex: 1; min-width: 120px; margin: 0; font-size: 12px;" oninput="updateTeamImgThumb(this)">
                             <button type="button" class="icon-btn" onclick="triggerSuperPhotoInput(this)" title="آپلود عکس خوشحالی" style="padding: 4px 8px; font-size: 11px; display: inline-flex; align-items: center; gap: 3px; white-space: nowrap;"><i data-lucide="upload" style="width: 11px; height: 11px;"></i> آپلود</button>
                             <button type="button" class="icon-btn remove-btn t-clear-img-btn" onclick="clearSuperPhoto(this)" title="حذف عکس" style="padding: 4px 6px; font-size: 11px; display: ${happyImage ? 'inline-flex' : 'none'};">✕</button>
                             <input type="file" accept="image/*" class="t-photo-file-input" style="display: none;" onchange="handleSuperPhotoSelected(this, '.t-happy-image')">
@@ -1091,9 +1103,9 @@
                         <!-- عکس ناراحتی (-) -->
                         <div style="display: flex; gap: 6px; align-items: center; flex-wrap: wrap;">
                             <div class="t-img-thumb" style="width: 46px; height: 26px; aspect-ratio: 16/9; border-radius: 5px; overflow: hidden; border: 1px solid var(--glass-border); flex-shrink: 0; background: var(--input-bg); display: flex; align-items: center; justify-content: center; position: relative;" title="پیش‌نمایش عکس ناراحتی">
-                                ${sadImage ? `<img src="${sadImage}" style="width: 100%; height: 100%; object-fit: cover;" onerror="this.style.display='none'">` : `<span style="font-size: 11px;">😔</span>`}
+                                ${sadImage ? `<img src="${esc(safeUrl(sadImage))}" style="width: 100%; height: 100%; object-fit: cover;" onerror="this.style.display='none'">` : `<span style="font-size: 11px;">😔</span>`}
                             </div>
-                            <input type="text" class="t-sad-image" placeholder="عکس حالت ناراحتی (-)" value="${sadImage}" style="flex: 1; min-width: 120px; margin: 0; font-size: 12px;" oninput="updateTeamImgThumb(this)">
+                            <input type="text" class="t-sad-image" placeholder="عکس حالت ناراحتی (-)" value="${esc(sadImage)}" style="flex: 1; min-width: 120px; margin: 0; font-size: 12px;" oninput="updateTeamImgThumb(this)">
                             <button type="button" class="icon-btn" onclick="triggerSuperPhotoInput(this)" title="آپلود عکس ناراحتی" style="padding: 4px 8px; font-size: 11px; display: inline-flex; align-items: center; gap: 3px; white-space: nowrap;"><i data-lucide="upload" style="width: 11px; height: 11px;"></i> آپلود</button>
                             <button type="button" class="icon-btn remove-btn t-clear-img-btn" onclick="clearSuperPhoto(this)" title="حذف عکس" style="padding: 4px 6px; font-size: 11px; display: ${sadImage ? 'inline-flex' : 'none'};">✕</button>
                             <input type="file" accept="image/*" class="t-photo-file-input" style="display: none;" onchange="handleSuperPhotoSelected(this, '.t-sad-image')">
@@ -1119,7 +1131,7 @@
             if (!fileInput.files || !fileInput.files[0]) return;
             const file = fileInput.files[0];
             try {
-                const base64Data = await cropAndResizeTo16x9(file, 960, 540);
+                const base64Data = await cropAndResizeTo16x9(file);
                 const row = fileInput.parentElement;
                 const textInput = row.querySelector(targetSelector);
                 const clearBtn = row.querySelector('.t-clear-img-btn');
@@ -1153,7 +1165,7 @@
             if (!thumb) return;
             const val = textInput.value.trim();
             if (val) {
-                thumb.innerHTML = `<img src="${val}" style="width: 100%; height: 100%; object-fit: cover;" onerror="this.style.display='none'">`;
+                thumb.innerHTML = `<img src="${esc(safeUrl(val))}" style="width: 100%; height: 100%; object-fit: cover;" onerror="this.style.display='none'">`;
                 if (clearBtn) clearBtn.style.display = 'inline-flex';
             } else {
                 const isHappy = textInput.classList.contains('t-happy-image');
@@ -1170,7 +1182,7 @@
             }
         }
 
-        function cropAndResizeTo16x9(file, targetW = 960, targetH = 540) {
+        function cropAndResizeTo16x9(file, targetW = 640, targetH = 360) {
             return new Promise((resolve, reject) => {
                 if (!file || !file.type.startsWith('image/')) {
                     return reject(new Error('فایل انتخاب شده تصویر نیست.'));
@@ -1198,8 +1210,8 @@
                         }
 
                         ctx.drawImage(img, srcX, srcY, srcW, srcH, 0, 0, targetW, targetH);
-                        const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
-                        resolve(dataUrl);
+                        const webp = canvas.toDataURL('image/webp', 0.75);
+                        resolve(webp.startsWith('data:image/webp') ? webp : canvas.toDataURL('image/jpeg', 0.75));
                     };
                     img.onerror = () => reject(new Error('بارگذاری تصویر با خطا مواجه شد.'));
                     img.src = e.target.result;
@@ -1217,7 +1229,7 @@
             const url = input.value.trim();
             if (thumb) {
                 if (url) {
-                    thumb.innerHTML = `<img src="${url}" style="width: 100%; height: 100%; object-fit: cover;" onerror="this.style.display='none'"><span style="position: absolute; bottom: 1px; right: 2px; font-size: 8px; font-weight: bold; background: rgba(0,0,0,0.65); color: #fff; padding: 0 3px; border-radius: 2px; pointer-events: none;">16:9</span>`;
+                    thumb.innerHTML = `<img src="${esc(safeUrl(url))}" style="width: 100%; height: 100%; object-fit: cover;" onerror="this.style.display='none'"><span style="position: absolute; bottom: 1px; right: 2px; font-size: 8px; font-weight: bold; background: rgba(0,0,0,0.65); color: #fff; padding: 0 3px; border-radius: 2px; pointer-events: none;">16:9</span>`;
                 } else {
                     thumb.innerHTML = `<i data-lucide="image" style="width: 16px; height: 16px; opacity: 0.5;"></i><span style="position: absolute; bottom: 1px; right: 2px; font-size: 8px; font-weight: bold; background: rgba(0,0,0,0.65); color: #fff; padding: 0 3px; border-radius: 2px; pointer-events: none;">16:9</span>`;
                     if(typeof refreshIcons === 'function') refreshIcons();
@@ -1240,7 +1252,7 @@
             item.dataset.id = id;
             item.innerHTML = `
                 <div style="display: flex; gap: 8px; align-items: center; width: 100%; flex-wrap: wrap;">
-                    <input type="text" class="stage-name-input" placeholder="نام مرحله" value="${name}" style="flex: 2; min-width: 140px;">
+                    <input type="text" class="stage-name-input" placeholder="نام مرحله" value="${esc(name)}" style="flex: 2; min-width: 140px;">
                     <select class="stage-unit-select settings-input" style="flex: 1.5; min-width: 180px; margin: 0; padding: 6px 10px; font-size: 13px;" title="واحد سنجش مرحله">
                         <option value="points" ${unitVal === 'points' ? 'selected' : ''}>🎯 امتیاز (بیشترین = برتر)</option>
                         <option value="time_asc" ${unitVal === 'time_asc' ? 'selected' : ''}>⚡ زمان - سرعت عمل (کمترین زمان = برتر)</option>
@@ -1260,22 +1272,23 @@
             list.appendChild(item);
         }
 
-        function addUser(firstName = '', lastName = '', username = '', password = '', role = 'operator', profilePic = '', id = '') {
+        function addUser(firstName = '', lastName = '', username = '', password = '', role = 'operator', profilePic = '', id = '', hasPassword = false) {
             if(!id) id = 'u_' + Math.random().toString(36).substr(2, 9);
             const list = document.getElementById('usersList');
             const item = document.createElement('div');
             item.className = 'dynamic-item user-item';
             item.dataset.id = id;
+            item.dataset.hasPassword = hasPassword ? '1' : '';
             item.style.alignItems = 'flex-start';
             item.innerHTML = `
                 <div style="display: flex; align-items: center; gap: 12px; width: 100%; padding: 5px;">
                     <div class="u-pic-circle" style="width: 44px; height: 44px; border-radius: 50%; overflow: hidden; border: 2px solid var(--glass-border); flex-shrink: 0; background: var(--input-bg); display: flex; align-items: center; justify-content: center; box-shadow: 0 2px 6px rgba(0,0,0,0.15);">
-                        ${profilePic ? `<img src="${profilePic}" style="width: 100%; height: 100%; object-fit: cover;" onerror="this.style.display='none'">` : `<i data-lucide="user" style="width: 22px; height: 22px; opacity: 0.6;"></i>`}
+                        ${profilePic ? `<img src="${esc(safeUrl(profilePic))}" style="width: 100%; height: 100%; object-fit: cover;" onerror="this.style.display='none'">` : `<i data-lucide="user" style="width: 22px; height: 22px; opacity: 0.6;"></i>`}
                     </div>
                     <div style="display: flex; flex-direction: column; gap: 10px; flex-grow: 1;">
                         <div style="display: flex; gap: 10px; flex-wrap: wrap;">
-                            <input type="text" class="u-first" placeholder="نام" value="${firstName}" style="flex:1; min-width: 80px;">
-                            <input type="text" class="u-last" placeholder="نام خانوادگی" value="${lastName}" style="flex:1; min-width: 80px;">
+                            <input type="text" class="u-first" placeholder="نام" value="${esc(firstName)}" style="flex:1; min-width: 80px;">
+                            <input type="text" class="u-last" placeholder="نام خانوادگی" value="${esc(lastName)}" style="flex:1; min-width: 80px;">
                             <select class="u-role settings-input" style="flex:1; min-width: 100px; margin-bottom: 0;">
                                 <option value="operator" ${role === 'operator' ? 'selected' : ''}>اپراتور</option>
                                 <option value="head_referee" ${role === 'head_referee' ? 'selected' : ''}>سرداور</option>
@@ -1283,10 +1296,10 @@
                             </select>
                         </div>
                         <div style="display: flex; gap: 8px; flex-wrap: wrap; align-items: center;">
-                            <input type="text" class="u-user" placeholder="نام کاربری" value="${username}" style="flex:1; min-width: 80px;">
-                            <input type="password" class="u-pass" placeholder="رمز عبور" value="${password}" style="flex:1; min-width: 80px;">
+                            <input type="text" class="u-user" placeholder="نام کاربری" value="${esc(username)}" style="flex:1; min-width: 80px;">
+                            <input type="password" class="u-pass" placeholder="${hasPassword ? 'بدون تغییر' : 'رمز عبور'}" value="${esc(password)}" autocomplete="new-password" style="flex:1; min-width: 80px;">
                             <div style="display: flex; gap: 6px; align-items: center; flex: 2; min-width: 180px;">
-                                <input type="text" class="u-pic" placeholder="لینک عکس پروفایل" value="${profilePic}" style="flex:1; min-width: 90px; margin: 0;" oninput="updateUserPicCircle(this)">
+                                <input type="text" class="u-pic" placeholder="لینک عکس پروفایل" value="${esc(profilePic)}" style="flex:1; min-width: 90px; margin: 0;" oninput="updateUserPicCircle(this)">
                                 <button type="button" class="icon-btn" onclick="triggerUserPhotoInput(this)" title="آپلود عکس از فایل" style="padding: 4px 8px; font-size: 11px; display: inline-flex; align-items: center; gap: 3px; white-space: nowrap;"><i data-lucide="upload" style="width: 12px; height: 12px;"></i> آپلود</button>
                                 <button type="button" class="icon-btn remove-btn u-clear-pic-btn" onclick="clearUserPhoto(this)" title="حذف عکس" style="padding: 4px 6px; font-size: 11px; display: ${profilePic ? 'inline-flex' : 'none'};">✕</button>
                                 <input type="file" accept="image/*" class="u-photo-file-input" style="display: none;" onchange="handleUserPhotoSelected(this)">
@@ -1353,8 +1366,8 @@
                         const srcX = (img.width - minDim) / 2;
                         const srcY = (img.height - minDim) / 2;
                         ctx.drawImage(img, srcX, srcY, minDim, minDim, 0, 0, targetSize, targetSize);
-                        const dataUrl = canvas.toDataURL('image/jpeg', 0.88);
-                        resolve(dataUrl);
+                        const webp = canvas.toDataURL('image/webp', 0.8);
+                        resolve(webp.startsWith('data:image/webp') ? webp : canvas.toDataURL('image/jpeg', 0.8));
                     };
                     img.onerror = () => reject(new Error('بارگذاری تصویر با خطا مواجه شد.'));
                     img.src = e.target.result;
@@ -1370,7 +1383,7 @@
             if (!circle) return;
             const url = input.value.trim();
             if (url) {
-                circle.innerHTML = `<img src="${url}" style="width: 100%; height: 100%; object-fit: cover;" onerror="this.style.display='none'">`;
+                circle.innerHTML = `<img src="${esc(safeUrl(url))}" style="width: 100%; height: 100%; object-fit: cover;" onerror="this.style.display='none'">`;
                 if (clearBtn) clearBtn.style.display = 'inline-flex';
             } else {
                 circle.innerHTML = `<i data-lucide="user" style="width: 22px; height: 22px; opacity: 0.6;"></i>`;
@@ -1389,7 +1402,7 @@
             
             const content = document.createElement('div');
             content.className = 'toast-content';
-            content.innerHTML = msg.replace(/\n/g, '<br>');
+            content.innerHTML = esc(msg).replace(/\n/g, '<br>');
             
             const closeBtn = document.createElement('button');
             closeBtn.className = 'toast-close';
@@ -1493,7 +1506,7 @@
             const password = document.getElementById('opPassword').value;
             const logo = logoMode === 'url' ? document.getElementById('logoUrl').value : document.getElementById('logoBase64').value;
             
-            if(!orgName || !password) return alert("نام سازمان و رمز عبور الزامی است.");
+            if(!orgName || (!password && !campId)) return alert("نام سازمان و رمز عبور الزامی است.");
             if(!campTitle) return alert("عنوان مسابقه الزامی است.");
 
             const teamElements = document.querySelectorAll('#teamsList .dynamic-item');
@@ -1547,10 +1560,11 @@
                     lastName: el.querySelector('.u-last').value.trim(),
                     username: el.querySelector('.u-user').value.trim(),
                     password: el.querySelector('.u-pass').value.trim(),
+                    hasPassword: el.dataset.hasPassword === '1',
                     role: el.querySelector('.u-role').value,
                     profilePic: el.querySelector('.u-pic').value.trim()
                 };
-            }).filter(u => u.username !== '' && u.password !== '');
+            }).filter(u => u.username !== '' && (u.password !== '' || u.hasPassword));
 
             if(teams.length < 2) return alert("حداقل ۲ تیم وارد کنید.");
             if(stages.length < 1) return alert("حداقل ۱ مرحله وارد کنید.");
@@ -1595,6 +1609,10 @@
             })
             .then(res => res.json())
             .then(data => {
+                if(!data.success) {
+                    showFloatingError("ذخیره انجام نشد: " + (data.message || data.error || 'خطای نامشخص'));
+                    return;
+                }
                 if(data.success) {
                     const link = `operator.html?id=${data.campId}`;
                     document.getElementById('result').style.display = 'block';

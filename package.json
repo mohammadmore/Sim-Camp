@@ -1,22 +1,21 @@
 {
-  "dependencies": {
-    "express": "^5.2.1",
-    "firebase": "^12.18.0",
-    "firebase-admin": "^14.3.0",
-    "jsdom": "^30.0.1",
-    "puppeteer": "^25.9.0"
-  },
-  "name": "applet",
-  "version": "1.0.0",
-  "description": "",
+  "name": "sim-camp",
+  "version": "1.1.0",
+  "description": "Simulation Camp live scoring (operator, referees, live board)",
   "main": "server.js",
   "type": "module",
+  "private": true,
   "scripts": {
     "dev": "node server.js",
     "start": "node server.js",
-    "build": "echo 'No build needed'"
+    "build": "node scripts/build_cpanel.cjs",
+    "build:cpanel": "node scripts/build_cpanel.cjs",
+    "test": "node --test tests/*.test.js"
   },
-  "keywords": [],
-  "author": "",
+  "dependencies": {
+    "express": "^5.2.1",
+    "firebase": "^12.18.0",
+    "firebase-admin": "^14.3.0"
+  },
   "license": "ISC"
 }
