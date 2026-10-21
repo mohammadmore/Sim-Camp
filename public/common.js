@@ -524,3 +524,8 @@ window.formatSeconds = function (sec) {
     const sStr = s.toFixed(2).padStart(5, '0').replace(/\.00$/, '');
     return m > 0 ? `${m}:${sStr}` : String(Math.round(total * 100) / 100);
 };
+
+// Installable app + offline app shell (service worker needs HTTPS or localhost).
+if ('serviceWorker' in navigator && window.isSecureContext) {
+    window.addEventListener('load', () => { navigator.serviceWorker.register('sw.js').catch(() => {}); });
+}

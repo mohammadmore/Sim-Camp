@@ -3,6 +3,11 @@
 <head>
     <link rel="icon" type="image/svg+xml" href="favicon.svg">
     <link rel="icon" type="image/png" href="favicon.png">
+    <link rel="manifest" href="manifest.webmanifest">
+    <link rel="apple-touch-icon" href="apple-touch-icon.png">
+    <meta name="theme-color" content="#312e81">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <link rel="stylesheet" href="style.css?v=12">
@@ -944,6 +949,11 @@
         let campId = urlParams.get('id');
         if (!campId && pathParts[pathParts.length - 1] && pathParts[pathParts.length - 1] !== 'operator.html' && pathParts[pathParts.length - 1] !== 'operator') campId = pathParts[pathParts.length - 1];
         if (campId && !/^[A-Za-z0-9_-]{1,64}$/.test(campId)) campId = null;
+        // The installed app opens operator.html without an id: go back to the last camp used here.
+        try {
+            if (campId) localStorage.setItem('last_camp_id', campId);
+            else if (localStorage.getItem('last_camp_id')) { window.location.replace('operator.html?id=' + encodeURIComponent(localStorage.getItem('last_camp_id'))); }
+        } catch (e) { /* storage unavailable */ }
         window.AUTH_STORAGE_KEY = 'camp_token_' + campId;
         // Older versions kept the password itself in the browser; remove it.
         try { sessionStorage.removeItem('camp_auth_' + campId); } catch (e) {}
