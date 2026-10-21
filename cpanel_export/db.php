@@ -12,8 +12,10 @@ $username   = "asvashop_admin";     // نام کاربری دیتابیس در c
 $password   = "your_password_here"; // رمز عبور دیتابیس در cPanel
 $dbname     = "asvashop_simul";     // نام دیتابیس در cPanel
 
-// رمز عبور پیش‌فرض سوپرادمین (در پنل تنظیمات نیز قابل تغییر است):
-$superadmin_pass = "admin123";
+// رمز عبور سوپرادمین:
+// اگر این مقدار خالی بماند، رمز را یک‌بار از طریق صفحه setup_db.php تعیین کنید (به صورت هش در دیتابیس ذخیره می‌شود).
+// رمز پیش‌فرض قدیمی "admin123" به دلایل امنیتی پذیرفته نمی‌شود.
+$superadmin_pass = "";
 
 // حالت درایور دیتابیس:
 // 'auto'   : ابتدا تلاش برای اتصال به MySQL؛ در صورت عدم اتصال خودکار از SQLite محلی استفاده می‌کند (کمترین زحمت ممکن - بدون نیاز به ساخت دیتابیس!)
@@ -33,11 +35,13 @@ if ($db_driver === 'mysql' || $db_driver === 'auto') {
                 PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
                 PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC
             ]);
+            unset($password); // do not keep the DB password in a global that other code might print
             $active_driver = 'mysql';
         } catch(PDOException $e) {
             if ($db_driver === 'mysql') {
                 http_response_code(500);
-                die(json_encode(["error" => "خطا در اتصال به MySQL: " . $e->getMessage()]));
+                error_log("MySQL connection failed: " . $e->getMessage());
+                die(json_encode(["error" => "خطا در اتصال به MySQL. جزئیات در لاگ خطای سرور ثبت شد."]));
             }
         }
     }
@@ -49,16 +53,23 @@ if (!$conn) {
     if (!is_dir($db_dir)) {
         @mkdir($db_dir, 0755, true);
     }
+    // Block direct downloads of the database file even if the root .htaccess is missing.
+    if (!file_exists($db_dir . '/.htaccess')) {
+        @file_put_contents($db_dir . '/.htaccess', "Require all denied\nDeny from all\n");
+    }
     $sqlite_file = $db_dir . '/simul_camp.sqlite';
     try {
         $conn = new PDO("sqlite:" . $sqlite_file, null, null, [
             PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
-            PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC
+            PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
+            PDO::ATTR_TIMEOUT => 15 // wait for concurrent writers instead of failing with "database is locked"
         ]);
+        $conn->exec('PRAGMA journal_mode = WAL');
         $active_driver = 'sqlite';
     } catch(PDOException $e) {
         http_response_code(500);
-        die(json_encode(["error" => "خطا در راه‌اندازی دیتابیس محلی SQLite: " . $e->getMessage()]));
+        error_log("SQLite init failed: " . $e->getMessage());
+        die(json_encode(["error" => "خطا در راه‌اندازی دیتابیس محلی SQLite. جزئیات در لاگ خطای سرور ثبت شد."]));
     }
 }
 
@@ -95,6 +106,12 @@ function ensure_database_schema($conn, $active_driver) {
             $conn->exec("CREATE TABLE IF NOT EXISTS settings (
                 `key` VARCHAR(50) PRIMARY KEY,
                 value LONGTEXT
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;");
+
+            $conn->exec("CREATE TABLE IF NOT EXISTS login_attempts (
+                k VARCHAR(191) PRIMARY KEY,
+                started INT,
+                attempts INT
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;");
 
             // ارتقاء خودکار ستون‌های اضافه شده
@@ -147,6 +164,12 @@ function ensure_database_schema($conn, $active_driver) {
                 value TEXT
             );");
 
+            $conn->exec("CREATE TABLE IF NOT EXISTS login_attempts (
+                k TEXT PRIMARY KEY,
+                started INTEGER,
+                attempts INTEGER
+            );");
+
             $sqlite_cols = [
                 'users' => 'TEXT',
                 'campType' => "TEXT DEFAULT 'simple'",
@@ -174,4 +197,3 @@ function ensure_database_schema($conn, $active_driver) {
 }
 
 ensure_database_schema($conn, $active_driver);
-?>

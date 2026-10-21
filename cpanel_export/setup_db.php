@@ -1,8 +1,44 @@
 <?php
 /**
  * Asva Studio Simulation Camp - Visual Setup & Database Verifier
+ * On first run it also lets you choose the superadmin password (stored as a hash).
  */
 require 'db.php';
+
+function setup_get_setting($conn, $key) {
+    $stmt = $conn->prepare("SELECT value FROM settings WHERE `key` = ?");
+    $stmt->execute([$key]);
+    $v = $stmt->fetchColumn();
+    return $v === false ? null : $v;
+}
+
+// The legacy plain-text "admin_password" setting was readable by anyone through the API; drop it.
+$conn->prepare("DELETE FROM settings WHERE `key` = 'admin_password'")->execute();
+
+$hasHash = (bool)setup_get_setting($conn, 'superadmin_password_hash');
+$hasConfigPass = is_string($superadmin_pass) && $superadmin_pass !== '' && $superadmin_pass !== 'admin123';
+$configured = $hasHash || $hasConfigPass;
+$setupMessage = '';
+
+if (!$configured && $_SERVER['REQUEST_METHOD'] === 'POST') {
+    $p1 = $_POST['password'] ?? '';
+    $p2 = $_POST['password2'] ?? '';
+    if (mb_strlen($p1) < 8) {
+        $setupMessage = 'رمز عبور باید حداقل ۸ کاراکتر باشد.';
+    } elseif ($p1 !== $p2) {
+        $setupMessage = 'تکرار رمز عبور مطابقت ندارد.';
+    } else {
+        $hash = password_hash($p1, PASSWORD_DEFAULT);
+        if ($active_driver === 'mysql') {
+            $stmt = $conn->prepare("INSERT INTO settings (`key`, value) VALUES ('superadmin_password_hash', ?) ON DUPLICATE KEY UPDATE value = VALUES(value)");
+        } else {
+            $stmt = $conn->prepare("INSERT OR REPLACE INTO settings (`key`, value) VALUES ('superadmin_password_hash', ?)");
+        }
+        $stmt->execute([$hash]);
+        $configured = true;
+        $setupMessage = 'رمز سوپرادمین با موفقیت ثبت شد.';
+    }
+}
 ?>
 <!DOCTYPE html>
 <html lang="fa" dir="rtl">
@@ -95,9 +131,22 @@ require 'db.php';
         </div>
 
         <div class="info-row">
-            <span>رمز عبور پیش‌فرض سوپرادمین:</span>
-            <strong style="color: #fbbf24; direction: ltr;"><?php echo htmlspecialchars($superadmin_pass); ?></strong>
+            <span>رمز عبور سوپرادمین:</span>
+            <strong style="color: <?php echo $configured ? '#34d399' : '#fbbf24'; ?>;"><?php echo $configured ? 'تعیین شده' : 'تعیین نشده'; ?></strong>
         </div>
+
+        <?php if ($setupMessage): ?>
+        <div class="info-row" style="justify-content: center; color: #fbbf24;"><?php echo htmlspecialchars($setupMessage); ?></div>
+        <?php endif; ?>
+
+        <?php if (!$configured): ?>
+        <form method="post" style="margin-top: 20px; display: flex; flex-direction: column; gap: 10px;">
+            <p style="font-size: 14px; opacity: 0.85; margin: 0;">برای شروع، رمز عبور پنل سوپرادمین را تعیین کنید (حداقل ۸ کاراکتر):</p>
+            <input type="password" name="password" placeholder="رمز عبور سوپرادمین" required minlength="8" autocomplete="new-password" style="padding: 10px; border-radius: 10px; border: 1px solid rgba(255,255,255,0.2); background: rgba(255,255,255,0.08); color: #fff;">
+            <input type="password" name="password2" placeholder="تکرار رمز عبور" required minlength="8" autocomplete="new-password" style="padding: 10px; border-radius: 10px; border: 1px solid rgba(255,255,255,0.2); background: rgba(255,255,255,0.08); color: #fff;">
+            <button type="submit" class="btn-link" style="border: none; cursor: pointer;">ثبت رمز سوپرادمین</button>
+        </form>
+        <?php endif; ?>
 
         <div style="margin-top: 30px;">
             <a href="superadmin.html" class="btn-link">ورود به پنل سوپرادمین</a>

@@ -2,7 +2,7 @@
 AddDefaultCharset UTF-8
 
 # Security: Deny direct access to local SQLite databases & configuration
-<FilesMatch "\.(sqlite|db)$">
+<FilesMatch "\.(sqlite|sqlite-wal|sqlite-shm|db|md)$">
     <IfModule mod_authz_core.c>
         Require all denied
     </IfModule>
@@ -35,6 +35,8 @@ AddDefaultCharset UTF-8
     RewriteRule ^api/undo_instant$ api.php?action=undo_instant [QSA,L]
     RewriteRule ^api/judge_stage_score$ api.php?action=judge_stage_score [QSA,L]
     RewriteRule ^api/stage/close_tiered$ api.php?action=close_tiered [QSA,L]
+    RewriteRule ^api/stage_scores$ api.php?action=stage_scores [QSA,L]
+    RewriteRule ^api/team_logs$ api.php?action=team_logs [QSA,L]
     RewriteRule ^api/user/profile-pic$ api.php?action=user_profile_pic [QSA,L]
     RewriteRule ^api/settings$ api.php?action=settings [QSA,L]
     RewriteRule ^api$ api.php [QSA,L]
