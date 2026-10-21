@@ -32,7 +32,6 @@ npm run build:cpanel   # ساخت cpanel_export/ از روی public/
 ```
 
 فرانت‌اند فقط در `public/` ویرایش شود؛ `cpanel_export/*.html` و فایل‌های استاتیک آن خروجی build هستند.
-اسکریپت‌های قدیمی patch/fix/test در `archive/` نگه داشته شده‌اند و در اجرای برنامه استفاده نمی‌شوند.
 
 ## امنیت و نقش‌ها
 
