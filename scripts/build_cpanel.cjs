@@ -51,6 +51,7 @@ function toPhpUrls(html) {
         [new RegExp(`${call}(${q})/superadmin/login\\2`, 'g'), '$1($2api.php?action=superadmin_login$2'],
         [new RegExp(`${call}(${q})/superadmin/password\\2`, 'g'), '$1($2api.php?action=superadmin_password$2'],
         [new RegExp(`${call}(${q})/superadmin/camps\\2`, 'g'), '$1($2api.php?action=superadmin_camps$2'],
+        [new RegExp(`${call}(${q})/superadmin/id_available\\?id=`, 'g'), '$1($2api.php?action=superadmin_id_available&id='],
         [/fetch\(`\/superadmin\/camps\/\$\{(\w+)\}\/(archive|lock|delete|duplicate)`/g, 'fetch(`api.php?action=superadmin_camp_$2&id=${$1}`'],
         [/fetch\(`\/superadmin\/camps\/\$\{(\w+)\}`/g, 'fetch(`api.php?action=superadmin_camp&id=${$1}`']
     ];

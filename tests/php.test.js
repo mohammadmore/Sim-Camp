@@ -25,7 +25,7 @@ function phpPath(method, p) {
         '/api/stage/close_tiered': 'close_tiered', '/api/user/profile-pic': 'user_profile_pic',
         '/superadmin/password': 'superadmin_password', '/api/user/password': 'user_password',
         '/api/users/reset_password': 'users_reset_password', '/api/users': 'users', '/api/stage/reset': 'stage_reset',
-        '/api/scores/reset': 'scores_reset', '/api/board': 'board', '/api/finish': 'finish', '/api/audit': 'audit'
+        '/api/scores/reset': 'scores_reset', '/superadmin/id_available': 'superadmin_id_available', '/api/board': 'board', '/api/finish': 'finish', '/api/audit': 'audit'
     };
     let m;
     if (map[route]) params.set('action', map[route]);

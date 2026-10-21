@@ -2236,3 +2236,13 @@ body.ui-idle .conn-status.conn-ok { opacity: 0; pointer-events: none; }
 
 :root, [data-theme="light"] { --sticky-bg: rgba(238, 234, 252, 0.97); }
 [data-theme="dark"] { --sticky-bg: rgba(22, 20, 48, 0.97); }
+
+/* Custom camp link field */
+.custom-id-row { display: flex; align-items: stretch; margin-bottom: 6px; border: 1px solid var(--glass-border); border-radius: 10px; overflow: hidden; background: var(--input-bg); }
+.custom-id-prefix { padding: 10px; font-size: 12px; opacity: 0.75; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 55%; display: flex; align-items: center; background: rgba(0,0,0,0.06); }
+.custom-id-row input { flex: 1; min-width: 0; border: none; background: transparent; padding: 10px; font-size: 15px; font-family: monospace; color: var(--text-color); }
+.custom-id-row input:focus { outline: none; }
+.custom-id-row:focus-within { outline: 3px solid #2563eb; outline-offset: 1px; }
+.custom-id-status { font-size: 12px; margin-bottom: 15px; opacity: 0.9; line-height: 1.7; word-break: break-all; }
+.custom-id-status.ok { color: var(--tx-green); font-weight: 700; }
+.custom-id-status.bad { color: var(--danger-color); font-weight: 700; }

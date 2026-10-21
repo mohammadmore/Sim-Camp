@@ -75,6 +75,30 @@ function isSafeKey(k) {
     return typeof k === 'string' && k.length > 0 && k.length <= 100 && !['__proto__', 'constructor', 'prototype'].includes(k);
 }
 
+// Camp links: chosen by the superadmin (optional) or random.
+const CAMP_ID_RE = /^[A-Za-z0-9_-]{3,64}$/;
+const CAMP_ID_HELP = 'لینک اختصاصی فقط می‌تواند شامل حروف انگلیسی، عدد، خط تیره (-) و زیرخط (_) و بین ۳ تا ۶۴ کاراکتر باشد.';
+
+function newRandomCampId() {
+    return 'camp_' + crypto.randomBytes(6).toString('hex');
+}
+
+// Returns the cleaned custom id, or null when none was requested.
+function requestedCampId(raw) {
+    if (raw === undefined || raw === null || String(raw).trim() === '') return null;
+    const id = String(raw).trim();
+    if (!CAMP_ID_RE.test(id)) throw new HttpError(400, CAMP_ID_HELP);
+    return id;
+}
+
+// Writes a new camp, refusing to overwrite an existing one with the same id.
+async function createCampUnique(id, camp) {
+    await withLock(id, async () => {
+        if (await getCamp(id)) throw new HttpError(409, `لینک «${id}» قبلاً برای مسابقه دیگری استفاده شده است. لینک دیگری انتخاب کنید.`);
+        await updateCamp(id, camp);
+    });
+}
+
 function strOrEmpty(v, max = 500) {
     return typeof v === 'string' ? v.slice(0, max) : '';
 }
@@ -461,7 +485,7 @@ app.post('/setup', route(async (req, res) => {
     }
 
     if (typeof b.password !== 'string' || b.password === '') throw new HttpError(400, 'رمز عبور اپراتور الزامی است.');
-    const id = 'camp_' + crypto.randomBytes(6).toString('hex');
+    const id = requestedCampId(b.customId) || newRandomCampId();
     const camp = {
         id, ...base,
         password: hashPassword(b.password),
@@ -473,8 +497,17 @@ app.post('/setup', route(async (req, res) => {
         stageTieredResults: {}
     };
     assertSize(camp);
-    await updateCamp(id, camp);
+    await createCampUnique(id, camp);
     res.json({ success: true, campId: id });
+}));
+
+// Superadmin form: live check of a custom camp link.
+app.get('/superadmin/id_available', route(async (req, res) => {
+    requireSuperadmin(req);
+    const id = String(req.query.id || '').trim();
+    if (!CAMP_ID_RE.test(id)) return res.json({ success: true, available: false, reason: 'invalid', message: CAMP_ID_HELP });
+    const taken = !!(await getCamp(id));
+    res.json({ success: true, available: !taken, reason: taken ? 'taken' : null, message: taken ? 'این لینک قبلاً برای مسابقه دیگری استفاده شده است.' : '' });
 }));
 
 // ---------------------------------------------------------------------------
@@ -863,7 +896,7 @@ app.post('/superadmin/camps/:id/delete', route(async (req, res) => {
 app.post('/superadmin/camps/:id/duplicate', route(async (req, res) => {
     requireSuperadmin(req);
     const src = await loadCampOr404(requireId(req.params.id));
-    const newId = 'camp_' + crypto.randomBytes(6).toString('hex');
+    const newId = requestedCampId((req.body || {}).customId) || newRandomCampId();
     const title = typeof (req.body || {}).title === 'string' && req.body.title.trim() ? strOrEmpty(req.body.title.trim(), 200) : `${src.title || ''} (کپی)`;
     const teams = src.teams.map(t => {
         const copy = { ...t };
@@ -878,7 +911,7 @@ app.post('/superadmin/camps/:id/duplicate', route(async (req, res) => {
         locked: 0, archived: false, closedStages: {}, stageTieredResults: {}, auditLog: [], announcement: null, activeStageId: null
     };
     assertSize(camp);
-    await updateCamp(newId, camp);
+    await createCampUnique(newId, camp);
     res.json({ success: true, campId: newId });
 }));
 

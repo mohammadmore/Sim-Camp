@@ -671,6 +671,35 @@ function judge_entry_for($user, $rawVal, $dnfFlag, $judgeKey) {
     ];
 }
 
+// Camp links: chosen by the superadmin (optional) or random.
+const CAMP_ID_RE = '/^[A-Za-z0-9_-]{3,64}$/';
+const CAMP_ID_HELP = 'لینک اختصاصی فقط می‌تواند شامل حروف انگلیسی، عدد، خط تیره (-) و زیرخط (_) و بین ۳ تا ۶۴ کاراکتر باشد.';
+
+function new_random_camp_id() {
+    return 'camp_' . bin2hex(random_bytes(6));
+}
+
+// The cleaned custom id, or null when none was requested.
+function requested_camp_id($raw) {
+    if ($raw === null || trim((string)$raw) === '') return null;
+    $id = trim((string)$raw);
+    if (!preg_match(CAMP_ID_RE, $id)) throw new HttpError(400, CAMP_ID_HELP);
+    return $id;
+}
+
+// Creates the camp row; the primary key makes a taken id fail instead of overwriting it.
+function insert_new_camp($id) {
+    global $conn;
+    try {
+        $conn->prepare("INSERT INTO camps (id, locked, archived, closedStages, stageTieredResults) VALUES (?, 0, 0, '{}', '{}')")->execute([$id]);
+    } catch (PDOException $e) {
+        if ($e->getCode() === '23000' || stripos($e->getMessage(), 'UNIQUE') !== false || stripos($e->getMessage(), 'Duplicate') !== false) {
+            throw new HttpError(409, "لینک «{$id}» قبلاً برای مسابقه دیگری استفاده شده است. لینک دیگری انتخاب کنید.");
+        }
+        throw $e;
+    }
+}
+
 function stage_name($camp, $stageId) {
     foreach ($camp['stages'] as $s) if (($s['id'] ?? '') === $stageId) return $s['name'] ?? $stageId;
     return $stageId;
@@ -770,8 +799,8 @@ try {
             out(['success' => true, 'campId' => $id]);
         }
         if (!is_string($data['password'] ?? null) || $data['password'] === '') throw new HttpError(400, 'رمز عبور اپراتور الزامی است.');
-        $id = 'camp_' . bin2hex(random_bytes(6));
-        $conn->prepare("INSERT INTO camps (id, locked, archived, closedStages, stageTieredResults) VALUES (?, 0, 0, '{}', '{}')")->execute([$id]);
+        $id = requested_camp_id($data['customId'] ?? null) ?? new_random_camp_id();
+        insert_new_camp($id);
         save_camp_changes($id, array_merge($base, [
             'password' => make_hash($data['password']),
             'teams' => merge_teams([], $teamDefs),
@@ -1069,6 +1098,13 @@ try {
         });
         out(['success' => true, 'profilePic' => $pic]);
 
+    case 'superadmin_id_available':
+        require_superadmin();
+        $id = trim((string)($_GET['id'] ?? ''));
+        if (!preg_match(CAMP_ID_RE, $id)) out(['success' => true, 'available' => false, 'reason' => 'invalid', 'message' => CAMP_ID_HELP]);
+        $taken = (bool)load_camp($id);
+        out(['success' => true, 'available' => !$taken, 'reason' => $taken ? 'taken' : null, 'message' => $taken ? 'این لینک قبلاً برای مسابقه دیگری استفاده شده است.' : '']);
+
     case 'superadmin_camp_delete':
         require_superadmin();
         $id = require_id($_GET['id'] ?? '');
@@ -1081,12 +1117,12 @@ try {
         require_superadmin();
         $src = load_camp(require_id($_GET['id'] ?? ''));
         if (!$src) throw new HttpError(404, 'مسابقه یافت نشد.');
-        $newId = 'camp_' . bin2hex(random_bytes(6));
+        $newId = requested_camp_id($data['customId'] ?? null) ?? new_random_camp_id();
         $title = (is_string($data['title'] ?? null) && trim($data['title']) !== '') ? str_or_empty(trim($data['title']), 200) : (($src['title'] ?? '') . ' (کپی)');
         $teams = $src['teams'];
         foreach ($teams as &$t) reset_team_scores($t);
         unset($t);
-        $conn->prepare("INSERT INTO camps (id, locked, archived, closedStages, stageTieredResults) VALUES (?, 0, 0, '{}', '{}')")->execute([$newId]);
+        insert_new_camp($newId);
         save_camp_changes($newId, [
             'orgName' => $src['orgName'] ?? '', 'title' => $title, 'logo' => $src['logo'] ?? '', 'password' => $src['password'] ?? '',
             'teams' => $teams, 'stages' => $src['stages'], 'users' => $src['users'], 'numLang' => $src['numLang'], 'dir' => $src['dir'],

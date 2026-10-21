@@ -318,4 +318,28 @@ export function registerScenarios(ctx) {
         saToken = back.json.token;
         assert.equal((await call('POST', '/superadmin/login', { password: ctx.saPassword })).json.success, true);
     });
+
+    test('custom camp links: chosen id, uniqueness, validation; random when empty', async () => {
+        const base = { orgName: 'Org', title: 'Custom', password: 'p', teams: [{ id: 't_1', name: 'A' }], stages: [{ id: 's_1', name: 'S' }], users: [] };
+        const c = await call('POST', '/setup', { ...base, customId: 'summer-1405' }, saToken);
+        assert.equal(c.json.success, true);
+        assert.equal(c.json.campId, 'summer-1405');
+        assert.equal((await call('GET', '/api?action=info&id=summer-1405')).json.title, 'Custom');
+        const dup = await call('POST', '/setup', { ...base, customId: 'summer-1405', title: 'Other' }, saToken);
+        assert.equal(dup.status, 409);
+        assert.equal((await call('GET', '/api?action=info&id=summer-1405')).json.title, 'Custom'); // not overwritten
+        assert.equal((await call('POST', '/setup', { ...base, customId: 'کمپ تابستان' }, saToken)).status, 400);
+        assert.equal((await call('POST', '/setup', { ...base, customId: 'ab' }, saToken)).status, 400);
+        const r = await call('POST', '/setup', { ...base, customId: '  ' }, saToken);
+        assert.match(r.json.campId, /^camp_[0-9a-f]{12}$/);
+        const av1 = await call('GET', '/superadmin/id_available?id=summer-1405', undefined, saToken);
+        assert.equal(av1.json.available, false);
+        assert.equal(av1.json.reason, 'taken');
+        assert.equal((await call('GET', '/superadmin/id_available?id=winter-1405', undefined, saToken)).json.available, true);
+        assert.equal((await call('GET', '/superadmin/id_available?id=a b', undefined, saToken)).json.reason, 'invalid');
+        assert.equal((await call('GET', '/superadmin/id_available?id=winter-1405')).status, 401);
+        const d = await call('POST', '/superadmin/camps/summer-1405/duplicate', { title: 'Winter', customId: 'winter-1405' }, saToken);
+        assert.equal(d.json.campId, 'winter-1405');
+        assert.equal((await call('POST', '/superadmin/camps/summer-1405/duplicate', { customId: 'winter-1405' }, saToken)).status, 409);
+    });
 }

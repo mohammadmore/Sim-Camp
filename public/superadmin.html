@@ -253,6 +253,18 @@
         
         <label>عنوان مسابقه:</label>
         <input type="text" id="campTitle" placeholder="مثلا: جام رمضان ۱۴۰۵" class="settings-input">
+
+        <div id="customIdSection">
+            <label for="customCampId">لینک اختصاصی مسابقه (اختیاری):</label>
+            <div class="custom-id-row" dir="ltr">
+                <span class="custom-id-prefix" id="customIdPrefix"></span>
+                <input type="text" id="customCampId" placeholder="summer-1405" autocomplete="off" spellcheck="false" oninput="onCustomIdInput()" aria-describedby="customIdStatus">
+            </div>
+            <div id="customIdStatus" class="custom-id-status" aria-live="polite"></div>
+        </div>
+        <div id="campLinkSection" class="custom-id-status" style="display: none;">
+            لینک این مسابقه: <code id="campLinkView" dir="ltr"></code> <span style="opacity: 0.75;">(بعد از ساخت قابل تغییر نیست)</span>
+        </div>
         
         <label>لوگوی سازمان:</label>
         <div class="tabs">
@@ -860,13 +872,65 @@
             if(typeof refreshIcons === 'function') refreshIcons();
         }
 
+        // ---- Custom camp link (optional; random when left empty) ----
+        const CAMP_ID_RE = /^[A-Za-z0-9_-]{3,64}$/;
+        const CAMP_ID_HELP = 'لینک اختصاصی فقط می‌تواند شامل حروف انگلیسی، عدد، خط تیره (-) و زیرخط (_) و بین ۳ تا ۶۴ کاراکتر باشد.';
+        let customIdTimer = null;
+
+        // Persian digits -> Latin, spaces -> "-"
+        function normalizeCustomId(v) {
+            return toEnDigits(v || '').trim().replace(/\s+/g, '-');
+        }
+
+        function setCustomIdStatus(text, kind) {
+            const el = document.getElementById('customIdStatus');
+            el.textContent = text;
+            el.className = 'custom-id-status' + (kind ? ' ' + kind : '');
+        }
+
+        function showCampLinkMode(existingId) {
+            document.getElementById('customIdPrefix').textContent = appUrl('operator.html?id=');
+            document.getElementById('customIdSection').style.display = existingId ? 'none' : '';
+            document.getElementById('campLinkSection').style.display = existingId ? '' : 'none';
+            if (existingId) {
+                document.getElementById('campLinkView').textContent = appUrl('operator.html?id=' + existingId);
+            } else {
+                document.getElementById('customCampId').value = '';
+                setCustomIdStatus('خالی بگذارید تا یک لینک تصادفی ساخته شود.', '');
+            }
+        }
+
+        function onCustomIdInput() {
+            const input = document.getElementById('customCampId');
+            const v = normalizeCustomId(input.value);
+            if (v !== input.value.trim()) input.value = v;
+            clearTimeout(customIdTimer);
+            if (!v) return setCustomIdStatus('خالی بگذارید تا یک لینک تصادفی ساخته شود.', '');
+            if (!CAMP_ID_RE.test(v)) return setCustomIdStatus(CAMP_ID_HELP, 'bad');
+            setCustomIdStatus('در حال بررسی…', '');
+            customIdTimer = setTimeout(() => {
+                fetch('/superadmin/id_available?id=' + encodeURIComponent(v))
+                    .then(jsonOrThrow)
+                    .then(r => {
+                        if (normalizeCustomId(input.value) !== v) return; // typed on meanwhile
+                        if (r.available) setCustomIdStatus('✓ این لینک آزاد است: ' + appUrl('operator.html?id=' + v), 'ok');
+                        else setCustomIdStatus(r.message || 'این لینک قابل استفاده نیست.', 'bad');
+                    })
+                    .catch(() => setCustomIdStatus('بررسی لینک انجام نشد؛ هنگام ذخیره دوباره بررسی می‌شود.', ''));
+            }, 400);
+        }
+
         function campById(id) { return allFetchedCamps.find(c => c.id === id) || {}; }
 
         function duplicateCamp(id) {
             const src = campById(id);
             const title = prompt('عنوان مسابقه جدید (تیم‌ها، مراحل و کاربران کپی می‌شوند؛ امتیازها خیر):', `${src.title || ''} (دوره جدید)`);
             if (title === null) return;
-            fetch(`/superadmin/camps/${id}/duplicate`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ title }) })
+            const rawId = prompt('لینک اختصاصی مسابقه جدید (اختیاری؛ حروف انگلیسی، عدد، - و _). خالی بگذارید تا لینک تصادفی ساخته شود:', '');
+            if (rawId === null) return;
+            const customId = normalizeCustomId(rawId);
+            if (customId && !CAMP_ID_RE.test(customId)) return window.showToast(CAMP_ID_HELP, 'error');
+            fetch(`/superadmin/camps/${id}/duplicate`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ title, customId: customId || undefined }) })
                 .then(jsonOrThrow)
                 .then(() => { window.showToast('مسابقه جدید ساخته شد.', 'success'); loadCamps(); })
                 .catch(e => window.showToast('تکثیر انجام نشد: ' + e.message, 'error'));
@@ -1065,6 +1129,7 @@
             if (campId) {
                 document.getElementById('setupFormTitle').innerText = 'ویرایش مسابقه';
                 document.getElementById('saveCampBtn').innerText = 'ذخیره تغییرات';
+                showCampLinkMode(campId);
                 
                 fetch(`/superadmin/camps/${campId}`)
                 .then(res => res.json())
@@ -1116,6 +1181,7 @@
                 });
             } else {
                 document.getElementById('setupFormTitle').innerText = 'مسابقه جدید';
+                showCampLinkMode(null);
                 document.getElementById('saveCampBtn').innerText = 'ایجاد لینک اختصاصی';
                 document.getElementById('editCampId').value = '';
                 document.getElementById('campType').value = 'simple';
@@ -1675,8 +1741,15 @@
             const rawLadder = document.getElementById('tieredPointsLadder') ? document.getElementById('tieredPointsLadder').value : '500, 400, 300, 200, 100';
             const cleanLadder = rawLadder.split(',').map(x => parseInt(x.trim())).filter(x => !isNaN(x));
 
+            const customId = campId ? '' : normalizeCustomId(document.getElementById('customCampId').value);
+            if (customId && !CAMP_ID_RE.test(customId)) {
+                showFloatingError(CAMP_ID_HELP);
+                document.getElementById('customCampId').focus();
+                return;
+            }
             const campData = { 
                 campId: campId || null,
+                customId: customId || undefined,
                 orgName: orgName, 
                 title: campTitle,
                 campType: campType,
@@ -1713,6 +1786,7 @@
                         // New camp: keep the form open with the links, then allow editing it right away.
                         document.getElementById('editCampId').value = data.campId;
                         document.getElementById('setupFormTitle').innerText = 'ویرایش مسابقه';
+                        showCampLinkMode(data.campId);
                         const link = `operator.html?id=${data.campId}`;
                         document.getElementById('result').style.display = 'block';
                         document.getElementById('operatorLink').href = link;
