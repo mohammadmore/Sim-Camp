@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="icon" type="image/svg+xml" href="favicon.svg">
+    <link rel="manifest" href="manifest.webmanifest">
+    <meta name="theme-color" content="#312e81">
+    <link rel="stylesheet" href="style.css?v=13">
+    <title>صفحه تیم</title>
+    <script>window.AUTH_STORAGE_KEY = 'team_page';</script>
+    <script src="common.js"></script>
+    <script src="features.js"></script>
+    <script>document.documentElement.setAttribute('data-theme', localStorage.getItem('theme') || 'light');</script>
+</head>
+<body class="pub-page">
+    <main id="root" class="pub-wrap"><div class="empty-state">…</div></main>
+
+    <script>
+        const qs = new URLSearchParams(location.search);
+        const campId = qs.get('id'), teamId = qs.get('team');
+        const root = document.getElementById('root');
+        let state = null, etag = null, pinView = null;
+        let pin = '';
+        try { pin = sessionStorage.getItem('pin_' + campId + '_' + teamId) || ''; } catch (e) { /* ignore */ }
+        const L = s => Feat.t(s, state && state.uiLang);
+        const N = v => fmtNum(v, state ? state.numLang : 'fa');
+
+        function load() {
+            fetch(`/api?action=poll&id=${encodeURIComponent(campId)}`, { headers: etag ? { 'If-None-Match': etag } : {} })
+                .then(r => {
+                    if (r.status === 404) throw new Error('404');
+                    const e = r.headers.get('ETag');
+                    if (r.status === 304 || (e && e === etag && state)) return null;
+                    etag = e;
+                    return r.json();
+                })
+                .then(d => { if (d) { state = d; render(); } })
+                .catch(err => { if (err.message === '404') root.innerHTML = `<div class="empty-state"><span class="empty-icon">🔍</span>${esc(L('مسابقه‌ای با این لینک پیدا نشد.'))}</div>`; });
+        }
+
+        // Do not redraw under the user's fingers while they type the code or fill in the vote.
+        let renderLater = false;
+        document.addEventListener('focusout', () => setTimeout(() => { if (renderLater && !busy()) { renderLater = false; render(); } }, 50));
+        const busy = () => document.activeElement && document.activeElement.closest && document.activeElement.closest('#pinCard');
+
+        function render(force) {
+            if (busy() && !force) { renderLater = true; return; }
+            const team = (state.teams || []).find(t => t.id === teamId);
+            document.documentElement.dir = state.dir || 'rtl';
+            if (!team) { root.innerHTML = '<div class="empty-state"><span class="empty-icon">🔍</span>این تیم پیدا نشد.</div>'; return; }
+            if (!Feat.shown(state, 'teamPage')) { root.innerHTML = '<div class="empty-state"><span class="empty-icon">🔒</span>صفحه تیم‌ها برای این مسابقه فعال نیست.</div>'; return; }
+            document.title = team.name + ' — ' + (state.title || '');
+            const ranks = Feat.rankMap(state.teams);
+            const badges = Feat.badges(state)[team.id] || [];
+            const color = safeColor(team.color, '#3b82f6');
+            const div = (state.divisions || []).find(d => d.id === team.division);
+            const mvp = Feat.mvp(team);
+            const pts = Feat.memberPoints(team);
+            let html = `<header class="pub-hero" style="--team:${color}">
+                ${team.image ? `<img class="pub-hero-img" src="${esc(safeUrl(team.image))}" alt="">` : ''}
+                <div class="pub-hero-body">
+                    <div class="pub-kicker">${esc(state.title || '')}</div>
+                    <h1>${esc(team.name)}</h1>
+                    <div class="pub-stats">
+                        ${Feat.shown(state, 'ranks') ? `<div><b>${N(ranks[team.id])}</b><span>${esc(L('رتبه'))}</span></div>` : ''}
+                        <div><b>${N(team.score)}</b><span>${esc(L('امتیاز'))}</span></div>
+                        ${Feat.on(state, 'budget') && Feat.shown(state, 'budget') ? `<div><b>💰 ${N(team.budget || 0)}</b><span>${esc(L('بودجه'))}</span></div>` : ''}
+                        ${div && Feat.on(state, 'divisions') ? `<div><b>${esc(div.name)}</b><span>${esc(L('گروه'))}</span></div>` : ''}
+                    </div>
+                    ${state.frozen ? `<div class="pub-note">🙈 ${esc(L('جدول مخفی است'))}</div>` : ''}
+                </div></header>`;
+            if (badges.length && Feat.shown(state, 'badges')) html += `<section class="pub-card"><h2>${esc(L('نشان‌ها'))}</h2><div class="pub-badges">${badges.map(b => `<span class="pub-badge">${b.icon} ${esc(b.label)}</span>`).join('')}</div></section>`;
+            if ((team.members || []).length) {
+                html += `<section class="pub-card"><h2>${esc(L('اعضای تیم'))}</h2><div class="pub-members">${team.members.map(m => `
+                    <div class="pub-member ${mvp && mvp.member.id === m.id && Feat.on(state, 'individual') ? 'mvp' : ''}">
+                        <b>${esc(m.name)}</b>${m.role && Feat.on(state, 'roles') ? `<small>${esc(m.role)}</small>` : ''}
+                        ${Feat.on(state, 'individual') && pts[m.id] ? `<span>${N(pts[m.id])}</span>` : ''}
+                        ${mvp && mvp.member.id === m.id && Feat.on(state, 'individual') ? '<span class="pub-star">⭐</span>' : ''}
+                    </div>`).join('')}</div></section>`;
+            }
+            if (Feat.shown(state, 'teamSkills') && (state.skills || []).length >= 3) {
+                const prof = Feat.skillProfile(team, state);
+                const used = Object.values(Feat.skillPoints(team, state)).some(v => v !== 0);
+                if (used) html += `<section class="pub-card"><h2>${esc(L('مهارت‌ها'))}</h2><div class="pub-radar">${Feat.radarChart(state.skills.map(s => s.name), state.skills.map(s => prof[s.id]), color)}</div>
+                    <p class="pub-muted">نسبت به بهترین تیم مسابقه در هر مهارت، بر اساس برچسب‌هایی که داورها ثبت کرده‌اند.</p></section>`;
+            }
+            const stageRows = (state.stages || []).filter(s => team.stageScores && team.stageScores[s.id] !== undefined)
+                .map(s => `<tr><td>${esc(s.name)}</td><td>${N(team.stageScores[s.id])}</td></tr>`).join('');
+            if (stageRows) html += `<section class="pub-card"><h2>مراحل</h2><table class="pub-table">${stageRows}</table></section>`;
+            if (Feat.shown(state, 'teamHistory')) {
+                const logs = [...(team.scoreLogs || [])].reverse().slice(0, 40);
+                if (logs.length) html += `<section class="pub-card"><h2>${esc(L('تاریخچه امتیازها'))}</h2><div class="pub-history">${logs.map(l => {
+                    const v = parseFloat(l.value) || 0;
+                    const who = l.user ? ((l.user.firstName ? `${l.user.firstName} ${l.user.lastName || ''}` : l.user.username) || '') : '';
+                    const member = l.memberId ? ((team.members || []).find(m => m.id === l.memberId) || {}).name : '';
+                    return `<div class="pub-log ${l.type === 'cancelled' ? 'cancelled' : (v >= 0 ? 'pos' : 'neg')}">
+                        <b dir="ltr">${v > 0 ? '+' : ''}${N(v)}</b><span>${esc(l.tag || '')}${member ? ' · ' + esc(member) : ''}${l.note ? ' · ' + esc(l.note) : ''}</span>
+                        <small>${esc(who)} · ${esc(new Date(l.createdAt || l.timestamp).toLocaleTimeString('fa-IR', { hour: '2-digit', minute: '2-digit' }))}</small>
+                        ${l.photo ? `<img src="${esc(safeUrl(l.photo))}" alt="" loading="lazy">` : ''}</div>`;
+                }).join('')}</div></section>`;
+            }
+            const needsPin = ['decisions', 'secretCards', 'peerReview'].some(k => Feat.on(state, k));
+            if (needsPin) html += `<section class="pub-card" id="pinCard">${pinView ? privateHtml() : `<h2>🔐 ${esc(L('کد تیم'))}</h2>
+                <p class="pub-muted">برای انتخاب تاکتیک، دیدن کارت‌های محرمانه و رأی به هم‌تیمی‌ها، کد شش‌رقمی تیم را از داور یا اپراتور بگیرید.</p>
+                <div class="pub-row"><input id="pinInput" inputmode="numeric" maxlength="6" dir="ltr" placeholder="••••••" value="${esc(pin)}"><button type="button" onclick="unlock()">${esc(L('ورود'))}</button></div>`}</section>`;
+            html += `<p class="pub-foot"><a href="board.html?id=${encodeURIComponent(campId)}">جدول زنده</a> · <a href="live.html?id=${encodeURIComponent(campId)}">همه تیم‌ها</a></p>`;
+            root.innerHTML = html;
+        }
+
+        function privateHtml() {
+            const v = pinView;
+            let h = '';
+            if (v.secretCards && v.secretCards.length) h += `<h2>🃏 کارت‌های محرمانه</h2>${v.secretCards.map(c => `<div class="pub-secret"><b>${esc(c.title)}</b><p>${esc(c.text)}</p></div>`).join('')}`;
+            if (v.rounds && v.rounds.length) h += `<h2>🗳 انتخاب تاکتیک</h2>${v.rounds.map(r => `<div class="pub-round"><b>${esc(r.title)}</b><p>${esc(r.question || '')}</p>
+                <div class="pub-options">${r.options.map(o => `<button type="button" class="${r.choice === o.id ? 'chosen' : ''}" onclick="decide(${jsArg(r.id)}, ${jsArg(o.id)})">${r.choice === o.id ? '✓ ' : ''}${esc(o.label)}</button>`).join('')}</div>
+                <small class="pub-muted">تا وقتی دور باز است می‌توانید انتخاب را عوض کنید.</small></div>`).join('')}`;
+            if (v.peer) {
+                const members = v.team.members || [];
+                h += `<h2>🤝 رأی هم‌تیمی‌ها — ${esc(v.peer.stageName)}</h2>${members.length ? `
+                    <label class="pub-muted">من:</label><select id="peerFrom">${members.map(m => `<option value="${esc(m.id)}" ${v.peer.done.includes(m.id) ? 'disabled' : ''}>${esc(m.name)}${v.peer.done.includes(m.id) ? ' (ثبت شد)' : ''}</option>`).join('')}</select>
+                    <div class="pub-peer">${members.map(m => `<div class="pub-peer-row"><b>${esc(m.name)}</b>${v.peer.skills.map(s => `<label>${esc(s.name)}<select data-m="${esc(m.id)}" data-s="${esc(s.id)}"><option value="">—</option>${[1, 2, 3, 4, 5].map(n => `<option>${n}</option>`).join('')}</select></label>`).join('')}</div>`).join('')}</div>
+                    <label class="pub-muted">بهترین بازیکن تیم (به جز خودتان):</label><select id="peerMvp"><option value="">—</option>${members.map(m => `<option value="${esc(m.id)}">${esc(m.name)}</option>`).join('')}</select>
+                    <div class="pub-row"><button type="button" onclick="sendPeer()">${esc(L('ارسال'))}</button></div>` : '<p class="pub-muted">اعضای تیم هنوز ثبت نشده‌اند.</p>'}`;
+            }
+            if (!h) h = '<p class="pub-muted">فعلاً موردی برای تیم شما باز نیست. این صفحه خودکار به‌روز می‌شود.</p>';
+            return h + `<p><button type="button" class="pub-link" onclick="lockPin()">خروج از حالت کد تیم</button></p>`;
+        }
+
+        function teamPost(body) {
+            return fetch(`/api/team?id=${encodeURIComponent(campId)}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(Object.assign({ teamId, pin }, body)) }).then(jsonOrThrow);
+        }
+        function unlock() {
+            pin = toEnDigits(document.getElementById('pinInput').value.trim());
+            teamPost({ op: 'view' }).then(v => { pinView = v; try { sessionStorage.setItem('pin_' + campId + '_' + teamId, pin); } catch (e) { /* ignore */ } render(true); })
+                .catch(e => alert(e.message));
+        }
+        function lockPin() { pinView = null; pin = ''; try { sessionStorage.removeItem('pin_' + campId + '_' + teamId); } catch (e) { /* ignore */ } render(true); }
+        function decide(roundId, optionId) { teamPost({ op: 'decide', roundId, optionId }).then(v => { pinView = v; render(true); }).catch(e => alert(e.message)); }
+        function sendPeer() {
+            const ratings = {};
+            document.querySelectorAll('.pub-peer select').forEach(s => { if (s.value) { ratings[s.dataset.m] = ratings[s.dataset.m] || {}; ratings[s.dataset.m][s.dataset.s] = parseInt(s.value, 10); } });
+            teamPost({ op: 'feedback', from: document.getElementById('peerFrom').value, ratings, mvp: document.getElementById('peerMvp').value || null })
+                .then(v => { pinView = v; render(true); alert('رأی شما ثبت شد. ممنون!'); }).catch(e => alert(e.message));
+        }
+        // The PIN view refreshes with the page (open rounds, peer review window).
+        function refreshPrivate() { if (pinView && pin) teamPost({ op: 'view' }).then(v => { pinView = v; if (!document.activeElement || !document.activeElement.closest('#pinCard')) render(); }).catch(() => {}); }
+
+        if (!campId || !teamId) root.innerHTML = '<div class="empty-state"><span class="empty-icon">🔗</span>لینک نامعتبر است.</div>';
+        else {
+            load();
+            setInterval(() => { if (!document.hidden) load(); }, 4000);
+            setInterval(() => { if (!document.hidden) refreshPrivate(); }, 15000);
+            if (pin) teamPost({ op: 'view' }).then(v => { pinView = v; if (state) render(); }).catch(() => { pin = ''; });
+        }
+    </script>
+</body>
+</html>

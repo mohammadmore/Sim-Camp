@@ -253,7 +253,7 @@
         }, pendingAdvanced || {}, currentCamp ? {
             display: base.display, features: base.features, skills: base.skills, tagSkills: base.tagSkills, divisions: base.divisions, roles: base.roles,
             assignments: base.assignments, scoreCap: base.scoreCap, chanceCards: base.chanceCards, rounds: base.rounds, calibration: base.calibration,
-            registration: base.registration, brand: base.brand, uiLang: base.uiLang
+            registration: base.registration, brand: base.brand, uiLang: base.uiLang, certificate: base.certificate
         } : {});
         AdvancedEditor.render(el, cfg, {
             teams: formTeams(), stages: formStages(), users: formUsers(), campId: base.id || '',

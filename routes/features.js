@@ -8,7 +8,7 @@ import {
 import {
     LIMITS, cleanDisplay, cleanFeatures, cleanSkills, cleanTagSkills, cleanNamedList, cleanRoles, cleanMembers,
     cleanSecretCards, cleanCriteria, cleanAssignments, cleanScoreCap, cleanChanceCards, cleanRounds,
-    cleanCalibrationCases, cleanBrand, cleanSchedule, effectiveFeatures, ensurePins, newPin, str
+    cleanCalibrationCases, cleanBrand, cleanSchedule, cleanCertificate, effectiveFeatures, ensurePins, newPin, str
 } from '../lib/features.js';
 import { applyUndo } from '../lib/undo.js';
 import { createRateLimiter } from '../lib/auth.js';
@@ -52,7 +52,7 @@ export function registerFeatureRoutes(app, ctx) {
             display: camp.display, features: camp.features, skills: camp.skills, tagSkills: camp.tagSkills,
             divisions: camp.divisions, roles: camp.roles, assignments: camp.assignments, scoreCap: camp.scoreCap,
             chanceCards: camp.chanceCards, rounds: camp.rounds, decisions: camp.decisions, appeals: camp.appeals,
-            registration: camp.registration, peerReview: camp.peerReview, bracket: camp.bracket, brand: camp.brand, uiLang: camp.uiLang,
+            registration: camp.registration, peerReview: camp.peerReview, bracket: camp.bracket, brand: camp.brand, uiLang: camp.uiLang, certificate: camp.certificate,
             calibration: { cases: camp.calibration.cases, scores: camp.calibration.scores },
             teams: camp.teams.map(t => ({ id: t.id, name: t.name, color: t.color, pin: t.pin || '', members: t.members, division: t.division, secretCards: t.secretCards })),
             stages: camp.stages.map(s => ({ id: s.id, name: s.name, criteria: s.criteria || [], startAt: s.startAt || '', durationMin: s.durationMin || null })),
@@ -77,6 +77,7 @@ export function registerFeatureRoutes(app, ctx) {
         if (b.rounds !== undefined) changes.rounds = cleanRounds(b.rounds, camp.rounds);
         if (b.brand !== undefined) changes.brand = cleanBrand(b.brand);
         if (b.uiLang !== undefined) changes.uiLang = b.uiLang === 'en' ? 'en' : 'fa';
+        if (b.certificate !== undefined) changes.certificate = cleanCertificate(b.certificate);
         if (b.calibrationCases !== undefined) changes.calibration = { ...camp.calibration, cases: cleanCalibrationCases(b.calibrationCases, camp.calibration.cases) };
         if (b.registrationOpen !== undefined) changes.registration = { ...camp.registration, open: !!b.registrationOpen };
         if (isPlainObject(b.teamsExtra) || Array.isArray(b.regeneratePins)) {

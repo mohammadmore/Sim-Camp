@@ -96,6 +96,16 @@
                 <span class="adv-chips">${skills.map(s => `<label class="adv-chip"><input type="checkbox" value="${attr(s.id)}" ${(tagMap[tag] || []).includes(s.id) ? 'checked' : ''}>${esc(s.name)}</label>`).join('')}</span></div>`).join('')}</div>
              <p class="manage-note">برای دیدن مهارت‌های تازه در فهرست بالا، ابتدا ذخیره کنید.</p>`);
 
+        const cert = cfg.certificate || {};
+        html += section('certificate', 'طراحی تقدیرنامه', 'در متن می‌توانید از <code>{team}</code>، <code>{rank}</code>، <code>{score}</code> و <code>{title}</code> استفاده کنید. تقدیرنامه‌ها از صفحه «نتایج و تقدیرنامه» چاپ می‌شوند.',
+            `<label class="adv-label">عنوان</label><input type="text" class="adv-cert-heading" value="${attr(cert.heading || '')}" placeholder="تقدیرنامه">
+             <label class="adv-label">متن</label><textarea class="adv-cert-body" rows="3" placeholder="بدین‌وسیله از تیم {team} برای کسب رتبه {rank} در {title} قدردانی می‌شود.">${esc(cert.body || '')}</textarea>
+             <div class="adv-row"><input type="text" class="adv-cert-signer" value="${attr(cert.signer || '')}" placeholder="نام امضاکننده"><input type="text" class="adv-cert-role" value="${attr(cert.signerRole || '')}" placeholder="سمت"></div>
+             <label class="adv-label">تصویر زمینه (اختیاری)</label>
+             <div class="adv-row"><input type="text" class="adv-cert-bg" dir="ltr" value="${attr(cert.background || '')}" placeholder="https://..."><input type="file" accept="image/*" class="adv-file" data-target="adv-cert-bg"></div>
+             <div class="adv-row"><label class="adv-inline">رنگ <input type="color" class="adv-cert-color" value="${attr(/^#[0-9a-f]{6}$/i.test(cert.color || '') ? cert.color : '#a16207')}"></label>
+             <label class="adv-inline"><input type="checkbox" class="adv-cert-logo" ${cert.showLogo === false ? '' : 'checked'}> نمایش لوگو</label></div>`);
+
         const b = cfg.brand || {};
         html += section('brand', 'برند، اسپانسر و زبان صفحات عمومی', 'لوگو و رنگ سازمان مشتری روی تابلو نمایش داده می‌شود.',
             `<div class="adv-grid2">
@@ -227,6 +237,11 @@
             accent: el.querySelector('.adv-accent-on').checked ? el.querySelector('.adv-accent').value : '', sponsor: el.querySelector('.adv-sponsor').value.trim()
         };
         body.uiLang = el.querySelector('.adv-lang').value;
+        body.certificate = {
+            heading: el.querySelector('.adv-cert-heading').value.trim(), body: el.querySelector('.adv-cert-body').value.trim(),
+            signer: el.querySelector('.adv-cert-signer').value.trim(), signerRole: el.querySelector('.adv-cert-role').value.trim(),
+            background: el.querySelector('.adv-cert-bg').value.trim(), color: el.querySelector('.adv-cert-color').value, showLogo: el.querySelector('.adv-cert-logo').checked
+        };
         return body;
     };
 

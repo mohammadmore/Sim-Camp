@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="icon" type="image/svg+xml" href="favicon.svg">
+    <meta name="theme-color" content="#312e81">
+    <link rel="stylesheet" href="style.css?v=13">
+    <title>ثبت‌نام تیم</title>
+    <script src="common.js"></script>
+    <script src="features.js"></script>
+    <script>document.documentElement.setAttribute('data-theme', localStorage.getItem('theme') || 'light');</script>
+</head>
+<body class="pub-page">
+    <main class="pub-wrap">
+        <header class="pub-head"><img id="logo" alt="" style="display:none"><div><div class="pub-kicker" id="org"></div><h1 id="title">ثبت‌نام تیم</h1></div></header>
+        <form id="form" class="pub-card" onsubmit="event.preventDefault(); send();">
+            <h2 id="hForm">ثبت‌نام تیم</h2>
+            <label for="name" id="lName">نام تیم</label>
+            <input id="name" required maxlength="100" autocomplete="off">
+            <label for="color">رنگ تیم</label>
+            <input id="color" type="color" value="#3b82f6">
+            <label for="members" id="lMembers">اعضا (هر نفر در یک خط)</label>
+            <textarea id="members" rows="5"></textarea>
+            <label for="contact" id="lContact">راه ارتباطی (اختیاری)</label>
+            <input id="contact" maxlength="120" dir="ltr" placeholder="0912… / email">
+            <button type="submit" id="send">ارسال</button>
+            <p id="msg" class="pub-muted" role="status"></p>
+        </form>
+    </main>
+    <script>
+        const campId = new URLSearchParams(location.search).get('id');
+        let lang = 'fa';
+        fetch(`/api?action=poll&id=${encodeURIComponent(campId || '')}`).then(r => r.ok ? r.json() : Promise.reject()).then(s => {
+            lang = s.uiLang || 'fa';
+            document.documentElement.dir = s.dir || 'rtl';
+            document.getElementById('org').textContent = s.orgName || '';
+            document.getElementById('title').textContent = s.title || '';
+            if (s.logo) { const l = document.getElementById('logo'); l.src = s.logo; l.style.display = ''; }
+            const T = t => Feat.t(t, lang);
+            document.getElementById('hForm').textContent = T('ثبت‌نام تیم');
+            document.getElementById('lName').textContent = T('نام تیم');
+            document.getElementById('lMembers').textContent = T('اعضا (هر نفر در یک خط)');
+            document.getElementById('lContact').textContent = T('راه ارتباطی (اختیاری)');
+            document.getElementById('send').textContent = T('ارسال');
+            if (!s.features || !s.features.registration || !s.registration || !s.registration.open) {
+                document.getElementById('form').innerHTML = '<p class="pub-muted">ثبت‌نام این مسابقه در حال حاضر باز نیست.</p>';
+            }
+        }).catch(() => { document.getElementById('form').innerHTML = `<p class="pub-muted">${esc(Feat.t('مسابقه‌ای با این لینک پیدا نشد.', lang))}</p>`; });
+
+        function send() {
+            const btn = document.getElementById('send');
+            btn.disabled = true;
+            fetch(`/api/register?id=${encodeURIComponent(campId)}`, {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    name: document.getElementById('name').value.trim(), color: document.getElementById('color').value,
+                    members: document.getElementById('members').value.split('\n').map(x => x.trim()).filter(Boolean),
+                    contact: document.getElementById('contact').value.trim()
+                })
+            }).then(jsonOrThrow).then(r => {
+                document.getElementById('form').innerHTML = `<h2>✅</h2><p>${esc(r.message)}</p>`;
+            }).catch(e => { document.getElementById('msg').textContent = e.message; btn.disabled = false; });
+        }
+    </script>
+</body>
+</html>

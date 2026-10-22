@@ -1046,7 +1046,7 @@ const TEMPLATE_KEYS = [
 ];
 // Settings of the optional features accepted from the superadmin form.
 const ADVANCED_FORM_KEYS = ['display', 'features', 'skills', 'tagSkills', 'divisions', 'roles', 'chanceCards', 'rounds', 'brand', 'uiLang',
-    'calibrationCases', 'registrationOpen', 'scoreCap', 'assignments', 'teamsExtra', 'stagesExtra'];
+    'calibrationCases', 'registrationOpen', 'scoreCap', 'assignments', 'teamsExtra', 'stagesExtra', 'certificate'];
 const UNDO_MAX_BYTES = 30000; // larger changes (e.g. resetting everything) are not undoable
 const UNDO_KEEP = 30;         // only the newest audit entries keep their undo data
 
@@ -1255,6 +1255,21 @@ function clean_brand($b) {
         'accent' => preg_match('/^#[0-9a-fA-F]{3,8}$/', $accent) ? $accent : '',
         'background' => sstr($b['background'] ?? null, 2000000),
         'sponsor' => sstr($b['sponsor'] ?? null, 120)
+    ];
+}
+
+// Certificate design (the background image is stored as a media file when saved).
+function clean_certificate($c) {
+    if (!is_obj($c)) return null;
+    $color = sstr($c['color'] ?? null, 20);
+    return [
+        'background' => sstr($c['background'] ?? null, 2000000),
+        'heading' => sstr($c['heading'] ?? null, 120),
+        'body' => sstr($c['body'] ?? null, 600),
+        'signer' => sstr($c['signer'] ?? null, 80),
+        'signerRole' => sstr($c['signerRole'] ?? null, 80),
+        'color' => preg_match('/^#[0-9a-fA-F]{3,8}$/', $color) ? $color : '',
+        'showLogo' => array_key_exists('showLogo', $c) ? bool_v($c['showLogo']) : true
     ];
 }
 
@@ -1751,6 +1766,7 @@ function apply_advanced($camp, $b) {
     if ($has('chanceCards')) $changes['chanceCards'] = clean_chance_cards($b['chanceCards']);
     if ($has('rounds')) $changes['rounds'] = clean_rounds($b['rounds'], $camp['rounds']);
     if ($has('brand')) $changes['brand'] = clean_brand($b['brand']);
+    if ($has('certificate')) $changes['certificate'] = clean_certificate($b['certificate']);
     if ($has('uiLang')) $changes['uiLang'] = $b['uiLang'] === 'en' ? 'en' : 'fa';
     if ($has('calibrationCases')) $changes['calibration'] = array_merge($camp['calibration'], ['cases' => clean_calibration_cases($b['calibrationCases'], $camp['calibration']['cases'])]);
     if ($has('registrationOpen')) $changes['registration'] = array_merge($camp['registration'], ['open' => !empty($b['registrationOpen'])]);
@@ -2722,7 +2738,7 @@ try {
             'display' => $camp['display'], 'features' => $camp['features'], 'skills' => $camp['skills'], 'tagSkills' => $camp['tagSkills'],
             'divisions' => $camp['divisions'], 'roles' => $camp['roles'], 'assignments' => $camp['assignments'], 'scoreCap' => $camp['scoreCap'],
             'chanceCards' => $camp['chanceCards'], 'rounds' => $camp['rounds'], 'decisions' => $camp['decisions'], 'appeals' => $camp['appeals'],
-            'registration' => $camp['registration'], 'peerReview' => $camp['peerReview'], 'bracket' => $camp['bracket'], 'brand' => $camp['brand'], 'uiLang' => $camp['uiLang'],
+            'registration' => $camp['registration'], 'peerReview' => $camp['peerReview'], 'bracket' => $camp['bracket'], 'brand' => $camp['brand'], 'uiLang' => $camp['uiLang'], 'certificate' => $camp['certificate'],
             'calibration' => ['cases' => $camp['calibration']['cases'], 'scores' => $camp['calibration']['scores']],
             'teams' => array_map(function ($t) {
                 return ['id' => $t['id'], 'name' => $t['name'] ?? '', 'color' => $t['color'] ?? '', 'pin' => $t['pin'] ?? '', 'members' => $t['members'], 'division' => $t['division'], 'secretCards' => $t['secretCards']];

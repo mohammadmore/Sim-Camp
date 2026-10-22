@@ -12,6 +12,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <link rel="stylesheet" href="style.css?v=13">
     <title>پنل اپراتور</title>    <script src="vendor/lucide-1.61.0.min.js"></script>
+    <script>window.SIMCAMP_PHP = true;</script>
     <script src="common.js"></script>
     <script>
     function renderFjValueWheel() {
@@ -724,6 +725,8 @@
             <i data-lucide="lock"></i> این مسابقه به پایان رسیده یا توسط سوپرادمین قفل شده است و امکان تغییر امتیاز یا تنظیمات وجود ندارد. (باز کردن قفل فقط از پنل سوپرادمین)
         </div>
 
+        <div id="opControlStrip" class="op-control-strip glass" style="display: none;" aria-label="میز کنترل"></div>
+
         <div class="glass" style="padding: 20px; margin-bottom: 30px; text-align: center;">
             <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px; margin-bottom: 14px;">
                 <h3 style="margin:0; text-align: right; display: flex; align-items: center; gap: 8px;">
@@ -1084,6 +1087,7 @@
             currentAnnouncement = data.announcement || null;
             if (data.stages) currentStages = data.stages;
             ensureLogsFormat(currentTeams);
+            if (window.OPF) OPF.onData(data);
             
             if (fjSelectedTeamId) {
                 const sel = currentTeams.find(t => t.id === fjSelectedTeamId);
@@ -1208,6 +1212,7 @@
                         currentStageTieredResults = data.stageTieredResults || {};
                         currentActiveStageId = data.activeStageId || null;
                         currentAnnouncement = data.announcement || null;
+                        if (window.OPF) OPF.onData(data);
                         
                         const topOrg = document.getElementById('topOrgLogo');
                         if (topOrg) {
@@ -2966,7 +2971,10 @@
         settings: 'تغییر تنظیمات مسابقه', stage_scores: 'اصلاح دستی نمره مرحله', team_logs: 'ویرایش تاریخچه امتیاز تیم',
         judge_score_delete: 'حذف نمره داور', stage_close: 'بستن مرحله پلکانی', stage_reopen: 'بازگشایی مرحله پلکانی',
         stage_reset: 'بازنشانی مرحله', scores_reset: 'بازنشانی همه امتیازها', password_reset: 'تغییر رمز کاربر',
-        password_change: 'تغییر رمز شخصی', board: 'کنترل تابلو', finish: 'پایان مسابقه'
+        password_change: 'تغییر رمز شخصی', board: 'کنترل تابلو', finish: 'پایان مسابقه',
+        advanced: 'تنظیمات پیشرفته', freeze: 'مخفی کردن جدول', unfreeze: 'نمایش دوباره جدول', ceremony: 'شروع مراسم جوایز',
+        appeal: 'رسیدگی به اعتراض', chance: 'کارت شانس', budget: 'تغییر بودجه', round: 'دور تصمیم‌گیری', bracket: 'جدول حذفی',
+        peer: 'رأی هم‌تیمی‌ها', undo: 'برگرداندن تغییر', register_approve: 'تأیید ثبت‌نام تیم'
     };
 
     function isManager() { return currentUser && (currentUser.role === 'operator' || currentUser.role === 'head_referee'); }
@@ -2991,11 +2999,13 @@
                     <button type="button" role="tab" data-tab="users">کاربران و رمزها</button>
                     <button type="button" role="tab" data-tab="audit">تاریخچه تغییرات</button>
                     <button type="button" role="tab" data-tab="reset">بازنشانی</button>
+                    <button type="button" role="tab" data-tab="advanced">تنظیمات پیشرفته</button>
                 </div>
                 <div class="manage-pane" data-pane="board"></div>
                 <div class="manage-pane" data-pane="users" hidden></div>
                 <div class="manage-pane" data-pane="audit" hidden></div>
                 <div class="manage-pane" data-pane="reset" hidden></div>
+                <div class="manage-pane" data-pane="advanced" hidden></div>
             </div>`;
         m.querySelectorAll('.manage-tabs button').forEach(b => b.onclick = () => showManageTab(b.dataset.tab));
         document.body.appendChild(m);
@@ -3006,7 +3016,8 @@
         const m = ensureManageModal();
         m.querySelectorAll('.manage-tabs button').forEach(b => { b.classList.toggle('active', b.dataset.tab === tab); b.setAttribute('aria-selected', b.dataset.tab === tab); });
         m.querySelectorAll('.manage-pane').forEach(p => { p.hidden = p.dataset.pane !== tab; });
-        ({ board: renderManageBoard, users: renderManageUsers, audit: renderManageAudit, reset: renderManageReset })[tab]();
+        ({ board: renderManageBoard, users: renderManageUsers, audit: renderManageAudit, reset: renderManageReset,
+           advanced: () => OPF.renderAdvancedTab(document.querySelector('#manageModal [data-pane="advanced"]')) })[tab]();
     }
 
     function openManageModal() {
@@ -3145,6 +3156,11 @@
         if (d.activeStage !== undefined) parts.push(d.activeStage ? 'مرحله جاری: ' + d.activeStage : 'حذف مرحله جاری');
         if (d.announcement) parts.push(d.announcement === 'show' ? 'نمایش نتایج' : 'پنهان کردن نتایج');
         if (d.multiplier) parts.push('ضریب ' + fmtNum(d.multiplier, currentNumLang));
+        if (d.card) parts.push('کارت «' + d.card + '»');
+        if (d.round) parts.push('دور «' + d.round + '»');
+        if (d.amount !== undefined) parts.push('مبلغ ' + fmtNum(d.amount, currentNumLang));
+        if (d.status) parts.push({ accepted: 'پذیرفته شد', rejected: 'رد شد', open: 'باز' }[d.status] || d.status);
+        if (d.of) parts.push('«' + (AUDIT_LABELS[d.of] || d.of) + '»');
         return parts.join(' · ');
     }
 
@@ -3158,6 +3174,7 @@
                     <div class="audit-head"><b>${esc(AUDIT_LABELS[e.action] || e.action)}</b><span class="manage-note">${esc(new Date(e.ts).toLocaleString('fa-IR'))}</span></div>
                     <div class="manage-note">توسط ${esc(e.by.name)} (${ROLE_LABELS[e.by.role] || ''})</div>
                     ${auditText(e) ? `<div class="audit-details">${esc(auditText(e))}</div>` : ''}
+                    ${e.undone ? '<div class="manage-note">↶ برگردانده شد</div>' : (e.canUndo ? `<button type="button" class="audit-undo" onclick="OPF.undo(${jsArg(e.id)}, ${jsArg(AUDIT_LABELS[e.action] || e.action)})">↶ برگرداندن این تغییر</button>` : '')}
                 </div>`).join('')}</div>`;
         }).catch(e => { pane.innerHTML = `<p class="manage-note">${esc(e.message)}</p>`; });
     }
@@ -3222,6 +3239,9 @@
     function showRefereeHelp() { Help.show('راهنمای داوری', REFEREE_HELP); }
     </script>
     <script src="vendor/qrcode-generator-1.4.4.js"></script>
+    <script src="features.js"></script>
+    <script src="advanced.js"></script>
+    <script src="operator-features.js"></script>
     <script src="tooltip.js"></script>
 <script src="validateRealTime.js?v=5"></script>
 
@@ -3269,6 +3289,8 @@
             <i data-lucide="lock" style="width: 16px; height: 16px;"></i>
             <span>مسابقه در وضعیت قفل قرار دارد. ثبت یا تغییر امتیاز جدید غیرفعال است (حالت مشاهده).</span>
         </div>
+
+        <div id="fjInfoStrip" class="fj-info-strip" style="display: none;" aria-live="polite"></div>
 
         <div class="fj-teams-grid" id="fjTeamsContainer">
             <!-- Glass Orbs injected here -->
@@ -3336,6 +3358,8 @@
                         <!-- populated by JS based on sign (+ or -) -->
                     </div>
                 </div>
+
+                <div id="fjExtrasArea" class="fj-extras-area"></div>
 
                 <!-- Big Submit Button -->
                 <button id="fjSubmitBtn" onclick="submitFjScore()" style="width: 100%; max-width: 400px; padding: 18px; box-sizing: border-box; font-size: 22px; border-radius: 15px; border: none; font-weight: bold; cursor: pointer; display: flex; justify-content: center; align-items: center; gap: 12px; transition: all 0.2s;">
@@ -3832,7 +3856,8 @@
         const container = document.getElementById("fjTeamsContainer");
         if (!container) return;
         container.innerHTML = "";
-        const count = currentTeams.length;
+        const fjTeams = window.OPF ? OPF.visibleTeams(currentTeams) : currentTeams;
+        const count = fjTeams.length;
         if (count === 0) {
             container.innerHTML = "<div style=\"color: var(--text-color); opacity: 0.7; font-size: 16px; margin: auto; grid-column: 1 / -1;\">هیچ تیمی برای داوری تعریف نشده است.</div>";
             return;
@@ -3858,7 +3883,7 @@
             container.style.setProperty("--fj-gap", layout.gap);
         }
 
-        currentTeams.forEach(team => {
+        fjTeams.forEach(team => {
             const circle = document.createElement("div");
             circle.className = "fj-team-circle";
             circle.dataset.id = team.id;
@@ -4108,11 +4133,14 @@
             return;
         }
 
-        if (!currentJudgingStageId || !currentStages.some(s => s.id === currentJudgingStageId)) {
-            currentJudgingStageId = currentStages[0].id;
+        // Referees split between stages / teams only see their own share.
+        const myStages = window.OPF ? OPF.visibleStages(currentStages) : currentStages;
+        const myTeams = window.OPF ? OPF.visibleTeams(currentTeams) : currentTeams;
+        if (!currentJudgingStageId || !myStages.some(s => s.id === currentJudgingStageId)) {
+            currentJudgingStageId = (myStages[0] || currentStages[0]).id;
         }
 
-        const currentStage = currentStages.find(s => s.id === currentJudgingStageId) || currentStages[0];
+        const currentStage = myStages.find(s => s.id === currentJudgingStageId) || myStages[0] || currentStages[0];
         const criteria = getStageCriteria(currentStage);
 
         if (badgeEl) {
@@ -4128,7 +4156,7 @@
         }
 
         // Render Stage Selector Pills
-        pillsContainer.innerHTML = currentStages.map(stage => {
+        pillsContainer.innerHTML = myStages.map(stage => {
             const isActive = stage.id === currentJudgingStageId;
             const stCrit = getStageCriteria(stage);
             const iconSymbol = stCrit.unit === 'time' ? (stCrit.timeOrder === 'asc' ? '⚡' : '⏳') : '🎯';
@@ -4148,7 +4176,7 @@
         const isClosed = !!(currentClosedStages && currentClosedStages[currentJudgingStageId]);
 
         let scoredCount = 0;
-        currentTeams.forEach(t => {
+        myTeams.forEach(t => {
             if (t.judgeStageScores && t.judgeStageScores[currentJudgingStageId] && t.judgeStageScores[currentJudgingStageId][judgeKey]) {
                 scoredCount++;
             }
@@ -4195,14 +4223,14 @@
             }
         }
 
-        if (countEl) countEl.innerText = `ثبت‌شده توسط شما: ${scoredCount} از ${currentTeams.length} تیم | ${criteria.descText}`;
+        if (countEl) countEl.innerText = `ثبت‌شده توسط شما: ${scoredCount} از ${myTeams.length} تیم | ${criteria.descText}`;
 
         // Prepare display list based on view mode (normal vs ranked)
         let displayTeams = [];
         if (fjStageViewMode === 'ranked') {
-            displayTeams = getRankedTeamsForStage(currentTeams, currentStage);
+            displayTeams = getRankedTeamsForStage(myTeams, currentStage);
         } else {
-            displayTeams = currentTeams.map(t => {
+            displayTeams = myTeams.map(t => {
                 const dnf = isTeamStageDnf(t, currentStage.id);
                 return {
                     team: t,
@@ -4269,13 +4297,14 @@
                     </div>
 
                     ${otherJudgesNotice}
+                    ${window.OPF ? OPF.criteriaControlsHtml(team, currentStage, judgeEntry) : ''}
 
                     <div class="fj-stage-score-controls" style="margin-top: 10px;">
                         ${dnfButtonHtml}
                         <button type="button" class="fj-stepper-btn minus" onclick="adjustJudgeStageScore('${team.id}', -10)">-۱۰</button>
                         <button type="button" class="fj-stepper-btn minus" onclick="adjustJudgeStageScore('${team.id}', -5)">-۵</button>
                         <button type="button" class="fj-stepper-btn minus" onclick="adjustJudgeStageScore('${team.id}', -1)">-۱</button>
-                        <input type="text" id="judge_score_${team.id}" class="fj-stage-num-input" value="${isEntryDnf ? '-' : esc(currentScore)}" data-dnf="${isEntryDnf ? 'true' : 'false'}" style="color: ${isEntryDnf ? '#ef4444' : 'inherit'};" placeholder="${criteria.unitLabel}">
+                        <input type="text" id="judge_score_${team.id}" ${window.OPF && OPF.criteriaFor(currentStage) ? 'readonly title="جمع وزنی معیارها"' : ''} class="fj-stage-num-input" value="${isEntryDnf ? '-' : esc(currentScore)}" data-dnf="${isEntryDnf ? 'true' : 'false'}" style="color: ${isEntryDnf ? '#ef4444' : 'inherit'};" placeholder="${criteria.unitLabel}">
                         <button type="button" class="fj-stepper-btn plus" onclick="adjustJudgeStageScore('${team.id}', 1)">+۱</button>
                         <button type="button" class="fj-stepper-btn plus" onclick="adjustJudgeStageScore('${team.id}', 5)">+۵</button>
                         <button type="button" class="fj-stepper-btn plus" onclick="adjustJudgeStageScore('${team.id}', 10)">+۱۰</button>
@@ -4396,7 +4425,7 @@
 
         OfflineQueue.send(`api.php?action=judge_stage_score&id=${campId}`, {
             stageId: currentJudgingStageId,
-            singleScore: { teamId, score: val, dnf: isDnf }
+            singleScore: { teamId, score: val, dnf: isDnf, breakdown: window.OPF ? OPF.breakdownFor(teamId) : null }
         }, 'نمره مرحله')
         .then(res => {
             if (res.success) {
@@ -4429,12 +4458,15 @@
             return;
         }
         const scores = {};
+        const breakdown = {};
         currentTeams.forEach(t => {
             const inp = document.getElementById('judge_score_' + t.id);
             if (inp) {
                 const rawVal = inp.value.trim();
                 const isDnf = rawVal === '-' || rawVal.toLowerCase() === 'dnf' || inp.dataset.dnf === 'true';
                 scores[t.id] = isDnf ? '-' : (parseScoreInput(rawVal) || 0);
+                const bd = window.OPF ? OPF.breakdownFor(t.id) : null;
+                if (bd && !isDnf) breakdown[t.id] = bd;
             }
         });
 
@@ -4446,7 +4478,8 @@
 
         OfflineQueue.send(`api.php?action=judge_stage_score&id=${campId}`, {
             stageId: currentJudgingStageId,
-            scores: scores
+            scores: scores,
+            breakdown
         }, 'نمرات مرحله')
         .then(res => {
             if (btn) {
@@ -4758,6 +4791,7 @@
         if (valWheel) valWheel.scrollTo({ top: 0, behavior: 'auto' });
 
         selectFjSign('+');
+        if (window.OPF) OPF.onTeamSelected(team);
         if (typeof refreshIcons === 'function') refreshIcons();
     }
 
@@ -5056,6 +5090,7 @@
             tag: fjSelectedTag || '',
             clientLogId
         };
+        if (window.OPF) Object.assign(payload, OPF.takeScoreExtras());
         
         OfflineQueue.send('api.php?action=instant&id=' + campId, payload, `${fmtNum(delta, currentNumLang)} برای ${teamName}`).then(res => {
             if(res.success) {

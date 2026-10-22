@@ -7,6 +7,7 @@
     <link rel="manifest" href="manifest.webmanifest">
     <title>نتایج و تقدیرنامه‌ها</title>
     <script src="common.js"></script>
+    <script src="features.js"></script>
     <style>
         @import url('vendor/vazirmatn/Vazirmatn-font-face.css');
         :root { --ink: #0f172a; --muted: #475569; --line: #cbd5e1; --accent: #1d4ed8; }
@@ -47,6 +48,9 @@
         .cert-sign { display: flex; justify-content: space-around; width: 100%; margin-top: 10mm; font-size: 15px; color: var(--muted); }
         .cert-sign div { border-top: 1px solid var(--muted); padding-top: 4px; min-width: 60mm; }
         .empty { text-align: center; padding: 60px 16px; font-size: 18px; }
+        .cert-inner.custom-bg { background-size: cover; background-position: center; }
+        .chart-wrap { margin-top: 14px; }
+        .div-title { margin: 18px 0 6px 0; font-size: 17px; }
         @media print {
             @page { margin: 0; }
             body { background: #fff; }
@@ -88,6 +92,18 @@
             return v === '-' ? 'عدم اتمام' : N(v);
         }
 
+        // One table per group when the camp uses groups.
+        function divisionTables(all) {
+            if (!Feat.on(state, 'divisions') || !(state.divisions || []).length) return '';
+            return state.divisions.map(d => {
+                const list = all.filter(t => t.division === d.id);
+                if (!list.length) return '';
+                const r = Feat.rankMap(list);
+                return `<h3 class="div-title">گروه ${esc(d.name)}</h3><table><thead><tr><th>رتبه در گروه</th><th>تیم</th><th>امتیاز کل</th></tr></thead><tbody>${list.map(t =>
+                    `<tr><td>${N(r[t.id])}</td><td class="team"><span class="dot" style="background:${safeColor(t.color, '#fff')}"></span>${esc(t.name)}</td><td><b>${N(t.score)}</b></td></tr>`).join('')}</tbody></table>`;
+            }).join('');
+        }
+
         function render() {
             const root = document.getElementById('root');
             if (!state) return;
@@ -118,21 +134,32 @@
                             </tr>`).join('')}
                         </tbody>
                     </table>
+                    ${divisionTables(teams)}
+                    ${Feat.shown(state, 'trendChart') && Feat.trendSeries(state).some(x => x.points.length >= 2) ? `<div class="chart-wrap"><h3 class="div-title">روند امتیاز</h3>${Feat.lineChart(Feat.trendSeries(state), { width: 900, height: 300, lang: state.numLang })}</div>` : ''}
                 </section>`;
 
             const scope = document.getElementById('certScope').value;
             const certTeams = scope === 'none' ? [] : teams.filter(t => scope === 'all' || ranks[t.id] <= 3);
-            const certs = certTeams.map(t => `
-                <section class="cert"><div class="cert-inner">
-                    ${logo}
-                    <p class="cert-title">تقدیرنامه</p>
+            // Certificate design from the advanced settings (heading, text with {team} {rank} {score} {title}, signer, colour, background).
+            const cd = state.certificate || {};
+            const certs = certTeams.map(t => {
+                const body = cd.body ? esc(cd.body).replace(/\{team\}/g, esc(t.name)).replace(/\{rank\}/g, rankWord(ranks[t.id])).replace(/\{score\}/g, N(t.score)).replace(/\{title\}/g, esc(state.title || '')) : '';
+                const color = cd.color ? safeColor(cd.color, '#a16207') : '';
+                const bg = cd.background ? ` style="background-image: url(${esc(JSON.stringify(safeUrl(cd.background)))}); ${color ? 'border-color:' + color : ''}"` : (color ? ` style="border-color:${color}"` : '');
+                return `
+                <section class="cert"><div class="cert-inner ${cd.background ? 'custom-bg' : ''}"${bg}>
+                    ${cd.showLogo === false ? '' : logo}
+                    <p class="cert-title"${color ? ` style="color:${color}"` : ''}>${esc(cd.heading || 'تقدیرنامه')}</p>
+                    ${body ? `<div class="cert-text">${body}</div><p class="cert-team">${esc(t.name)}</p>` : `
                     <div class="cert-text">بدین‌وسیله از تلاش ارزشمند اعضای</div>
                     <p class="cert-team">${esc(t.name)}</p>
                     <div class="cert-rank">کسب رتبه ${rankWord(ranks[t.id])} با ${N(t.score)} امتیاز</div>
-                    <div class="cert-text">در «${esc(state.title || '')}»${state.orgName ? ' — ' + esc(state.orgName) : ''} قدردانی می‌شود.</div>
+                    <div class="cert-text">در «${esc(state.title || '')}»${state.orgName ? ' — ' + esc(state.orgName) : ''} قدردانی می‌شود.</div>`}
+                    ${(t.members || []).length ? `<div class="muted">${esc(t.members.map(m => m.name).join('، '))}</div>` : ''}
                     <div class="muted">${esc(today)}</div>
-                    <div class="cert-sign"><div>امضای برگزارکننده</div><div>امضای سرداور</div></div>
-                </div></section>`).join('');
+                    <div class="cert-sign">${cd.signer ? `<div>${esc(cd.signer)}${cd.signerRole ? '<br>' + esc(cd.signerRole) : ''}</div>` : '<div>امضای برگزارکننده</div><div>امضای سرداور</div>'}</div>
+                </div></section>`;
+            }).join('');
             root.innerHTML = table + certs;
         }
 

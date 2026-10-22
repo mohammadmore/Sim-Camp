@@ -61,13 +61,21 @@ function toPhpUrls(html) {
     return html;
 }
 
+// Remaining Node-style URLs (new features, URLs built at run time) are mapped to api.php actions
+// in the browser by common.js (window.toPhpUrl), which this flag switches on.
 function assertNoAbsoluteApiUrls(name, html) {
-    const left = html.match(/(fetch|OfflineQueue\.send|fetchBackup)\(\s*['`]\/[^'`]*/g);
-    if (left) throw new Error(`${name}: unconverted API URLs: ${left.join(', ')}`);
+    if (!html.includes('src="common.js"')) {
+        const left = html.match(/(fetch|OfflineQueue\.send|fetchBackup)\(\s*['`]\/[^'`]*/g);
+        if (left) throw new Error(`${name}: unconverted API URLs: ${left.join(', ')}`);
+    }
+}
+function markPhp(html) {
+    if (!html.includes('<script src="common.js"></script>')) return html;
+    return html.replace('<script src="common.js"></script>', '<script>window.SIMCAMP_PHP = true;</script>\n    <script src="common.js"></script>');
 }
 
 // 1. superadmin.html
-let sa = toPhpUrls(fs.readFileSync(path.join(SRC, 'superadmin.html'), 'utf8'));
+let sa = markPhp(toPhpUrls(fs.readFileSync(path.join(SRC, 'superadmin.html'), 'utf8')));
 // The cPanel package download only makes sense on the Node server.
 sa = sa.replace(/\s*<button type="button" id="cpanelPackageBtn"[\s\S]*?<\/button>/, '');
 assertNoAbsoluteApiUrls('superadmin.html', sa);
@@ -75,13 +83,13 @@ fs.writeFileSync(path.join(OUT, 'superadmin.html'), sa, 'utf8');
 console.log('✓ superadmin.html');
 
 // 2. operator.html
-const op = toPhpUrls(fs.readFileSync(path.join(SRC, 'operator.html'), 'utf8'));
+const op = markPhp(toPhpUrls(fs.readFileSync(path.join(SRC, 'operator.html'), 'utf8')));
 assertNoAbsoluteApiUrls('operator.html', op);
 fs.writeFileSync(path.join(OUT, 'operator.html'), op, 'utf8');
 console.log('✓ operator.html');
 
 // 3. board.html: PHP hosting has no SSE, so poll instead.
-let board = toPhpUrls(fs.readFileSync(path.join(SRC, 'board.html'), 'utf8'));
+let board = markPhp(toPhpUrls(fs.readFileSync(path.join(SRC, 'board.html'), 'utf8')));
 const sseBlockRegex = /\/\/ Replaced Heavy Polling with Lightweight SSE[\s\S]*?evtSource\.addEventListener\('splash'[\s\S]*?\}\);\s*\}/;
 const pollingReplacement = `// Polling mode for cPanel / PHP Hosting
 let lastSeenLogTime = Date.now();
@@ -161,7 +169,7 @@ console.log('✓ board.html (SSE replaced with polling)');
 
 // 4. Any other page only needs its API URLs converted.
 for (const name of fs.readdirSync(SRC).filter(f => f.endsWith('.html') && !['superadmin.html', 'operator.html', 'board.html'].includes(f))) {
-    const html = toPhpUrls(fs.readFileSync(path.join(SRC, name), 'utf8'));
+    const html = markPhp(toPhpUrls(fs.readFileSync(path.join(SRC, name), 'utf8')));
     assertNoAbsoluteApiUrls(name, html);
     fs.writeFileSync(path.join(OUT, name), html, 'utf8');
     console.log(`✓ ${name}`);

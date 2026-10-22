@@ -890,7 +890,7 @@ function verifyClientKey(camp, key) {
 }
 
 // Settings of the optional features accepted from the superadmin form.
-const ADVANCED_FORM_KEYS = ['display', 'features', 'skills', 'tagSkills', 'divisions', 'roles', 'chanceCards', 'rounds', 'brand', 'uiLang', 'calibrationCases', 'registrationOpen', 'scoreCap', 'assignments', 'teamsExtra', 'stagesExtra'];
+const ADVANCED_FORM_KEYS = ['display', 'features', 'skills', 'tagSkills', 'divisions', 'roles', 'chanceCards', 'rounds', 'brand', 'uiLang', 'calibrationCases', 'registrationOpen', 'scoreCap', 'assignments', 'teamsExtra', 'stagesExtra', 'certificate'];
 
 app.post('/setup', route(async (req, res) => {
     const admin = await requireAdmin(req);

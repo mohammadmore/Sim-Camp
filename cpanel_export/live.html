@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="icon" type="image/svg+xml" href="favicon.svg">
+    <link rel="manifest" href="manifest.webmanifest">
+    <meta name="theme-color" content="#312e81">
+    <link rel="stylesheet" href="style.css?v=13">
+    <title>جدول زنده</title>
+    <script>window.SIMCAMP_PHP = true;</script>
+    <script src="common.js"></script>
+    <script src="features.js"></script>
+    <script>document.documentElement.setAttribute('data-theme', localStorage.getItem('theme') || 'light');</script>
+</head>
+<body class="pub-page">
+    <main id="root" class="pub-wrap"><div class="empty-state">…</div></main>
+    <script>
+        // Light standings for phones (spectators scan a QR code in the hall).
+        const campId = new URLSearchParams(location.search).get('id');
+        const root = document.getElementById('root');
+        let state = null, etag = null;
+        const L = s => Feat.t(s, state && state.uiLang);
+        Feat.syncClock();
+
+        function load() {
+            fetch(`api.php?action=poll&id=${encodeURIComponent(campId)}`).then(r => {
+                if (r.status === 404) throw new Error('404');
+                const e = r.headers.get('ETag');
+                if (e && e === etag && state) return null;
+                etag = e;
+                return r.json();
+            }).then(d => { if (d) { state = d; render(); } })
+              .catch(err => { if (err.message === '404') root.innerHTML = `<div class="empty-state"><span class="empty-icon">🔍</span>${esc(L('مسابقه‌ای با این لینک پیدا نشد.'))}</div>`; });
+        }
+
+        function render() {
+            const s = state, N = v => fmtNum(v, s.numLang);
+            document.documentElement.dir = s.dir || 'rtl';
+            document.title = s.title || 'جدول زنده';
+            const showRanks = Feat.shown(s, 'ranks');
+            const teams = showRanks ? [...s.teams].sort((a, b) => b.score - a.score) : [...s.teams];
+            const ranks = Feat.rankMap(s.teams);
+            const badges = Feat.badges(s);
+            const active = (s.stages || []).find(x => x.id === s.activeStageId);
+            let top = '';
+            if (active) top += `<span class="pub-pill">▶ ${esc(active.name)}</span>`;
+            if (s.timer && Feat.shown(s, 'timer')) top += `<span class="pub-pill" id="liveTimer">⏱ <b dir="ltr">${Feat.fmtClock(Feat.timerRemaining(s.timer), s.numLang)}</b></span>`;
+            if (s.frozen) top += `<span class="pub-pill dark">🙈 ${esc(L('جدول مخفی است'))}</span>`;
+            root.innerHTML = `<header class="pub-head">${s.logo ? `<img src="${esc(safeUrl(s.logo))}" alt="">` : ''}<div><div class="pub-kicker">${esc(s.orgName || '')}</div><h1>${esc(s.title || '')}</h1></div></header>
+                ${top ? `<div class="pub-tops">${top}</div>` : ''}
+                ${s.ticker && Feat.shown(s, 'ticker') ? `<div class="pub-ticker">📣 ${esc(s.ticker.text)}</div>` : ''}
+                <ol class="pub-list">${teams.map(t => `<li style="--team:${safeColor(t.color, '#3b82f6')}">
+                    <a href="team.html?id=${encodeURIComponent(campId)}&team=${encodeURIComponent(t.id)}">
+                    ${showRanks ? `<span class="pub-rank">${N(ranks[t.id])}</span>` : ''}
+                    <span class="pub-name">${esc(t.name)} ${Feat.shown(s, 'badges') ? (badges[t.id] || []).map(b => `<span title="${esc(b.label)}">${b.icon}</span>`).join('') : ''}
+                        ${Feat.on(s, 'budget') && Feat.shown(s, 'budget') ? `<small>💰 ${N(t.budget || 0)}</small>` : ''}</span>
+                    <span class="pub-score">${N(t.score)}</span></a></li>`).join('')}</ol>
+                <p class="pub-foot"><a href="board.html?id=${encodeURIComponent(campId)}">تابلوی کامل</a></p>`;
+        }
+        setInterval(() => { const el = document.getElementById('liveTimer'); if (el && state && state.timer) el.querySelector('b').textContent = Feat.fmtClock(Feat.timerRemaining(state.timer), state.numLang); }, 500);
+        if (!campId) root.innerHTML = '<div class="empty-state"><span class="empty-icon">🔗</span>لینک نامعتبر است.</div>';
+        else { load(); setInterval(() => { if (!document.hidden) load(); }, 3000); }
+    </script>
+</body>
+</html>

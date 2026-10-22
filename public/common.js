@@ -38,8 +38,25 @@
         clear() { try { sessionStorage.removeItem(storageKey()); } catch (e) { /* ignore */ } }
     };
 
+    // PHP edition (cPanel): Node-style API paths become api.php actions (the build script sets SIMCAMP_PHP).
+    const PHP_SPECIAL = { 'stage/close_tiered': 'close_tiered' };
+    window.toPhpUrl = function (u) {
+        const [path, qs = ''] = u.split('?');
+        const params = new URLSearchParams(qs);
+        let m;
+        if (path === '/api') { if (!params.has('action')) params.set('action', 'update_camp'); }
+        else if (path === '/login' || path === '/setup') params.set('action', path.slice(1));
+        else if ((m = path.match(/^\/api\/(.+)$/))) params.set('action', PHP_SPECIAL[m[1]] || m[1].replace(/[/-]/g, '_'));
+        else if ((m = path.match(/^\/superadmin\/camps\/([^/]+)\/(\w+)$/))) { params.set('action', 'superadmin_camp_' + m[2]); params.set('id', decodeURIComponent(m[1])); }
+        else if ((m = path.match(/^\/superadmin\/camps\/([^/]+)$/))) { params.set('action', 'superadmin_camp'); params.set('id', decodeURIComponent(m[1])); }
+        else if ((m = path.match(/^\/superadmin\/(\w+)$/))) params.set('action', 'superadmin_' + m[1]);
+        else return u;
+        return 'api.php?' + params.toString();
+    };
+
     const originalFetch = window.fetch.bind(window);
     window.fetch = function (input, init) {
+        if (window.SIMCAMP_PHP && typeof input === 'string' && /^\/(api|login|setup|superadmin)(\/|\?|$)/.test(input)) input = window.toPhpUrl(input);
         const url = typeof input === 'string' ? input : (input && input.url) || '';
         const sameOrigin = !/^[a-z]+:\/\//i.test(url) || url.startsWith(window.location.origin);
         const token = window.Auth.get();

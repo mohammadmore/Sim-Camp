@@ -117,6 +117,16 @@ export function registerFeatureScenarios(ctx) {
         assert.equal(m.teams.find(t => t.id === 't_a').pin, pins.t_a, 'PINs survive an edit');
     });
 
+    test('features: certificate design', async () => {
+        const r = await call('POST', `/api/advanced?id=${campId}`, { certificate: { heading: 'Certificate', body: '{team} — rank {rank}', signer: 'Dr. X', color: '#123abc', bad: 1 } }, op);
+        assert.equal(r.json.success, true, r.text);
+        const p = (await poll()).json;
+        assert.equal(p.certificate.heading, 'Certificate');
+        assert.equal(p.certificate.color, '#123abc');
+        assert.ok(!('bad' in p.certificate));
+        assert.equal((await call('GET', `/api/manage?id=${campId}`, undefined, op)).json.certificate.signer, 'Dr. X');
+    });
+
     test('features: referees only score the teams assigned to them', async () => {
         assert.equal((await call('POST', `/api/instant?id=${campId}`, { teamId: 't_b', delta: 2 }, ref1)).status, 403);
         assert.equal((await call('POST', `/api/instant?id=${campId}`, { teamId: 't_a', delta: 2 }, ref1)).json.success, true);
