@@ -6,11 +6,19 @@ import { fileURLToPath } from 'url';
 import { store as rawStore, adapterName, ConflictError, ExistsError, NotFoundError } from './db/index.js';
 import { createCampRepo, TooLargeError, MEDIA_NAME_RE, MEDIA_TYPES, mediaNameFor } from './lib/campRepo.js';
 import { BACKUP_FORMAT, buildBackup, allCampIds } from './lib/backup.js';
+import { buildUndo, applyUndo, UNDO_KEEP } from './lib/undo.js';
 import {
     DEFAULT_POSITIVE_TAGS, DEFAULT_NEGATIVE_TAGS, DEFAULT_FIELD_JUDGING_VALUES, DEFAULT_LADDER, OVERRIDE_KEY,
     isValidId, isPlainObject, parseMaybeJson, isDnfValue, num, round2, parseLadder, normalizeTeam, recomputeTeamScore,
-    applyJudgesToStage, computeTieredResults, mergeTeams, publicUser, displayName
+    applyJudgesToStage, computeTieredResults, mergeTeams, publicUser, displayName, teamBudget
 } from './lib/campLogic.js';
+import {
+    parseExtras, effectiveDisplay, effectiveFeatures, maskNotify, ensurePins, cleanMembers, cleanCriteria, cleanSchedule,
+    cleanDisplay, cleanSkills, cleanNotify, cleanLeagues, newKey, templateFromCamp,
+    DISPLAY_KEYS, FEATURE_KEYS, DISPLAY_PRESETS, DEFAULT_SKILLS, DEFAULT_TAG_SKILLS, TAG_PACKS, BUILTIN_TEMPLATES
+} from './lib/features.js';
+import { notifyChannels, standingsText } from './lib/notify.js';
+import { registerFeatureRoutes } from './routes/features.js';
 import {
     hashPassword, isHashed, verifyPassword, randomPassword, randomSecret, createToken, verifyToken, createRateLimiter
 } from './lib/auth.js';
@@ -183,29 +191,87 @@ function parseCamp(raw) {
     if (!Array.isArray(camp.auditLog)) camp.auditLog = [];
     if (!isPlainObject(camp.announcement)) camp.announcement = null;
     camp.teams.forEach(t => { normalizeTeam(t); recomputeTeamScore(t); });
-    return camp;
+    return parseExtras(camp);
 }
 
-function publicTeam(t) {
+// A team as others may see it: no PIN, secret cards or private records; the budget as one number.
+function publicTeam(t, showNotes = true) {
+    const { pin, secretCards, records, ...rest } = t;
     return {
-        ...t,
-        scoreLogs: t.scoreLogs.map(l => (l && l.user ? { ...l, user: publicUser(l.user) } : l))
+        ...rest,
+        budget: teamBudget(t),
+        scoreLogs: t.scoreLogs.map(l => {
+            if (!l) return l;
+            const out = l.user ? { ...l, user: publicUser(l.user) } : { ...l };
+            if (!showNotes) { delete out.note; delete out.photo; }
+            return out;
+        })
     };
 }
 
-// What the live board and everyone with the link may see: no passwords, no user list.
-function publicState(camp) {
-    const { password, users, auditLog, deletedAt, ...rest } = camp;
-    return { ...rest, locked: isLocked(camp), archived: !!camp.archived, teams: camp.teams.map(publicTeam) };
+// While the standings are frozen ("hidden table"), the public sees them as they were at that moment.
+function frozenTeams(camp) {
+    const snap = new Map((camp.frozen.teams || []).map(t => [t.id, t]));
+    return camp.teams.map(t => {
+        const s = snap.get(t.id);
+        return {
+            ...t,
+            score: s ? s.score : 0,
+            stageScores: s ? s.stageScores : {},
+            judgeStageScores: {},
+            scoreLogs: t.scoreLogs.filter(l => l && (l.createdAt || l.timestamp || 0) <= camp.frozen.at)
+        };
+    });
 }
 
-// Superadmin edit form: everything except stored password hashes.
+// What the live board and everyone with the link may see ('public'), or what signed-in referees
+// and managers get from the poll ('member'): never passwords, PINs, tokens or the user list.
+function publicState(camp, view = 'public') {
+    const member = view === 'member';
+    const {
+        password, users, auditLog, deletedAt, clientKey, ownerId, notify, assignments, chanceCards, judgeMessage,
+        appeals, moments, decisions, rounds, registration, calibration, scoreCap, frozen, ...rest
+    } = camp;
+    const display = effectiveDisplay(camp.display);
+    const masked = frozen && !member;
+    const teams = (masked ? frozenTeams(camp) : camp.teams).map(t => publicTeam(t, display.notes || member));
+    const out = {
+        ...rest, locked: isLocked(camp), archived: !!camp.archived, teams,
+        display, features: effectiveFeatures(camp.features),
+        frozen: frozen ? { at: frozen.at } : null,
+        registration: { open: !!registration.open },
+        varOpen: appeals.filter(a => a.status === 'open').map(a => ({ id: a.id, teamId: a.teamId, stageId: a.stageId || null })),
+        rounds: rounds.map(r => ({
+            id: r.id, title: r.title, question: r.question, options: r.options, status: r.status, revealed: !!r.revealed,
+            submitted: Object.keys(decisions[r.id] || {}).length,
+            decisions: r.revealed ? Object.fromEntries(Object.entries(decisions[r.id] || {}).map(([tid, d]) => [tid, d.optionId])) : undefined
+        }))
+    };
+    if (masked) { out.closedStages = frozen.closedStages || {}; out.stageTieredResults = frozen.stageTieredResults || {}; }
+    if (member) {
+        out.judgeMessage = judgeMessage;
+        out.assignments = assignments;
+        out.scoreCap = scoreCap;
+        out.appeals = appeals;
+        out.calibration = { cases: calibration.cases.filter(c => c.open).map(({ expected, ...c }) => c) };
+    }
+    return out;
+}
+
+// Superadmin edit form: everything except password hashes and notification tokens.
 function adminState(camp) {
     return {
-        ...publicState(camp),
+        ...publicState(camp, 'member'),
         password: '',
         hasPassword: !!camp.password,
-        users: camp.users.map(u => ({ ...u, password: '', hasPassword: !!u.password }))
+        users: camp.users.map(u => ({ ...u, password: '', hasPassword: !!u.password })),
+        teams: camp.teams.map(t => ({ ...publicTeam(t), pin: t.pin || '', secretCards: t.secretCards || [] })),
+        notify: maskNotify(camp.notify),
+        clientKey: camp.clientKey || '',
+        chanceCards: camp.chanceCards,
+        rounds: camp.rounds,
+        calibration: { cases: camp.calibration.cases },
+        registration: { open: !!camp.registration.open, requests: camp.registration.requests }
     };
 }
 
@@ -237,7 +303,9 @@ function scheduleBroadcast(id, entry) {
 // Full-screen "score" animation on live boards for each new instant score.
 function sendSplash(id, entry, log) {
     if (!sseClients.get(id)?.size) return;
-    const team = repo.campOf(entry).teams.find(t => t.id === log.teamId);
+    const camp = repo.campOf(entry);
+    if (camp.frozen) return; // the standings are hidden at the moment
+    const team = camp.teams.find(t => t.id === log.teamId);
     if (!team) return;
     sendToClients(id, `event: splash\ndata: ${JSON.stringify({
         teamId: team.id, delta: log.value, teamName: team.name, score: team.score,
@@ -319,8 +387,16 @@ async function mutateCamp(id, { allowLocked = false, allowDeleted = false } = {}
             let changes = result && result.changes;
             if (changes && result.audit) {
                 const { user, action, details } = result.audit;
-                const item = { ts: Date.now(), by: { username: user.username, name: displayName(user), role: user.role }, action, details: details || {} };
-                changes = { ...changes, auditLog: [...camp.auditLog, item].slice(-AUDIT_LIMIT) };
+                const item = {
+                    id: 'a_' + crypto.randomBytes(5).toString('hex'), ts: Date.now(),
+                    by: { username: user.username, name: displayName(user), role: user.role }, action, details: details || {}
+                };
+                // What this change replaced, so it can be undone from the history (small changes only).
+                const undo = result.noUndo ? null : buildUndo(repo.campOf(entry), changes);
+                if (undo) item.undo = undo;
+                const log = [...camp.auditLog, item].slice(-AUDIT_LIMIT);
+                for (let i = 0; i < log.length - UNDO_KEEP; i++) if (log[i].undo) { const { undo: _old, ...rest } = log[i]; log[i] = rest; }
+                changes = { ...changes, auditLog: log };
             }
             if (!changes || !Object.keys(changes).length) return { ...(result || {}), camp };
             // A timed-out operation must not write after the lock has passed to the next request.
@@ -439,6 +515,42 @@ async function requireSuperadmin(req) {
     if (!p || p.t !== 'sa' || p.pv !== fingerprint(superadminHash)) throw new HttpError(401, 'نشست سوپرادمین نامعتبر یا منقضی شده است. دوباره وارد شوید.');
 }
 
+// ---- Organizers: limited admin accounts that only see and manage their own camps ----
+let organizersCache = { list: null, until: 0 };
+async function getOrganizers(fresh = false) {
+    if (fresh || !organizersCache.list || organizersCache.until < Date.now()) {
+        const list = await getSetting('organizers');
+        organizersCache = { list: Array.isArray(list) ? list : [], until: Date.now() + 10000 };
+    }
+    return organizersCache.list;
+}
+async function saveOrganizers(list) {
+    await setSetting('organizers', list);
+    organizersCache = { list, until: Date.now() + 10000 };
+}
+
+// Superadmin ({ super: true }) or organizer ({ super: false, orgId }).
+async function requireAdmin(req) {
+    const p = verifyToken(readToken(req), SESSION_SECRET);
+    if (p && p.t === 'org') {
+        let org = (await getOrganizers()).find(o => o.id === p.oid);
+        if (!org || p.pv !== fingerprint(org.password)) org = (await getOrganizers(true)).find(o => o.id === p.oid);
+        if (!org || org.disabled || p.pv !== fingerprint(org.password)) throw new HttpError(401, 'نشست نامعتبر یا منقضی شده است. دوباره وارد شوید.');
+        return { super: false, orgId: org.id, name: org.name || org.username };
+    }
+    await requireSuperadmin(req);
+    return { super: true };
+}
+
+function assertCampAccess(admin, camp) {
+    if (!admin.super && (!camp || camp.ownerId !== admin.orgId)) throw new HttpError(404, 'مسابقه یافت نشد.');
+}
+
+// Mutation by an admin: organizers only touch their own camps.
+function adminMutate(admin, id, opts, fn) {
+    return mutateCamp(id, opts, camp => { assertCampAccess(admin, camp); return fn(camp); });
+}
+
 function findCampUser(camp, username) {
     const user = camp.users.find(u => u && u.username === username);
     if (user) return { user, secret: user.password };
@@ -479,7 +591,9 @@ function cleanStages(stages) {
             name: strOrEmpty(s.name, 200),
             unit: ['points', 'time', 'time_asc', 'time_desc'].includes(s.unit) ? s.unit : 'points',
             timeOrder: s.timeOrder === 'desc' ? 'desc' : 'asc',
-            multiplier: Number.isFinite(multiplier) && multiplier > 0 ? multiplier : 1
+            multiplier: Number.isFinite(multiplier) && multiplier > 0 ? multiplier : 1,
+            criteria: cleanCriteria(s.criteria),
+            ...cleanSchedule(s)
         };
     });
 }
@@ -497,7 +611,10 @@ function cleanTeamDefs(teams) {
             color: strOrEmpty(t.color, 64),
             image: strOrEmpty(t.image, 2_000_000),
             happyImage: strOrEmpty(t.happyImage, 2_000_000),
-            sadImage: strOrEmpty(t.sadImage, 2_000_000)
+            sadImage: strOrEmpty(t.sadImage, 2_000_000),
+            // Left out by a form → the stored value is kept (see mergeTeams).
+            members: t.members === undefined ? undefined : cleanMembers(t.members),
+            division: t.division === undefined ? undefined : strOrEmpty(t.division, 64)
         };
     });
 }
@@ -597,7 +714,7 @@ app.use((req, res, next) => {
 
 // Large bodies (images) only for the few routes that carry them, and only for signed-in users:
 // an anonymous request is rejected before its body is read.
-const LARGE_BODY_ROUTES = new Set(['/setup', '/api', '/api/settings', '/api/user/profile-pic', '/superadmin/import']);
+const LARGE_BODY_ROUTES = new Set(['/setup', '/api', '/api/settings', '/api/user/profile-pic', '/api/instant', '/api/advanced', '/superadmin/import', '/superadmin/settings']);
 const jsonSmall = express.json({ limit: BODY_LIMIT_SMALL });
 const jsonLarge = express.json({ limit: BODY_LIMIT_LARGE });
 const jsonImport = express.json({ limit: BODY_LIMIT_IMPORT });
@@ -682,6 +799,13 @@ app.get('/', (req, res) => res.redirect('/superadmin.html'));
 app.post('/superadmin/login', route(async (req, res) => {
     if (!loginLimiter.check('sa:' + clientIp(req))) throw new HttpError(429, 'تلاش‌های ناموفق زیاد بود. چند دقیقه دیگر دوباره امتحان کنید.');
     const password = req.body && req.body.password;
+    const orgUser = req.body && typeof req.body.username === 'string' ? req.body.username.trim() : '';
+    if (orgUser) {
+        const org = (await getOrganizers(true)).find(o => o.username === orgUser && !o.disabled);
+        if (!org || !await verifyPassword(password, org.password)) return res.json({ success: false, message: 'نام کاربری یا رمز عبور اشتباه است!' });
+        loginLimiter.reset('sa:' + clientIp(req));
+        return res.json({ success: true, role: 'organizer', name: org.name || org.username, token: createToken({ t: 'org', oid: org.id, pv: fingerprint(org.password) }, SESSION_SECRET) });
+    }
     let ok = await verifyPassword(password, superadminHash);
     // Changed on another server instance?
     if (!ok && await refreshSuperadminHash()) ok = await verifyPassword(password, superadminHash);
@@ -689,42 +813,73 @@ app.post('/superadmin/login', route(async (req, res) => {
         return res.json({ success: false, message: 'رمز عبور سوپرادمین اشتباه است!' });
     }
     loginLimiter.reset('sa:' + clientIp(req));
-    res.json({ success: true, token: createToken({ t: 'sa', pv: fingerprint(superadminHash) }, SESSION_SECRET) });
+    res.json({ success: true, role: 'superadmin', token: createToken({ t: 'sa', pv: fingerprint(superadminHash) }, SESSION_SECRET) });
 }));
 
+// Who is signed in to the superadmin panel.
+app.get('/superadmin/me', route(async (req, res) => {
+    const admin = await requireAdmin(req);
+    res.json({ success: true, role: admin.super ? 'superadmin' : 'organizer', name: admin.name || '' });
+}));
+
+const CAMP_LIST_FIELDS = ['orgName', 'title', 'locked', 'campType', 'archived', 'deletedAt', 'ownerId'];
+const visibleTo = admin => c => admin.super || c.ownerId === admin.orgId;
+
 app.get('/superadmin/camps', route(async (req, res) => {
-    await requireSuperadmin(req);
-    const all = await store.listCamps(['orgName', 'title', 'locked', 'campType', 'archived', 'deletedAt']);
+    const admin = await requireAdmin(req);
+    const all = await store.listCamps(CAMP_LIST_FIELDS);
     purgeExpiredTrash(all).catch(e => console.error('[trash]', e.message));
-    const camps = all.filter(c => !c.deletedAt).map(c => ({
-        id: c.id, orgName: c.orgName, title: c.title, locked: isLocked(c), campType: c.campType, archived: !!c.archived
+    const mine = all.filter(visibleTo(admin));
+    const orgNames = admin.super ? new Map((await getOrganizers()).map(o => [o.id, o.name || o.username])) : new Map();
+    const camps = mine.filter(c => !c.deletedAt).map(c => ({
+        id: c.id, orgName: c.orgName, title: c.title, locked: isLocked(c), campType: c.campType, archived: !!c.archived,
+        owner: c.ownerId ? orgNames.get(c.ownerId) || '' : ''
     }));
-    res.json({ success: true, camps, trashCount: all.length - camps.length });
+    res.json({ success: true, camps, trashCount: mine.length - camps.length });
 }));
 
 app.get('/superadmin/camps/:id', route(async (req, res) => {
-    await requireSuperadmin(req);
+    const admin = await requireAdmin(req);
     const camp = await loadCamp(requireId(req.params.id));
-    if (!camp) return res.json({ success: false, message: 'یافت نشد' });
+    if (!camp || !visibleTo(admin)(camp)) return res.json({ success: false, message: 'یافت نشد' });
     res.json({ success: true, camp: adminState(camp) });
 }));
 
 app.post('/superadmin/camps/:id/lock', route(async (req, res) => {
-    await requireSuperadmin(req);
+    const admin = await requireAdmin(req);
     const id = requireId(req.params.id);
-    await mutateCamp(id, { allowLocked: true }, () => ({ changes: { locked: req.body && req.body.locked ? 1 : 0 } }));
+    await adminMutate(admin, id, { allowLocked: true }, () => ({ changes: { locked: req.body && req.body.locked ? 1 : 0 } }));
     res.json({ success: true });
 }));
 
 app.post('/superadmin/camps/:id/archive', route(async (req, res) => {
-    await requireSuperadmin(req);
+    const admin = await requireAdmin(req);
     const id = requireId(req.params.id);
-    await mutateCamp(id, { allowLocked: true }, () => ({ changes: { archived: !!(req.body && req.body.archived) } }));
+    await adminMutate(admin, id, { allowLocked: true }, () => ({ changes: { archived: !!(req.body && req.body.archived) } }));
     res.json({ success: true });
 }));
 
+// Read-only report link for the client organisation (analysis room without signing in).
+app.post('/superadmin/camps/:id/client_key', route(async (req, res) => {
+    const admin = await requireAdmin(req);
+    const id = requireId(req.params.id);
+    const revoke = (req.body || {}).op === 'revoke';
+    const key = revoke ? '' : newKey();
+    await adminMutate(admin, id, { allowLocked: true }, () => ({ changes: { clientKey: key } }));
+    res.json({ success: true, key });
+}));
+
+function verifyClientKey(camp, key) {
+    const k = camp.clientKey || '';
+    const a = Buffer.from(String(key)), b = Buffer.from(k);
+    return !!k && a.length === b.length && crypto.timingSafeEqual(a, b);
+}
+
+// Settings of the optional features accepted from the superadmin form.
+const ADVANCED_FORM_KEYS = ['display', 'features', 'skills', 'tagSkills', 'divisions', 'roles', 'chanceCards', 'rounds', 'brand', 'uiLang', 'calibrationCases', 'registrationOpen', 'scoreCap'];
+
 app.post('/setup', route(async (req, res) => {
-    await requireSuperadmin(req);
+    const admin = await requireAdmin(req);
     const b = req.body || {};
     const base = {
         orgName: strOrEmpty(b.orgName, 200),
@@ -742,16 +897,27 @@ app.post('/setup', route(async (req, res) => {
     };
     const teamDefs = cleanTeamDefs(b.teams || []);
 
+    const advancedInput = Object.fromEntries(ADVANCED_FORM_KEYS.filter(k => b[k] !== undefined).map(k => [k, b[k]]));
+    const ownerFor = async () => {
+        if (!admin.super) return admin.orgId;
+        if (!b.ownerId) return null;
+        return (await getOrganizers()).some(o => o.id === b.ownerId) ? b.ownerId : null;
+    };
+
     if (b.campId) {
         const id = requireId(b.campId);
-        await mutateCamp(id, { allowLocked: true }, async camp => {
+        const ownerId = admin.super && b.ownerId !== undefined ? await ownerFor() : undefined;
+        await adminMutate(admin, id, { allowLocked: true }, async camp => {
             const changes = {
                 ...base,
-                teams: mergeTeams(camp.teams, teamDefs),
+                teams: ensurePins(mergeTeams(camp.teams, teamDefs)),
                 users: await cleanUsers(b.users, camp.users)
             };
             if (typeof b.password === 'string' && b.password !== '') changes.password = await hashPassword(b.password);
-            return { changes };
+            if (b.notify !== undefined) changes.notify = cleanNotify(b.notify, camp.notify);
+            if (ownerId !== undefined) changes.ownerId = ownerId;
+            const extra = ctx.applyAdvanced({ ...camp, ...changes, teams: changes.teams, stages: changes.stages }, advancedInput);
+            return { changes: { ...changes, ...extra } };
         });
         return res.json({ success: true, campId: id });
     }
@@ -766,15 +932,24 @@ app.post('/setup', route(async (req, res) => {
         locked: 0,
         archived: false,
         closedStages: {},
-        stageTieredResults: {}
+        stageTieredResults: {},
+        ownerId: await ownerFor()
     };
+    ensurePins(camp.teams);
+    // New camps start from the superadmin's defaults (visible elements, skills).
+    const defaults = await getSetting('displayDefaults');
+    if (isPlainObject(defaults) && b.display === undefined) camp.display = cleanDisplay(defaults);
+    const skills = await getSetting('defaultSkills');
+    if (Array.isArray(skills) && skills.length && b.skills === undefined) camp.skills = cleanSkills(skills);
+    if (b.notify !== undefined) camp.notify = cleanNotify(b.notify, null);
+    Object.assign(camp, ctx.applyAdvanced(parseExtras({ ...camp, teams: camp.teams, stages: camp.stages, calibration: undefined, registration: undefined }), advancedInput));
     await createCampUnique(id, camp);
     res.json({ success: true, campId: id });
 }));
 
 // Superadmin form: live check of a custom camp link.
 app.get('/superadmin/id_available', route(async (req, res) => {
-    await requireSuperadmin(req);
+    await requireAdmin(req);
     const id = String(req.query.id || '').trim();
     if (!CAMP_ID_RE.test(id)) return res.json({ success: true, available: false, reason: 'invalid', message: CAMP_ID_HELP });
     const existing = await store.getCampDoc(id);
@@ -801,7 +976,7 @@ app.post('/login', route(async (req, res) => {
         req.headers['x-auth-token'] = token;
         let user;
         try { user = requireCampUser(req, camp); } catch (e) { return fail('نشست منقضی شده است. لطفاً دوباره وارد شوید.'); }
-        return res.json({ success: true, token, ...publicState(camp), user: publicUser(user) });
+        return res.json({ success: true, token, ...publicState(camp, 'member'), user: publicUser(user) });
     }
 
     if (!username) return fail('نام کاربری الزامی است!');
@@ -826,7 +1001,7 @@ app.post('/login', route(async (req, res) => {
     res.json({
         success: true,
         token: campTokenFor(result.camp, result.user.username, result.secret),
-        ...publicState(result.camp),
+        ...publicState(result.camp, 'member'),
         user: publicUser(result.user)
     });
 }));
@@ -860,8 +1035,12 @@ app.get('/api', route(async (req, res) => {
         const entry = await loadEntry(requireId(id, 'شناسه مسابقه'));
         if (!entry) throw new HttpError(404, 'مسابقه یافت نشد.');
         // Prepared once per change; unchanged data costs a "304 Not Modified" without a body.
-        const { json, etag } = repo.jsonOf(entry);
+        // Signed-in referees and managers get the member view (messages, assignments, real standings while frozen).
+        let view = 'public';
+        if (readToken(req)) { try { requireCampUser(req, repo.campOf(entry)); view = 'member'; } catch (e) { /* public */ } }
+        const { json, etag } = repo.jsonOf(entry, view);
         res.setHeader('Cache-Control', 'no-cache');
+        res.setHeader('Vary', 'X-Auth-Token');
         res.setHeader('ETag', etag);
         if (req.get('If-None-Match') === etag) return res.status(304).end();
         return res.type('application/json').send(json);
@@ -936,8 +1115,11 @@ app.post('/api', route(async (req, res) => {
 // ---------------------------------------------------------------------------
 app.post('/api/instant', route(async (req, res) => {
     const id = requireId(req.query.id, 'شناسه مسابقه');
-    const { teamId, delta, tag, clientLogId } = req.body || {};
+    const { teamId, delta, tag, clientLogId, memberId, note, photo } = req.body || {};
     requireId(teamId, 'شناسه تیم');
+    if (photo !== undefined && photo !== '' && (typeof photo !== 'string' || photo.length > 700_000 || !photo.startsWith('data:image/'))) {
+        throw new HttpError(400, 'عکس نامعتبر یا بیش از حد بزرگ است.');
+    }
     const value = Number(delta);
     if (!Number.isFinite(value) || value === 0 || Math.abs(value) > 1_000_000) throw new HttpError(400, 'مقدار امتیاز نامعتبر است.');
     // Offline clients send their own id so a retried request is never counted twice.
@@ -949,11 +1131,20 @@ app.post('/api/instant', route(async (req, res) => {
         const team = camp.teams.find(t => t.id === teamId);
         if (!team) throw new HttpError(404, 'تیم یافت نشد.');
         if (camp.teams.some(t => t.scoreLogs.some(l => l && l.id === logId))) return { team, duplicate: true };
+        checkAssignment(camp, user, teamId, null);
+        checkScoreCap(camp, user, value);
         const now = Date.now();
-        team.scoreLogs.push({
+        const log = {
             id: logId, type: 'instant', value: round2(value), timestamp: now, createdAt: now,
             user: publicUser(user), tag: strOrEmpty(tag, 100)
-        });
+        };
+        if (memberId && features(camp).individual) {
+            if (!team.members.some(m => m.id === memberId)) throw new HttpError(404, 'بازیکن در این تیم پیدا نشد.');
+            log.memberId = memberId;
+        }
+        if (typeof note === 'string' && note.trim()) log.note = note.trim().slice(0, 300);
+        if (photo) log.photo = photo; // stored as a media file by the cache layer
+        team.scoreLogs.push(log);
         recomputeTeamScore(team);
         // Only the new log is written (the camp document is not touched); live boards get the splash from the cache.
         return { team, changes: { teams: camp.teams } };
@@ -986,6 +1177,31 @@ app.post('/api/undo_instant', route(async (req, res) => {
 function stageName(camp, stageId) {
     const st = camp.stages.find(s => s.id === stageId);
     return st ? st.name : stageId;
+}
+
+const features = camp => effectiveFeatures(camp.features);
+
+// Referees split between teams / stages only score their own share (managers are not limited).
+function checkAssignment(camp, user, teamId, stageId) {
+    if (!features(camp).assignments || MANAGER_ROLES.includes(user.role)) return;
+    const a = camp.assignments[user.username];
+    if (!a) return;
+    if (teamId && a.teams.length && !a.teams.includes(teamId)) throw new HttpError(403, 'این تیم به شما سپرده نشده است.');
+    if (stageId && a.stages.length && !a.stages.includes(stageId)) throw new HttpError(403, 'این مرحله به شما سپرده نشده است.');
+}
+
+// Optional cap on the instant points a referee can give within one hour (positive and negative together).
+function checkScoreCap(camp, user, value) {
+    const cap = camp.scoreCap && camp.scoreCap.perHour;
+    if (!features(camp).scoreCap || !cap || MANAGER_ROLES.includes(user.role)) return;
+    const since = Date.now() - 3600000;
+    let used = 0;
+    for (const t of camp.teams) for (const l of t.scoreLogs) {
+        if (l && l.type === 'instant' && l.user && l.user.username === user.username && (l.createdAt || l.timestamp || 0) > since) used += Math.abs(num(l.value));
+    }
+    if (used + Math.abs(value) > cap) {
+        throw new HttpError(429, `سقف امتیاز شما در یک ساعت (${cap}) پر شده است. ${Math.max(0, round2(cap - used))} امتیاز دیگر می‌توانید ثبت کنید.`);
+    }
 }
 
 function judgeEntryFor(user, rawVal, dnfFlag, judgeKey) {
@@ -1031,18 +1247,40 @@ app.post('/api/judge_stage_score', route(async (req, res) => {
 
         // Referees always score as themselves; managers may record on behalf of another judge key.
         const judgeKey = isManager && isSafeKey(targetJudgeKey) ? targetJudgeKey : user.username;
-        const scoreMap = isPlainObject(scores) ? scores : (singleScore && singleScore.teamId ? { [singleScore.teamId]: singleScore.score } : {});
+        const scoreMap = isPlainObject(scores) ? { ...scores } : (singleScore && singleScore.teamId ? { [singleScore.teamId]: singleScore.score } : {});
         const dnfTeam = singleScore && singleScore.dnf ? singleScore.teamId : null;
+        // Multi-criteria judging: the stage value is the weighted sum of the criteria.
+        const stage = camp.stages.find(s => s.id === stageId);
+        const useCriteria = features(camp).rubric && stage.criteria && stage.criteria.length;
+        const breakdowns = {};
+        if (useCriteria) {
+            const bd = isPlainObject(req.body.breakdown) ? req.body.breakdown : (singleScore && isPlainObject(singleScore.breakdown) ? { [singleScore.teamId]: singleScore.breakdown } : {});
+            for (const [tid, map] of Object.entries(bd)) {
+                if (!isPlainObject(map) || dnfTeam === tid) continue;
+                const clean = {};
+                let total = 0;
+                for (const c of stage.criteria) {
+                    if (map[c.id] === undefined || map[c.id] === '') continue;
+                    clean[c.id] = round2(num(map[c.id]));
+                    total += clean[c.id] * c.weight;
+                }
+                breakdowns[tid] = clean;
+                scoreMap[tid] = round2(total);
+            }
+        }
         for (const team of camp.teams) {
             if (scoreMap[team.id] === undefined) continue;
+            checkAssignment(camp, user, team.id, stageId);
             if (!isPlainObject(team.judgeStageScores[stageId])) team.judgeStageScores[stageId] = {};
-            team.judgeStageScores[stageId][judgeKey] = judgeEntryFor(user, scoreMap[team.id], dnfTeam === team.id, judgeKey);
+            const entry = judgeEntryFor(user, scoreMap[team.id], dnfTeam === team.id, judgeKey);
+            if (breakdowns[team.id]) entry.criteria = breakdowns[team.id];
+            team.judgeStageScores[stageId][judgeKey] = entry;
             // Tiered mode: totals change only when the stage is closed.
             if (!isTiered) { applyJudgesToStage(team, stageId); recomputeTeamScore(team); }
         }
         return { changes: { teams: camp.teams } };
     });
-    res.json({ success: true, teams: publicState(camp).teams });
+    res.json({ success: true, teams: publicState(camp, 'member').teams });
 }));
 
 // Operator / head referee manual correction of a stage value (score modal).
@@ -1068,7 +1306,7 @@ app.post('/api/stage_scores', route(async (req, res) => {
         const changed = camp.teams.filter(t => scores[t.id] !== undefined).map(t => ({ team: t.name, value: scores[t.id] }));
         return { changes: { teams: camp.teams }, audit: { user, action: 'stage_scores', details: { stage: stageName(camp, stageId), changed } } };
     });
-    res.json({ success: true, teams: publicState(camp).teams });
+    res.json({ success: true, teams: publicState(camp, 'member').teams });
 }));
 
 // Operator / head referee edits of one team's history (logs modal).
@@ -1099,7 +1337,7 @@ app.post('/api/team_logs', route(async (req, res) => {
         recomputeTeamScore(team);
         return { changes: { teams: camp.teams }, audit: { user, action: 'team_logs', details: { team: team.name, scoreBefore, scoreAfter: team.score } } };
     });
-    res.json({ success: true, teams: publicState(camp).teams });
+    res.json({ success: true, teams: publicState(camp, 'member').teams });
 }));
 
 // Closing a stage and computing tiered points (قواعد امتیازات پلکانی)
@@ -1146,7 +1384,12 @@ app.post('/api/stage/close_tiered', route(async (req, res) => {
             audit: { user, action: 'stage_close', details: { stage: stage.name, multiplier } }
         };
     });
-    res.json({ ...payload, teams: publicState(camp).teams });
+    if (payload.closed) {
+        const st = camp.stages.find(x => x.id === stageId);
+        const rows = (camp.stageTieredResults[stageId] || {}).results || [];
+        notifyChannels(camp, 'stage_close', `نتایج مرحله «${st ? st.name : ''}»:\n` + rows.slice(0, 5).map(r => `${r.rank}. ${r.teamName}: ${r.assignedScore}`).join('\n'));
+    }
+    res.json({ ...payload, teams: publicState(camp, 'member').teams });
 }));
 
 // ---------------------------------------------------------------------------
@@ -1159,6 +1402,7 @@ function requireNewPassword(pw) {
 
 function resetTeamScores(team) {
     team.scoreLogs = [];
+    team.records = [];
     team.stageScores = {};
     team.judgeStageScores = {};
     team.score = 0;
@@ -1166,27 +1410,27 @@ function resetTeamScores(team) {
 
 // Deleting moves the camp to the trash; it can be restored for TRASH_DAYS days.
 app.post('/superadmin/camps/:id/delete', route(async (req, res) => {
-    await requireSuperadmin(req);
+    const admin = await requireAdmin(req);
     const id = requireId(req.params.id);
-    await mutateCamp(id, { allowLocked: true }, () => ({ changes: { deletedAt: Date.now() } }));
+    await adminMutate(admin, id, { allowLocked: true }, () => ({ changes: { deletedAt: Date.now() } }));
     res.json({ success: true, trashDays: TRASH_DAYS });
 }));
 
 app.get('/superadmin/trash', route(async (req, res) => {
-    await requireSuperadmin(req);
-    const all = await store.listCamps(['orgName', 'title', 'campType', 'deletedAt']);
+    const admin = await requireAdmin(req);
+    const all = await store.listCamps(['orgName', 'title', 'campType', 'deletedAt', 'ownerId']);
     await purgeExpiredTrash(all);
     const limit = Date.now() - TRASH_DAYS * 86400000;
-    const camps = all.filter(c => c.deletedAt && c.deletedAt >= limit)
+    const camps = all.filter(visibleTo(admin)).filter(c => c.deletedAt && c.deletedAt >= limit)
         .map(c => ({ id: c.id, orgName: c.orgName || '', title: c.title || '', campType: c.campType, deletedAt: c.deletedAt, purgeAt: c.deletedAt + TRASH_DAYS * 86400000 }))
         .sort((a, b) => b.deletedAt - a.deletedAt);
     res.json({ success: true, camps, trashDays: TRASH_DAYS });
 }));
 
 app.post('/superadmin/camps/:id/restore', route(async (req, res) => {
-    await requireSuperadmin(req);
+    const admin = await requireAdmin(req);
     const id = requireId(req.params.id);
-    await mutateCamp(id, { allowLocked: true, allowDeleted: true }, camp => {
+    await adminMutate(admin, id, { allowLocked: true, allowDeleted: true }, camp => {
         if (!camp.deletedAt) throw new HttpError(400, 'این مسابقه در سطل زباله نیست.');
         return { changes: { deletedAt: null } };
     });
@@ -1195,11 +1439,11 @@ app.post('/superadmin/camps/:id/restore', route(async (req, res) => {
 
 // Permanent removal (only from the trash).
 app.post('/superadmin/camps/:id/purge', route(async (req, res) => {
-    await requireSuperadmin(req);
+    const admin = await requireAdmin(req);
     const id = requireId(req.params.id);
     await withLock(id, async () => {
         const d = await store.getCampDoc(id);
-        if (!d) throw new HttpError(404, 'مسابقه یافت نشد.');
+        if (!d || !visibleTo(admin)(d.doc)) throw new HttpError(404, 'مسابقه یافت نشد.');
         if (!d.doc.deletedAt) throw new HttpError(400, 'فقط مسابقه‌های داخل سطل زباله را می‌توان برای همیشه حذف کرد.');
         await repo.purge(id);
     });
@@ -1231,8 +1475,10 @@ function sendBackup(res, backup, name) {
 }
 
 app.get('/superadmin/camps/:id/export', route(async (req, res) => {
-    await requireSuperadmin(req);
+    const admin = await requireAdmin(req);
     const id = requireId(req.params.id);
+    const d = await store.getCampDoc(id);
+    if (!d || !visibleTo(admin)(d.doc)) throw new HttpError(404, 'مسابقه یافت نشد.');
     const backup = await buildBackup(store, [id]);
     if (!backup.camps.length) throw new HttpError(404, 'مسابقه یافت نشد.');
     sendBackup(res, backup, `sim-camp-${id}`);
@@ -1246,8 +1492,9 @@ app.get('/superadmin/backup', route(async (req, res) => {
 // Restores camps from a backup file. Existing camps are never overwritten: a camp whose link is
 // taken is imported under a new link.
 app.post('/superadmin/import', route(async (req, res) => {
-    await requireSuperadmin(req);
+    const admin = await requireAdmin(req);
     const b = req.body || {};
+    const orgIds = new Set((await getOrganizers()).map(o => o.id));
     if (b.format !== BACKUP_FORMAT || !Array.isArray(b.camps)) throw new HttpError(400, 'این فایل، فایل پشتیبان سیم‌کمپ نیست.');
     // Images first, so the camps can refer to them.
     let mediaCount = 0;
@@ -1265,6 +1512,8 @@ app.post('/superadmin/import', route(async (req, res) => {
         const camp = parseCamp({ ...raw });
         delete camp.deletedAt;
         delete camp.rev;
+        delete camp.clientKey; // report links are not carried over
+        camp.ownerId = admin.super ? (orgIds.has(raw.ownerId) ? raw.ownerId : null) : admin.orgId;
         // Password hashes of the PHP edition (bcrypt) cannot be checked here and vice versa.
         const secrets = [camp.password, ...camp.users.map(u => u.password)].filter(Boolean);
         if (secrets.some(h => /^\$2[aby]\$/.test(h))) foreignPasswords = true;
@@ -1281,7 +1530,7 @@ app.post('/superadmin/import', route(async (req, res) => {
         }
         imported.push({ id, originalId: raw.id || null, title: camp.title || '' });
     }
-    if (isPlainObject(b.settings) && typeof b.settings.systemLogo === 'string' && b.settings.systemLogo && !(await getSetting('systemLogo'))) {
+    if (admin.super && isPlainObject(b.settings) && typeof b.settings.systemLogo === 'string' && b.settings.systemLogo && !(await getSetting('systemLogo'))) {
         const stored = await repo.externalize(b.settings.systemLogo);
         await setSetting('systemLogo', stored);
         systemLogoCache = { value: stored, until: Date.now() + 30000 };
@@ -1290,21 +1539,31 @@ app.post('/superadmin/import', route(async (req, res) => {
 }));
 
 app.post('/superadmin/camps/:id/duplicate', route(async (req, res) => {
-    await requireSuperadmin(req);
+    const admin = await requireAdmin(req);
     const src = await loadCampOr404(requireId(req.params.id));
+    assertCampAccess(admin, src);
     const newId = requestedCampId((req.body || {}).customId) || newRandomCampId();
     const title = typeof (req.body || {}).title === 'string' && req.body.title.trim() ? strOrEmpty(req.body.title.trim(), 200) : `${src.title || ''} (کپی)`;
     const teams = src.teams.map(t => {
-        const copy = { ...t };
+        const copy = { ...t, pin: '' };
         resetTeamScores(copy);
         return copy;
     });
+    ensurePins(teams);
+    // The definition and feature settings are copied; scores and everything that happened are not.
     const camp = {
         id: newId, orgName: src.orgName || '', title, logo: src.logo || '', password: src.password || '',
         teams, stages: src.stages, users: src.users, numLang: src.numLang, dir: src.dir, campType: src.campType,
         tieredPointsLadder: src.tieredPointsLadder, fieldJudgingMode: src.fieldJudgingMode, fieldJudgingValues: src.fieldJudgingValues,
         positiveTags: src.positiveTags, negativeTags: src.negativeTags,
-        locked: 0, archived: false, closedStages: {}, stageTieredResults: {}, auditLog: [], announcement: null, activeStageId: null
+        locked: 0, archived: false, closedStages: {}, stageTieredResults: {}, auditLog: [], announcement: null, activeStageId: null,
+        display: src.display, features: src.features, skills: src.skills, tagSkills: src.tagSkills, divisions: src.divisions, roles: src.roles,
+        assignments: src.assignments, scoreCap: src.scoreCap, chanceCards: src.chanceCards, brand: src.brand, uiLang: src.uiLang,
+        notify: src.notify, certificate: src.certificate,
+        rounds: src.rounds.map(r => ({ ...r, status: 'draft', revealed: false, applied: false })),
+        calibration: { cases: src.calibration.cases.map(c => ({ ...c, open: false })), scores: {} },
+        registration: { open: false, requests: [] },
+        ownerId: src.ownerId || null
     };
     await createCampUnique(newId, camp);
     res.json({ success: true, campId: newId });
@@ -1391,7 +1650,7 @@ app.post('/api/stage/reset', route(async (req, res) => {
             audit: { user, action: 'stage_reset', details: { stage: stageName(camp, stageId) } }
         };
     });
-    res.json({ success: true, teams: publicState(camp).teams });
+    res.json({ success: true, teams: publicState(camp, 'member').teams });
 }));
 
 app.post('/api/scores/reset', route(async (req, res) => {
@@ -1401,11 +1660,16 @@ app.post('/api/scores/reset', route(async (req, res) => {
         const user = requireCampUser(req, camp, ['operator']);
         camp.teams.forEach(resetTeamScores);
         return {
-            changes: { teams: camp.teams, closedStages: {}, stageTieredResults: {}, announcement: null },
+            changes: {
+                teams: camp.teams, closedStages: {}, stageTieredResults: {}, announcement: null,
+                // Everything that happened during the competition starts over too.
+                decisions: {}, rounds: camp.rounds.map(r => ({ ...r, status: 'draft', revealed: false, applied: false })),
+                appeals: [], moments: [], bracket: null, lastChance: null, frozen: null, ceremony: null, timer: null
+            },
             audit: { user, action: 'scores_reset', details: {} }
         };
     });
-    res.json({ success: true, teams: publicState(camp).teams });
+    res.json({ success: true, teams: publicState(camp, 'member').teams });
 }));
 
 // Which stage is running now, and the final-results announcement on the live board.
@@ -1429,20 +1693,169 @@ app.post('/api/board', route(async (req, res) => {
 // Ends the competition: locks scoring and (optionally) starts the results announcement.
 app.post('/api/finish', route(async (req, res) => {
     const id = requireId(req.query.id, 'شناسه مسابقه');
-    await mutateCamp(id, {}, camp => {
+    const { camp } = await mutateCamp(id, {}, camp => {
         const user = requireCampUser(req, camp, MANAGER_ROLES);
         const changes = { locked: 1 };
         if ((req.body || {}).announce) changes.announcement = { active: true, at: Date.now() };
         return { changes, audit: { user, action: 'finish', details: {} } };
     });
+    notifyChannels(camp, 'finish', 'نتایج نهایی:\n' + standingsText(camp));
     res.json({ success: true });
 }));
 
 app.get('/api/audit', route(async (req, res) => {
     const camp = await loadCampOr404(requireId(req.query.id, 'شناسه مسابقه'));
     requireCampUser(req, camp, MANAGER_ROLES);
-    res.json({ success: true, entries: [...camp.auditLog].reverse() });
+    res.json({ success: true, entries: [...camp.auditLog].reverse().map(({ undo, ...e }) => ({ ...e, canUndo: !!undo && !e.undone })) });
 }));
+
+// ---------------------------------------------------------------------------
+// Superadmin: defaults for new camps, templates, organizers, leagues
+// ---------------------------------------------------------------------------
+app.get('/superadmin/settings', route(async (req, res) => {
+    const admin = await requireAdmin(req);
+    const [displayDefaults, defaultSkills] = await Promise.all([getSetting('displayDefaults'), getSetting('defaultSkills')]);
+    res.json({
+        success: true, role: admin.super ? 'superadmin' : 'organizer',
+        displayDefaults: effectiveDisplay(displayDefaults), presets: DISPLAY_PRESETS,
+        defaultSkills: Array.isArray(defaultSkills) && defaultSkills.length ? defaultSkills : DEFAULT_SKILLS,
+        displayKeys: DISPLAY_KEYS, featureKeys: FEATURE_KEYS, tagPacks: TAG_PACKS, defaultTagSkills: DEFAULT_TAG_SKILLS
+    });
+}));
+
+app.post('/superadmin/settings', route(async (req, res) => {
+    await requireSuperadmin(req);
+    const b = req.body || {};
+    if (b.displayDefaults !== undefined) await setSetting('displayDefaults', cleanDisplay(b.displayDefaults));
+    if (b.defaultSkills !== undefined) await setSetting('defaultSkills', cleanSkills(b.defaultSkills));
+    res.json({ success: true });
+}));
+
+async function storedTemplates() {
+    const t = await getSetting('templates');
+    return Array.isArray(t) ? t : [];
+}
+
+app.get('/superadmin/templates', route(async (req, res) => {
+    const admin = await requireAdmin(req);
+    const own = (await storedTemplates()).filter(t => admin.super || !t.ownerId || t.ownerId === admin.orgId);
+    res.json({ success: true, templates: [...BUILTIN_TEMPLATES, ...own] });
+}));
+
+app.post('/superadmin/templates', route(async (req, res) => {
+    const admin = await requireAdmin(req);
+    const b = req.body || {};
+    let list = await storedTemplates();
+    if (b.op === 'delete') {
+        const t = list.find(x => x.id === b.id);
+        if (!t || (!admin.super && t.ownerId !== admin.orgId)) throw new HttpError(404, 'قالب یافت نشد.');
+        list = list.filter(x => x.id !== b.id);
+    } else {
+        const camp = await loadCampOr404(requireId(b.campId, 'شناسه مسابقه'));
+        assertCampAccess(admin, camp);
+        const name = strOrEmpty(b.name, 100).trim() || camp.title || 'قالب';
+        if (list.length >= 100) throw new HttpError(409, 'تعداد قالب‌ها به حداکثر رسیده است؛ چند قالب قدیمی را حذف کنید.');
+        const data = templateFromCamp(camp);
+        if (JSON.stringify(data).length > 400_000) throw new HttpError(413, 'این مسابقه برای ذخیره به‌عنوان قالب بیش از حد بزرگ است.');
+        list = [...list, { id: 'tpl_' + crypto.randomBytes(5).toString('hex'), name, createdAt: Date.now(), ownerId: admin.super ? null : admin.orgId, data }];
+    }
+    await setSetting('templates', list);
+    res.json({ success: true });
+}));
+
+app.get('/superadmin/organizers', route(async (req, res) => {
+    await requireSuperadmin(req);
+    const list = await getOrganizers(true);
+    res.json({ success: true, organizers: list.map(o => ({ id: o.id, username: o.username, name: o.name || '', disabled: !!o.disabled })) });
+}));
+
+app.post('/superadmin/organizers', route(async (req, res) => {
+    await requireSuperadmin(req);
+    const b = req.body || {};
+    let list = [...await getOrganizers(true)];
+    if (b.op === 'delete') {
+        list = list.filter(o => o.id !== b.id);
+    } else {
+        const username = strOrEmpty(b.username, 60).trim();
+        if (!/^[A-Za-z0-9_.@-]{3,60}$/.test(username)) throw new HttpError(400, 'نام کاربری برگزارکننده باید ۳ تا ۶۰ حرف انگلیسی، عدد یا . _ - @ باشد.');
+        const existing = list.find(o => o.id === b.id);
+        if (list.some(o => o.username === username && o.id !== b.id)) throw new HttpError(409, 'این نام کاربری قبلاً استفاده شده است.');
+        let password = existing ? existing.password : null;
+        if (typeof b.password === 'string' && b.password !== '') password = await hashPassword(requireNewPassword(b.password));
+        if (!password) throw new HttpError(400, 'رمز عبور برگزارکننده الزامی است.');
+        const org = { id: existing ? existing.id : 'org_' + crypto.randomBytes(5).toString('hex'), username, name: strOrEmpty(b.name, 100), password, disabled: !!b.disabled };
+        list = existing ? list.map(o => (o.id === org.id ? org : o)) : [...list, org];
+    }
+    await saveOrganizers(list);
+    res.json({ success: true });
+}));
+
+// An organizer changes their own password.
+app.post('/superadmin/org_password', route(async (req, res) => {
+    const admin = await requireAdmin(req);
+    if (admin.super) throw new HttpError(400, 'برای سوپرادمین از «تنظیمات» استفاده کنید.');
+    const { currentPassword, newPassword } = req.body || {};
+    const list = [...await getOrganizers(true)];
+    const org = list.find(o => o.id === admin.orgId);
+    if (!await verifyPassword(currentPassword, org.password)) throw new HttpError(400, 'رمز عبور فعلی اشتباه است.');
+    org.password = await hashPassword(requireNewPassword(newPassword));
+    await saveOrganizers(list);
+    res.json({ success: true, token: createToken({ t: 'org', oid: org.id, pv: fingerprint(org.password) }, SESSION_SECRET) });
+}));
+
+async function storedLeagues() {
+    const l = await getSetting('leagues');
+    return Array.isArray(l) ? l : [];
+}
+
+app.get('/superadmin/leagues', route(async (req, res) => {
+    await requireSuperadmin(req);
+    res.json({ success: true, leagues: await storedLeagues() });
+}));
+
+app.post('/superadmin/leagues', route(async (req, res) => {
+    await requireSuperadmin(req);
+    const ids = new Set((await store.listCamps(['deletedAt'])).map(c => c.id));
+    await setSetting('leagues', cleanLeagues((req.body || {}).leagues, ids));
+    res.json({ success: true });
+}));
+
+// Public standings of a league (several camps added up; teams are matched by name).
+app.get('/api/league', route(async (req, res) => {
+    const league = (await storedLeagues()).find(l => l.id === req.query.id);
+    if (!league) throw new HttpError(404, 'لیگ یافت نشد.');
+    const camps = [];
+    const rows = new Map();
+    for (const cid of league.campIds) {
+        const camp = await loadCamp(cid);
+        if (!camp) continue;
+        camps.push({ id: camp.id, title: camp.title || '', orgName: camp.orgName || '' });
+        const sorted = [...camp.teams].sort((a, b) => b.score - a.score);
+        let rank = 0;
+        sorted.forEach((t, i) => {
+            if (i === 0 || t.score !== sorted[i - 1].score) rank = i + 1;
+            const key = (t.name || '').trim().replace(/\s+/g, ' ').toLowerCase();
+            if (!key) return;
+            const value = league.mode === 'score' ? t.score : (league.rankPoints[rank - 1] || 0);
+            const row = rows.get(key) || { name: t.name, color: t.color || '', total: 0, played: 0, perCamp: {}, best: null };
+            row.total = round2(row.total + value);
+            row.played++;
+            row.perCamp[camp.id] = { value, rank };
+            row.best = row.best === null ? rank : Math.min(row.best, rank);
+            rows.set(key, row);
+        });
+    }
+    const list = [...rows.values()].sort((a, b) => b.total - a.total || a.best - b.best);
+    res.setHeader('Cache-Control', 'no-cache');
+    res.json({ success: true, league: { id: league.id, name: league.name, mode: league.mode, rankPoints: league.rankPoints }, camps, rows: list });
+}));
+
+const ctx = {
+    route, HttpError, requireId, mutateCamp, loadCamp, loadCampOr404, requireCampUser, requireAdmin, assertCampAccess,
+    MANAGER_ROLES, clientIp, verifyClientKey,
+    notify: (camp, event, text) => notifyChannels(camp, event, text || standingsText(camp))
+};
+registerFeatureRoutes(app, ctx);
 
 // Body parser errors (too large / invalid JSON) as JSON instead of an HTML error page.
 app.use((err, req, res, next) => {
