@@ -10,6 +10,9 @@ export default {
         return { ...copy(camps.get(id)), id };
     },
     async updateCamp(id, data) {
+        // Test hook: simulate a slow database write.
+        const delay = parseInt(process.env.MEMORY_DB_WRITE_DELAY_MS || '0', 10);
+        if (delay > 0) await new Promise(r => setTimeout(r, delay));
         const cur = camps.get(id) || {};
         for (const [k, v] of Object.entries(data)) if (v !== undefined) cur[k] = copy(v);
         camps.set(id, cur);

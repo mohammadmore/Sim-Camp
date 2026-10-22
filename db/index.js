@@ -17,3 +17,4 @@ export const getSetting = dbAdapter.getSetting;
 export const setSetting = dbAdapter.setSetting;
 export const getAllCamps = dbAdapter.getAllCamps;
 export const deleteCamp = dbAdapter.deleteCamp;
+export const adapterInfo = () => (typeof dbAdapter.info === 'function' ? dbAdapter.info() : { mode: adapterName });

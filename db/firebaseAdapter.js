@@ -3,7 +3,12 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const config = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'firebase-applet-config.json'), 'utf8'));
+let config;
+try {
+    config = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'firebase-applet-config.json'), 'utf8'));
+} catch (e) {
+    throw new Error('firebase-applet-config.json is missing or invalid: ' + e.message);
+}
 
 // Stored as JSON-compatible values; undefined values are not allowed by Firestore.
 function clean(data) {
@@ -78,6 +83,10 @@ async function createClientDb() {
 }
 
 let dbPromise = null;
+let dbMode = loadServiceAccountSafe() ? 'admin' : 'web';
+function loadServiceAccountSafe() {
+    try { return loadServiceAccount(); } catch (e) { return null; }
+}
 function getDb() {
     if (!dbPromise) {
         const sa = loadServiceAccount();
@@ -93,6 +102,7 @@ function getDb() {
 }
 
 export default {
+    info() { return { mode: dbMode }; },
     async getCamp(id) {
         if (!id) return null;
         const data = await (await getDb()).get('camps', id);

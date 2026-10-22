@@ -3,7 +3,7 @@ import path from 'path';
 import crypto from 'crypto';
 import { fileURLToPath } from 'url';
 
-import { getCamp, updateCamp, getSetting, setSetting, getAllCamps, deleteCamp } from './db/index.js';
+import * as rawDb from './db/index.js';
 import {
     DEFAULT_POSITIVE_TAGS, DEFAULT_NEGATIVE_TAGS, DEFAULT_FIELD_JUDGING_VALUES, DEFAULT_LADDER, OVERRIDE_KEY,
     isValidId, isPlainObject, parseMaybeJson, isDnfValue, num, round2, parseLadder, normalizeTeam, recomputeTeamScore,
@@ -22,9 +22,43 @@ const AUDIT_LIMIT = 500;
 const MIN_PASSWORD = 6;
 const MANAGER_ROLES = ['operator', 'head_referee'];
 
+// Operational limits (all overridable with environment variables).
+const envInt = (name, def) => { const v = parseInt(process.env[name], 10); return Number.isFinite(v) && v > 0 ? v : def; };
+const DB_TIMEOUT_MS = envInt('DB_TIMEOUT_MS', 10000);        // one database call
+const LOCK_WAIT_MS = envInt('LOCK_WAIT_MS', 20000);          // waiting for other writes to the same camp
+const LOCK_HOLD_MS = envInt('LOCK_HOLD_MS', 15000);          // one write operation
+const RATE_READ_PER_MIN = envInt('RATE_READ_PER_MIN', 3000); // per IP (a whole venue may share one IP)
+const RATE_WRITE_PER_MIN = envInt('RATE_WRITE_PER_MIN', 1200);
+const SSE_MAX_PER_IP = envInt('SSE_MAX_PER_IP', 100);
+const SSE_MAX_TOTAL = envInt('SSE_MAX_TOTAL', 3000);
+const BODY_LIMIT_SMALL = process.env.BODY_LIMIT_SMALL || '256kb';
+const BODY_LIMIT_LARGE = process.env.BODY_LIMIT_LARGE || '10mb';
+const STARTED_AT = Date.now();
+
+function withTimeout(promise, ms, makeError) {
+    let timer;
+    const timeout = new Promise((_, reject) => { timer = setTimeout(() => reject(makeError()), ms); });
+    return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
+}
+
+// Every database call gets a deadline, so a hanging connection can never freeze the server.
+const dbTimeoutError = name => () => new HttpError(503, `پایگاه داده پاسخ نمی‌دهد (${name}). چند لحظه بعد دوباره تلاش کنید.`);
+const timed = (fn, name) => (...args) => withTimeout(Promise.resolve().then(() => fn(...args)), DB_TIMEOUT_MS, dbTimeoutError(name));
+const getCamp = timed(rawDb.getCamp, 'getCamp');
+const updateCamp = timed(rawDb.updateCamp, 'updateCamp');
+const getSetting = timed(rawDb.getSetting, 'getSetting');
+const setSetting = timed(rawDb.setSetting, 'setSetting');
+const getAllCamps = timed(rawDb.getAllCamps, 'getAllCamps');
+const deleteCamp = timed(rawDb.deleteCamp, 'deleteCamp');
+
+let ready = false;          // true once the session secret / superadmin password are loaded
+let lastStartupError = null;
+
 const app = express();
 app.disable('x-powered-by');
-app.use(express.json({ limit: '10mb' }));
+// Behind a reverse proxy / Cloud Run the client address is in X-Forwarded-For.
+const trustProxy = process.env.TRUST_PROXY;
+app.set('trust proxy', trustProxy === undefined ? 1 : (/^\d+$/.test(trustProxy) ? parseInt(trustProxy, 10) : trustProxy === 'true' ? true : trustProxy === 'false' ? false : trustProxy));
 app.use((req, res, next) => {
     res.setHeader('X-Content-Type-Options', 'nosniff');
     res.setHeader('Referrer-Policy', 'same-origin');
@@ -181,6 +215,7 @@ function adminState(camp) {
 }
 
 const sseClients = new Map(); // Map<campId, Set<Response>>
+const sseByIp = new Map();    // Map<ip, open connections>
 
 function sendToClients(id, payload) {
     const clients = sseClients.get(id);
@@ -202,6 +237,7 @@ setInterval(() => {
 }, 15000).unref();
 
 // Per-camp mutex so concurrent requests never overwrite each other's changes.
+// Waiting and holding are both time-limited, so one stuck request cannot block a camp forever.
 const campLocks = new Map();
 async function withLock(id, fn) {
     const prev = campLocks.get(id) || Promise.resolve();
@@ -209,9 +245,14 @@ async function withLock(id, fn) {
     const current = new Promise(resolve => { release = resolve; });
     const tail = prev.then(() => current);
     campLocks.set(id, tail);
-    await prev;
+    const lease = { expired: false };
     try {
-        return await fn();
+        await withTimeout(prev, LOCK_WAIT_MS, () => new HttpError(503, 'سرور مشغول ثبت تغییرات دیگر این مسابقه است. چند لحظه بعد دوباره تلاش کنید.'));
+        return await withTimeout(Promise.resolve().then(() => fn(lease)), LOCK_HOLD_MS, () => {
+            lease.expired = true;
+            console.error(`[lock] operation on camp ${id} exceeded ${LOCK_HOLD_MS} ms; lock released`);
+            return new HttpError(503, 'انجام عملیات بیش از حد طول کشید و لغو شد. لطفاً دوباره تلاش کنید.');
+        });
     } finally {
         release();
         if (campLocks.get(id) === tail) campLocks.delete(id);
@@ -220,7 +261,7 @@ async function withLock(id, fn) {
 
 // Load → mutate → save → broadcast, all under the camp lock.
 async function mutateCamp(id, { allowLocked = false } = {}, mutate) {
-    return withLock(id, async () => {
+    return withLock(id, async lease => {
         const camp = await loadCampOr404(id);
         if (!allowLocked && isLocked(camp)) throw new HttpError(403, 'این مسابقه قفل شده است.');
         const result = await mutate(camp);
@@ -233,6 +274,8 @@ async function mutateCamp(id, { allowLocked = false } = {}, mutate) {
         if (changes) {
             Object.assign(camp, changes);
             assertSize(camp);
+            // A timed-out operation must not write after the lock has passed to the next request.
+            if (lease.expired) throw new HttpError(503, 'انجام عملیات بیش از حد طول کشید و لغو شد.');
             await updateCamp(id, changes);
             broadcastState(id, camp);
         }
@@ -264,12 +307,12 @@ async function initSecurity() {
         if (process.env.SUPERADMIN_PASS === 'admin123') {
             console.warn('⚠️  SUPERADMIN_PASS is the well-known default "admin123". Please change it.');
         }
-        superadminHash = hashPassword(process.env.SUPERADMIN_PASS);
+        superadminHash = await hashPassword(process.env.SUPERADMIN_PASS);
     } else {
         superadminHash = await getSetting('superadmin_password_hash');
         if (!superadminHash) {
             const generated = randomPassword(14);
-            superadminHash = hashPassword(generated);
+            superadminHash = await hashPassword(generated);
             await setSetting('superadmin_password_hash', superadminHash);
             console.log('==============================================================');
             console.log(`🔐 Generated superadmin password: ${generated}`);
@@ -277,6 +320,34 @@ async function initSecurity() {
             console.log('==============================================================');
         }
     }
+    ready = true;
+}
+
+// Configuration problems that do not stop the server but are reported by /health.
+function configWarnings() {
+    const w = [];
+    const info = typeof rawDb.adapterInfo === 'function' ? rawDb.adapterInfo() : {};
+    if (info.mode === 'web') w.push('FIREBASE_SERVICE_ACCOUNT is not set: using the Firebase Web SDK, which needs open (insecure) Firestore rules.');
+    if (process.env.SUPERADMIN_PASS === 'admin123') w.push('SUPERADMIN_PASS is the well-known default "admin123".');
+    if ((process.env.DB_ADAPTER || 'firebase') === 'memory') w.push('DB_ADAPTER=memory: data is lost when the server restarts.');
+    return w;
+}
+
+// Fatal configuration errors are reported clearly at startup instead of failing on the first request.
+function validateConfig() {
+    const errors = [];
+    const adapter = process.env.DB_ADAPTER || 'firebase';
+    if (!['firebase', 'memory', 'sql'].includes(adapter)) errors.push(`DB_ADAPTER="${adapter}" is not supported (firebase | memory | sql).`);
+    if (process.env.FIREBASE_SERVICE_ACCOUNT) {
+        try {
+            const sa = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
+            if (!sa.private_key || !sa.client_email) errors.push('FIREBASE_SERVICE_ACCOUNT is missing private_key or client_email.');
+        } catch (e) {
+            errors.push('FIREBASE_SERVICE_ACCOUNT is not valid JSON (paste the whole service-account file on one line).');
+        }
+    }
+    if (process.env.PORT && !(parseInt(process.env.PORT, 10) > 0)) errors.push(`PORT="${process.env.PORT}" is not a valid port.`);
+    return errors;
 }
 
 function readToken(req) {
@@ -364,19 +435,20 @@ function cleanNumberList(list, fallback) {
 }
 
 // Users from the superadmin form. An empty password keeps the existing one.
-function cleanUsers(users, existingUsers = []) {
+// New passwords are hashed in parallel on the thread pool.
+async function cleanUsers(users, existingUsers = []) {
     if (!Array.isArray(users)) return [];
     const byName = new Map(existingUsers.map(u => [u.username, u]));
     const byId = new Map(existingUsers.filter(u => u.id).map(u => [u.id, u]));
     const seen = new Set();
-    return users.map(u => {
+    return Promise.all(users.map(async u => {
         const username = strOrEmpty(u && u.username, 100).trim();
         if (!username) throw new HttpError(400, 'نام کاربری خالی است.');
         if (seen.has(username)) throw new HttpError(400, `نام کاربری «${username}» تکراری است.`);
         seen.add(username);
         const prev = (u.id && byId.get(u.id)) || byName.get(username);
         let password;
-        if (typeof u.password === 'string' && u.password !== '') password = hashPassword(u.password);
+        if (typeof u.password === 'string' && u.password !== '') password = await hashPassword(u.password);
         else if (prev && prev.password) password = prev.password;
         else throw new HttpError(400, `رمز عبور کاربر «${username}» الزامی است.`);
         return {
@@ -388,8 +460,71 @@ function cleanUsers(users, existingUsers = []) {
             role: ROLES.includes(u.role) ? u.role : 'referee',
             profilePic: strOrEmpty(u.profilePic, 2_000_000)
         };
-    });
+    }));
 }
+
+// ---------------------------------------------------------------------------
+// Health, readiness, request size and rate limits
+// ---------------------------------------------------------------------------
+// For uptime monitors / load balancers: 200 when the server and database work, otherwise 503.
+app.get('/health', async (req, res) => {
+    const started = Date.now();
+    let db = { ok: false };
+    try {
+        await withTimeout(rawDb.getSetting('session_secret'), 3000, () => new Error('timeout'));
+        db = { ok: true, latencyMs: Date.now() - started };
+    } catch (e) {
+        db = { ok: false, error: e.message === 'timeout' ? 'database did not answer within 3 s' : 'database error' };
+    }
+    const healthy = ready && db.ok;
+    let sse = 0;
+    for (const set of sseClients.values()) sse += set.size;
+    res.status(healthy ? 200 : 503).json({
+        status: healthy ? 'ok' : (ready ? 'degraded' : 'starting'),
+        db,
+        adapter: process.env.DB_ADAPTER || 'firebase',
+        firebaseMode: typeof rawDb.adapterInfo === 'function' ? rawDb.adapterInfo().mode : undefined,
+        uptimeSec: Math.round((Date.now() - STARTED_AT) / 1000),
+        liveBoards: sse,
+        startupError: ready ? undefined : (lastStartupError || undefined),
+        warnings: configWarnings()
+    });
+});
+
+const API_PREFIXES = ['/api', '/login', '/setup', '/superadmin'];
+const isApiPath = p => API_PREFIXES.some(pre => p === pre || p.startsWith(pre + '/') || p.startsWith(pre + '?'));
+
+// Until the database is reachable, API calls get a clear "starting" answer (static pages still load).
+app.use((req, res, next) => {
+    if (ready || !isApiPath(req.path)) return next();
+    res.setHeader('Retry-After', '5');
+    res.status(503).json({ success: false, error: 'سرور در حال راه‌اندازی است. چند لحظه بعد دوباره تلاش کنید.', message: 'سرور در حال راه‌اندازی است. چند لحظه بعد دوباره تلاش کنید.' });
+});
+
+// Per-IP rate limits (generous: a whole venue often shares one public IP).
+const readLimiter = createRateLimiter({ max: RATE_READ_PER_MIN, windowMs: 60000 });
+const writeLimiter = createRateLimiter({ max: RATE_WRITE_PER_MIN, windowMs: 60000 });
+app.use((req, res, next) => {
+    if (!isApiPath(req.path)) return next();
+    const ip = clientIp(req);
+    const ok = req.method === 'GET' ? readLimiter.check('r:' + ip) : writeLimiter.check('w:' + ip);
+    if (ok) return next();
+    res.setHeader('Retry-After', '60');
+    res.status(429).json({ success: false, error: 'تعداد درخواست‌ها بیش از حد مجاز است. یک دقیقه بعد دوباره تلاش کنید.', message: 'تعداد درخواست‌ها بیش از حد مجاز است. یک دقیقه بعد دوباره تلاش کنید.' });
+});
+
+// Large bodies (images) only for the few routes that carry them, and only for signed-in users:
+// an anonymous request is rejected before its body is read.
+const LARGE_BODY_ROUTES = new Set(['/setup', '/api', '/api/settings', '/api/user/profile-pic']);
+const jsonSmall = express.json({ limit: BODY_LIMIT_SMALL });
+const jsonLarge = express.json({ limit: BODY_LIMIT_LARGE });
+app.use((req, res, next) => {
+    if (req.method !== 'POST' || !LARGE_BODY_ROUTES.has(req.path)) return jsonSmall(req, res, next);
+    if (!verifyToken(readToken(req), SESSION_SECRET)) {
+        return res.status(401).json({ success: false, error: 'برای این عملیات باید وارد شوید.', message: 'برای این عملیات باید وارد شوید.' });
+    }
+    return jsonLarge(req, res, next);
+});
 
 // ---------------------------------------------------------------------------
 // Global settings
@@ -415,7 +550,7 @@ app.get('/', (req, res) => res.redirect('/superadmin.html'));
 app.post('/superadmin/login', route(async (req, res) => {
     if (!loginLimiter.check('sa:' + clientIp(req))) throw new HttpError(429, 'تلاش‌های ناموفق زیاد بود. چند دقیقه دیگر دوباره امتحان کنید.');
     const password = req.body && req.body.password;
-    if (!verifyPassword(password, superadminHash)) {
+    if (!await verifyPassword(password, superadminHash)) {
         return res.json({ success: false, message: 'رمز عبور سوپرادمین اشتباه است!' });
     }
     loginLimiter.reset('sa:' + clientIp(req));
@@ -472,13 +607,13 @@ app.post('/setup', route(async (req, res) => {
 
     if (b.campId) {
         const id = requireId(b.campId);
-        await mutateCamp(id, { allowLocked: true }, camp => {
+        await mutateCamp(id, { allowLocked: true }, async camp => {
             const changes = {
                 ...base,
                 teams: mergeTeams(camp.teams, teamDefs),
-                users: cleanUsers(b.users, camp.users)
+                users: await cleanUsers(b.users, camp.users)
             };
-            if (typeof b.password === 'string' && b.password !== '') changes.password = hashPassword(b.password);
+            if (typeof b.password === 'string' && b.password !== '') changes.password = await hashPassword(b.password);
             return { changes };
         });
         return res.json({ success: true, campId: id });
@@ -488,9 +623,9 @@ app.post('/setup', route(async (req, res) => {
     const id = requestedCampId(b.customId) || newRandomCampId();
     const camp = {
         id, ...base,
-        password: hashPassword(b.password),
+        password: await hashPassword(b.password),
         teams: mergeTeams([], teamDefs),
-        users: cleanUsers(b.users, []),
+        users: await cleanUsers(b.users, []),
         locked: 0,
         archived: false,
         closedStages: {},
@@ -536,11 +671,11 @@ app.post('/login', route(async (req, res) => {
         const camp = await loadCamp(id);
         if (!camp) return null;
         const found = findCampUser(camp, username);
-        if (!found || !verifyPassword(password, found.secret)) return null;
+        if (!found || !await verifyPassword(password, found.secret)) return null;
         let secret = found.secret;
         // Upgrade legacy plain-text passwords to hashes on first successful login.
         if (!isHashed(secret)) {
-            secret = hashPassword(password);
+            secret = await hashPassword(password);
             if (!camp.users.includes(found.user)) {
                 await updateCamp(id, { password: secret });
             } else {
@@ -591,7 +726,14 @@ app.get('/api', route(async (req, res) => {
     }
     if (action === 'stream') {
         requireId(id, 'شناسه مسابقه');
+        // Caps on open live-board connections (one per screen) protect memory and sockets.
+        const ip = clientIp(req);
+        let total = 0;
+        for (const set of sseClients.values()) total += set.size;
+        if (total >= SSE_MAX_TOTAL) throw new HttpError(503, 'ظرفیت تابلوهای زنده سرور پر است. کمی بعد دوباره تلاش کنید.');
+        if ((sseByIp.get(ip) || 0) >= SSE_MAX_PER_IP) throw new HttpError(429, 'تعداد تابلوهای باز از این شبکه بیش از حد مجاز است.');
         const camp = await loadCampOr404(id);
+        sseByIp.set(ip, (sseByIp.get(ip) || 0) + 1);
         res.setHeader('Content-Type', 'text/event-stream');
         res.setHeader('Cache-Control', 'no-cache, no-transform');
         res.setHeader('X-Accel-Buffering', 'no');
@@ -602,6 +744,8 @@ app.get('/api', route(async (req, res) => {
         clients.add(res);
         res.write(`data: ${JSON.stringify(publicState(camp))}\n\n`);
         req.on('close', () => {
+            const n = (sseByIp.get(ip) || 1) - 1;
+            if (n > 0) sseByIp.set(ip, n); else sseByIp.delete(ip);
             clients.delete(res);
             if (clients.size === 0) sseClients.delete(id);
         });
@@ -918,8 +1062,8 @@ app.post('/superadmin/camps/:id/duplicate', route(async (req, res) => {
 app.post('/superadmin/password', route(async (req, res) => {
     requireSuperadmin(req);
     const { currentPassword, newPassword } = req.body || {};
-    if (!verifyPassword(currentPassword, superadminHash)) throw new HttpError(400, 'رمز عبور فعلی اشتباه است.');
-    superadminHash = hashPassword(requireNewPassword(newPassword));
+    if (!await verifyPassword(currentPassword, superadminHash)) throw new HttpError(400, 'رمز عبور فعلی اشتباه است.');
+    superadminHash = await hashPassword(requireNewPassword(newPassword));
     await setSetting('superadmin_password_custom', superadminHash);
     // The fingerprint changed, so hand back a fresh token for this browser.
     res.json({ success: true, token: createToken({ t: 'sa', pv: fingerprint(superadminHash) }, SESSION_SECRET) });
@@ -932,11 +1076,11 @@ app.post('/api/user/password', route(async (req, res) => {
     const { campId, currentPassword, newPassword } = req.body || {};
     const id = requireId(campId, 'شناسه مسابقه');
     requireNewPassword(newPassword);
-    const { username, secret } = await mutateCamp(id, { allowLocked: true }, camp => {
+    const { username, secret } = await mutateCamp(id, { allowLocked: true }, async camp => {
         const me = requireCampUser(req, camp);
         const found = findCampUser(camp, me.username);
-        if (!verifyPassword(currentPassword, found.secret)) throw new HttpError(400, 'رمز عبور فعلی اشتباه است.');
-        const hash = hashPassword(newPassword);
+        if (!await verifyPassword(currentPassword, found.secret)) throw new HttpError(400, 'رمز عبور فعلی اشتباه است.');
+        const hash = await hashPassword(newPassword);
         const user = camp.users.find(u => u.username === me.username);
         if (user) {
             user.password = hash;
@@ -952,13 +1096,14 @@ app.post('/api/users/reset_password', route(async (req, res) => {
     const id = requireId(req.query.id, 'شناسه مسابقه');
     const { username, newPassword } = req.body || {};
     requireNewPassword(newPassword);
+    const newHash = await hashPassword(newPassword); // outside the camp lock
     await mutateCamp(id, { allowLocked: true }, camp => {
         const me = requireCampUser(req, camp, MANAGER_ROLES);
         const target = camp.users.find(u => u.username === username);
         if (!target) throw new HttpError(404, 'کاربر یافت نشد.');
         const allowed = me.role === 'operator' ? ['head_referee', 'referee'] : ['referee'];
         if (!allowed.includes(target.role)) throw new HttpError(403, 'شما اجازه تغییر رمز این کاربر را ندارید.');
-        target.password = hashPassword(newPassword);
+        target.password = newHash;
         return { changes: { users: camp.users }, audit: { user: me, action: 'password_reset', details: { target: displayName(target) } } };
     });
     res.json({ success: true });
@@ -1048,13 +1193,70 @@ app.get('/api/audit', route(async (req, res) => {
     res.json({ success: true, entries: [...camp.auditLog].reverse() });
 }));
 
+// Body parser errors (too large / invalid JSON) as JSON instead of an HTML error page.
+app.use((err, req, res, next) => {
+    if (res.headersSent) return next(err);
+    if (err && err.type === 'entity.too.large') {
+        return res.status(413).json({ success: false, error: 'حجم اطلاعات ارسالی بیش از حد مجاز است. تصاویر کوچک‌تر انتخاب کنید.', message: 'حجم اطلاعات ارسالی بیش از حد مجاز است. تصاویر کوچک‌تر انتخاب کنید.' });
+    }
+    if (err && err.type === 'entity.parse.failed') {
+        return res.status(400).json({ success: false, error: 'اطلاعات ارسالی معتبر نیست.', message: 'اطلاعات ارسالی معتبر نیست.' });
+    }
+    console.error(err);
+    res.status(500).json({ success: false, error: 'خطای داخلی سرور', message: 'خطای داخلی سرور' });
+});
+
 process.on('unhandledRejection', (reason, promise) => {
     console.error('Unhandled Rejection at:', promise, 'reason:', reason);
 });
 
+// An unexpected exception leaves the process in an unknown state: log it and exit so the
+// process manager (pm2 / systemd / Cloud Run) starts a clean instance.
+process.on('uncaughtException', err => {
+    console.error('Uncaught exception, exiting:', err);
+    process.exit(1);
+});
+
+// Keeps retrying until the database answers, instead of crashing at boot.
+async function startWithRetry() {
+    let delay = 2000;
+    for (;;) {
+        try {
+            await initSecurity();
+            lastStartupError = null;
+            console.log('✅ Ready');
+            return;
+        } catch (e) {
+            lastStartupError = e.message;
+            console.error(`Startup: database not reachable (${e.message}); retrying in ${delay / 1000} s`);
+            await new Promise(r => setTimeout(r, delay));
+            delay = Math.min(delay * 2, 30000);
+        }
+    }
+}
+
 export { app, initSecurity };
 
 if (process.env.NODE_ENV !== 'test') {
-    await initSecurity();
-    app.listen(PORT, '0.0.0.0', () => console.log(`Server running on port ${PORT}`));
+    const configErrors = validateConfig();
+    if (configErrors.length) {
+        console.error('❌ Configuration error:\n - ' + configErrors.join('\n - '));
+        process.exit(1);
+    }
+    configWarnings().forEach(w => console.warn('⚠️  ' + w));
+    const server = app.listen(PORT, '0.0.0.0', () => console.log(`Server running on port ${PORT}`));
+    startWithRetry();
+
+    // Graceful shutdown: stop accepting requests, close live boards (they reconnect), then exit.
+    let stopping = false;
+    const shutdown = signal => {
+        if (stopping) return;
+        stopping = true;
+        console.log(`${signal} received, shutting down…`);
+        server.close(() => process.exit(0));
+        for (const set of sseClients.values()) for (const res of set) { try { res.end(); } catch (e) { /* ignore */ } }
+        setTimeout(() => process.exit(0), 10000).unref();
+    };
+    process.on('SIGTERM', () => shutdown('SIGTERM'));
+    process.on('SIGINT', () => shutdown('SIGINT'));
 }

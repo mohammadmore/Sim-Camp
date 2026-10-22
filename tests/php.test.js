@@ -1,6 +1,7 @@
 // Runs the shared API scenarios against cpanel_export/api.php using PHP's built-in server and SQLite.
 // Skipped automatically when the php CLI is not installed.
 import { before, after, test } from 'node:test';
+import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -74,4 +75,32 @@ if (!hasPhp) {
     });
 
     registerScenarios({ call, saPassword: SA_PASSWORD });
+
+    test('health check reports the database', async () => {
+        const r = await fetch(base + '/api.php?action=health');
+        assert.equal(r.status, 200);
+        const j = await r.json();
+        assert.equal(j.status, 'ok');
+        assert.equal(j.db.driver, 'sqlite');
+    });
+
+    test('oversized bodies are rejected with 413 before reaching the database', async () => {
+        const r = await fetch(base + '/api.php?action=login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: 'x', username: 'u', password: 'p'.repeat(300 * 1024) }) });
+        assert.equal(r.status, 413);
+    });
+
+    test('a write blocked by another writer fails with 503 instead of hanging', { timeout: 30000 }, async () => {
+        const sa = (await call('POST', '/superadmin/login', { password: SA_PASSWORD })).json.token;
+        const c = await call('POST', '/setup', { orgName: 'o', title: 't', password: 'oppass', teams: [{ id: 't_1', name: 'A' }], stages: [{ id: 's_1', name: 'S' }], users: [] }, sa);
+        const op = (await call('POST', '/login', { id: c.json.campId, username: 'admin', password: 'oppass' })).json.token;
+        // Another process holds the SQLite write lock for 14 s.
+        const holder = spawn('php', ['-r', `$db = new PDO('sqlite:${path.join(dir, 'data', 'simul_camp.sqlite')}'); $db->exec('BEGIN IMMEDIATE'); echo "locked\n"; sleep(14); $db->exec('ROLLBACK');`]);
+        await new Promise(r => holder.stdout.once('data', r));
+        const t0 = Date.now();
+        const r = await call('POST', `/api/instant?id=${c.json.campId}`, { teamId: 't_1', delta: 1 }, op);
+        const took = Date.now() - t0;
+        holder.kill();
+        assert.equal(r.status, 503);
+        assert.ok(took < 13000, `gave up after ${took} ms`);
+    });
 }

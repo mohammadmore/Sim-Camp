@@ -5,9 +5,47 @@
  */
 
 ini_set('display_errors', '0');
+@set_time_limit(30); // a stuck request is stopped instead of holding a PHP worker
 header('Content-Type: application/json; charset=utf-8');
 header('X-Content-Type-Options: nosniff');
 header('Referrer-Policy: same-origin');
+
+// ---- Request size and rate limits (checked before the database is touched) ----
+const BODY_LIMIT_SMALL = 256 * 1024;
+const BODY_LIMIT_LARGE = 10 * 1024 * 1024;
+const RATE_READ_PER_MIN = 3000;   // per IP; a whole venue often shares one public IP
+const RATE_WRITE_PER_MIN = 1200;
+
+function early_fail($status, $message, $retryAfter = null) {
+    http_response_code($status);
+    if ($retryAfter) header('Retry-After: ' . $retryAfter);
+    echo json_encode(['success' => false, 'status' => 'error', 'error' => $message, 'message' => $message], JSON_UNESCAPED_UNICODE);
+    exit;
+}
+
+$earlyAction = strtolower($_GET['action'] ?? '');
+if ($earlyAction === '' && $_SERVER['REQUEST_METHOD'] === 'POST') $earlyAction = 'update_camp';
+// Only the forms that carry images may send large bodies.
+$bodyLimit = in_array($earlyAction, ['setup', 'update_camp', 'settings', 'user_profile_pic'], true) ? BODY_LIMIT_LARGE : BODY_LIMIT_SMALL;
+if ((int)($_SERVER['CONTENT_LENGTH'] ?? 0) > $bodyLimit) {
+    early_fail(413, 'حجم اطلاعات ارسالی بیش از حد مجاز است. تصاویر کوچک‌تر انتخاب کنید.');
+}
+$rawBody = file_get_contents('php://input', false, null, 0, $bodyLimit + 1);
+if ($rawBody !== false && strlen($rawBody) > $bodyLimit) {
+    early_fail(413, 'حجم اطلاعات ارسالی بیش از حد مجاز است. تصاویر کوچک‌تر انتخاب کنید.');
+}
+
+// Per-IP rate limit in shared memory (APCu). Hosts without APCu skip it; use the host's
+// own protection (cPanel / Cloudflare) there - a database-backed counter would cost a write per request.
+if ($earlyAction !== 'health' && function_exists('apcu_inc') && ini_get('apc.enabled')) {
+    $isRead = $_SERVER['REQUEST_METHOD'] === 'GET';
+    $key = 'simcamp_rl_' . ($isRead ? 'r' : 'w') . '_' . ($_SERVER['REMOTE_ADDR'] ?? '-') . '_' . intdiv(time(), 60);
+    apcu_add($key, 0, 120);
+    $count = apcu_inc($key);
+    if ($count !== false && $count > ($isRead ? RATE_READ_PER_MIN : RATE_WRITE_PER_MIN)) {
+        early_fail(429, 'تعداد درخواست‌ها بیش از حد مجاز است. یک دقیقه بعد دوباره تلاش کنید.', 60);
+    }
+}
 
 require_once 'db.php';
 
@@ -37,7 +75,7 @@ $method = $_SERVER['REQUEST_METHOD'];
 $action = strtolower($_GET['action'] ?? '');
 // Clean URL "POST /api?id=..." (see .htaccess) is the camp settings update.
 if ($action === '' && $method === 'POST') $action = 'update_camp';
-$data = json_decode(file_get_contents('php://input'), true);
+$data = json_decode($rawBody === false ? '' : $rawBody, true);
 if (!is_array($data)) $data = [];
 
 // ---------------------------------------------------------------------------
@@ -727,6 +765,22 @@ function now_ms() {
 try {
     switch ($action) {
 
+    case 'health':
+        // For uptime monitors: 200 when PHP and the database work, otherwise 503.
+        $t0 = microtime(true);
+        $dbOk = false;
+        try { $dbOk = $conn->query('SELECT 1')->fetchColumn() == 1; } catch (Throwable $e) { $dbOk = false; }
+        $warnings = [];
+        if (!superadmin_secret()) $warnings[] = 'Superadmin password is not set: open setup_db.php.';
+        if ($active_driver === 'sqlite' && !is_writable(__DIR__ . '/data')) $warnings[] = 'The data/ folder is not writable.';
+        if (!function_exists('apcu_inc') || !ini_get('apc.enabled')) $warnings[] = 'APCu is not available: per-IP rate limiting is off (use the host firewall / Cloudflare).';
+        out([
+            'status' => $dbOk ? 'ok' : 'degraded',
+            'db' => ['ok' => $dbOk, 'driver' => $active_driver, 'latencyMs' => (int)round((microtime(true) - $t0) * 1000)],
+            'php' => PHP_VERSION,
+            'warnings' => $warnings
+        ], $dbOk ? 200 : 503);
+
     case 'settings':
         if ($method === 'GET') out(['systemLogo' => get_setting('systemLogo')]);
         require_superadmin();
@@ -1264,5 +1318,10 @@ try {
     out(['success' => false, 'status' => 'error', 'error' => $e->getMessage(), 'message' => $e->getMessage()], $e->status);
 } catch (Throwable $e) {
     error_log('api.php: ' . $e->getMessage() . ' @ ' . $e->getFile() . ':' . $e->getLine());
+    // Another request held the camp too long (SQLite busy / InnoDB lock wait): ask the client to retry.
+    if ($e instanceof PDOException && preg_match('/database is locked|Lock wait timeout|deadlock/i', $e->getMessage())) {
+        header('Retry-After: 2');
+        out(['success' => false, 'status' => 'error', 'error' => 'سرور مشغول ثبت تغییرات دیگر است. چند لحظه بعد دوباره تلاش کنید.', 'message' => 'سرور مشغول ثبت تغییرات دیگر است. چند لحظه بعد دوباره تلاش کنید.'], 503);
+    }
     out(['success' => false, 'status' => 'error', 'error' => 'خطای داخلی سرور', 'message' => 'خطای داخلی سرور'], 500);
 }
