@@ -8,7 +8,7 @@ const ROOT = path.join(__dirname, '..');
 const SRC = path.join(ROOT, 'public');
 const OUT = path.join(ROOT, 'cpanel_export');
 // Files that only exist in the PHP edition and must never be overwritten.
-const PHP_ONLY = new Set(['.htaccess', 'api.php', 'db.php', 'index.php', 'setup_db.php', 'README.md', 'data']);
+const PHP_ONLY = new Set(['.htaccess', 'api.php', 'db.php', 'index.php', 'setup_db.php', 'media.php', 'backup.php', 'README.md', 'data']);
 
 console.log('Starting cPanel Export build...');
 
@@ -33,8 +33,8 @@ console.log('✓ Copied static assets');
 // Node route -> PHP action
 function toPhpUrls(html) {
     const q = "['`]";
-    // Matches both fetch('/...') and OfflineQueue.send('/...')
-    const call = '(fetch|OfflineQueue\\.send)\\(';
+    // Matches fetch('/...'), OfflineQueue.send('/...') and fetchBackup('/...')
+    const call = '(fetch|OfflineQueue\\.send|fetchBackup)\\(';
     const rules = [
         [new RegExp(`${call}(${q})/api/settings\\2`, 'g'), "$1($2api.php?action=settings$2"],
         [new RegExp(`${call}(${q})/api\\?action=`, 'g'), '$1($2api.php?action='],
@@ -51,8 +51,10 @@ function toPhpUrls(html) {
         [new RegExp(`${call}(${q})/superadmin/login\\2`, 'g'), '$1($2api.php?action=superadmin_login$2'],
         [new RegExp(`${call}(${q})/superadmin/password\\2`, 'g'), '$1($2api.php?action=superadmin_password$2'],
         [new RegExp(`${call}(${q})/superadmin/camps\\2`, 'g'), '$1($2api.php?action=superadmin_camps$2'],
+        [new RegExp(`${call}(${q})/superadmin/(trash|backup|import)\\2`, 'g'), '$1($2api.php?action=superadmin_$3$2'],
         [new RegExp(`${call}(${q})/superadmin/id_available\\?id=`, 'g'), '$1($2api.php?action=superadmin_id_available&id='],
         [/fetch\(`\/superadmin\/camps\/\$\{(\w+)\}\/(archive|lock|delete|duplicate)`/g, 'fetch(`api.php?action=superadmin_camp_$2&id=${$1}`'],
+        [/(fetch|fetchBackup)\(`\/superadmin\/camps\/\$\{encodeURIComponent\((\w+)\)\}\/(restore|purge|export)`/g, '$1(`api.php?action=superadmin_camp_$3&id=${encodeURIComponent($2)}`'],
         [/fetch\(`\/superadmin\/camps\/\$\{(\w+)\}`/g, 'fetch(`api.php?action=superadmin_camp&id=${$1}`']
     ];
     for (const [re, rep] of rules) html = html.replace(re, rep);
@@ -60,7 +62,7 @@ function toPhpUrls(html) {
 }
 
 function assertNoAbsoluteApiUrls(name, html) {
-    const left = html.match(/(fetch|OfflineQueue\.send)\(\s*['`]\/[^'`]*/g);
+    const left = html.match(/(fetch|OfflineQueue\.send|fetchBackup)\(\s*['`]\/[^'`]*/g);
     if (left) throw new Error(`${name}: unconverted API URLs: ${left.join(', ')}`);
 }
 
@@ -85,15 +87,23 @@ const pollingReplacement = `// Polling mode for cPanel / PHP Hosting
 let lastSeenLogTime = Date.now();
 let isFirstLoad = true;
 
+let lastBoardEtag = null;
+
 function pollBoardState() {
     if (document.hidden) return;
     fetch(\`api.php?action=poll&id=\${campId}\`)
     .then(r => {
         if (r.status === 404) { clearInterval(boardPollTimer); ConnectionStatus.show(false); showBoardMessage('🔍', 'مسابقه‌ای با این لینک پیدا نشد.<br><small>ممکن است حذف شده باشد یا لینک اشتباه باشد.</small>'); return Promise.reject(); }
-        return r.ok ? r.json() : Promise.reject(new Error('http'));
+        if (!r.ok) return Promise.reject(new Error('http'));
+        // Unchanged since the last poll ("304 Not Modified" from the server): nothing to do.
+        const etag = r.headers.get('ETag');
+        if (etag && etag === lastBoardEtag) return null;
+        lastBoardEtag = etag;
+        return r.json();
     })
     .then(state => {
         ConnectionStatus.ok();
+        if (!state) return;
         latestState = state;
         let maxTime = lastSeenLogTime;
         (state.teams || []).forEach(t => {

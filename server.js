@@ -3,7 +3,9 @@ import path from 'path';
 import crypto from 'crypto';
 import { fileURLToPath } from 'url';
 
-import * as rawDb from './db/index.js';
+import { store as rawStore, adapterName, ConflictError, ExistsError, NotFoundError } from './db/index.js';
+import { createCampRepo, TooLargeError, MEDIA_NAME_RE, MEDIA_TYPES, mediaNameFor } from './lib/campRepo.js';
+import { BACKUP_FORMAT, buildBackup, allCampIds } from './lib/backup.js';
 import {
     DEFAULT_POSITIVE_TAGS, DEFAULT_NEGATIVE_TAGS, DEFAULT_FIELD_JUDGING_VALUES, DEFAULT_LADDER, OVERRIDE_KEY,
     isValidId, isPlainObject, parseMaybeJson, isDnfValue, num, round2, parseLadder, normalizeTeam, recomputeTeamScore,
@@ -16,7 +18,8 @@ import {
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = parseInt(process.env.PORT, 10) || 3000;
 // Firestore rejects documents above 1 MiB; keep a safety margin.
-const MAX_CAMP_BYTES = (process.env.DB_ADAPTER || 'firebase') === 'firebase' ? 950 * 1024 : 15 * 1024 * 1024;
+// Scores and images are stored outside the camp document, so this is rarely reached.
+const MAX_CAMP_BYTES = adapterName === 'firebase' ? 950 * 1024 : 15 * 1024 * 1024;
 const ROLES = ['operator', 'head_referee', 'referee'];
 const AUDIT_LIMIT = 500;
 const MIN_PASSWORD = 6;
@@ -33,6 +36,11 @@ const SSE_MAX_PER_IP = envInt('SSE_MAX_PER_IP', 100);
 const SSE_MAX_TOTAL = envInt('SSE_MAX_TOTAL', 3000);
 const BODY_LIMIT_SMALL = process.env.BODY_LIMIT_SMALL || '256kb';
 const BODY_LIMIT_LARGE = process.env.BODY_LIMIT_LARGE || '10mb';
+const BODY_LIMIT_IMPORT = process.env.BODY_LIMIT_IMPORT || '100mb';
+const CACHE_IDLE_MS = envInt('CACHE_IDLE_MINUTES', 10) * 60000;  // unused camps leave the memory cache
+const MEDIA_CACHE_BYTES = envInt('MEDIA_CACHE_MB', 64) * 1024 * 1024;
+const TRASH_DAYS = envInt('TRASH_DAYS', 30);                      // deleted camps can be restored for this long
+const MAX_CONFLICT_RETRIES = 4;
 const STARTED_AT = Date.now();
 
 function withTimeout(promise, ms, makeError) {
@@ -44,12 +52,8 @@ function withTimeout(promise, ms, makeError) {
 // Every database call gets a deadline, so a hanging connection can never freeze the server.
 const dbTimeoutError = name => () => new HttpError(503, `پایگاه داده پاسخ نمی‌دهد (${name}). چند لحظه بعد دوباره تلاش کنید.`);
 const timed = (fn, name) => (...args) => withTimeout(Promise.resolve().then(() => fn(...args)), DB_TIMEOUT_MS, dbTimeoutError(name));
-const getCamp = timed(rawDb.getCamp, 'getCamp');
-const updateCamp = timed(rawDb.updateCamp, 'updateCamp');
-const getSetting = timed(rawDb.getSetting, 'getSetting');
-const setSetting = timed(rawDb.setSetting, 'setSetting');
-const getAllCamps = timed(rawDb.getAllCamps, 'getAllCamps');
-const deleteCamp = timed(rawDb.deleteCamp, 'deleteCamp');
+const store = Object.fromEntries(Object.entries(rawStore).map(([k, fn]) => [k, ['info', 'watchCamp'].includes(k) ? fn : timed(fn, k)]));
+const { getSetting, setSetting } = store;
 
 let ready = false;          // true once the session secret / superadmin password are loaded
 let lastStartupError = null;
@@ -125,22 +129,23 @@ function requestedCampId(raw) {
     return id;
 }
 
-// Writes a new camp, refusing to overwrite an existing one with the same id.
+// Writes a new camp, refusing to overwrite an existing one with the same id (also across server instances).
 async function createCampUnique(id, camp) {
-    await withLock(id, async () => {
-        if (await getCamp(id)) throw new HttpError(409, `لینک «${id}» قبلاً برای مسابقه دیگری استفاده شده است. لینک دیگری انتخاب کنید.`);
-        await updateCamp(id, camp);
-    });
+    try {
+        await repo.create(id, camp);
+    } catch (e) {
+        if (e instanceof ExistsError) throw new HttpError(409, `لینک «${id}» قبلاً برای مسابقه دیگری استفاده شده است. لینک دیگری انتخاب کنید.`);
+        if (e instanceof TooLargeError) throw tooLarge();
+        throw e;
+    }
 }
 
 function strOrEmpty(v, max = 500) {
     return typeof v === 'string' ? v.slice(0, max) : '';
 }
 
-function assertSize(camp) {
-    if (JSON.stringify(camp).length > MAX_CAMP_BYTES) {
-        throw new HttpError(413, 'حجم اطلاعات مسابقه (به‌ویژه تصاویر) بیش از حد مجاز است. لطفاً تصاویر کوچک‌تر یا لینک تصویر استفاده کنید.');
-    }
+function tooLarge() {
+    return new HttpError(413, 'حجم اطلاعات مسابقه بیش از حد مجاز است. تعداد تیم‌ها، کاربران یا متن‌ها را کمتر کنید.');
 }
 
 // ---------------------------------------------------------------------------
@@ -177,17 +182,7 @@ function parseCamp(raw) {
     if (!isPlainObject(camp.stageTieredResults)) camp.stageTieredResults = {};
     if (!Array.isArray(camp.auditLog)) camp.auditLog = [];
     if (!isPlainObject(camp.announcement)) camp.announcement = null;
-    camp.teams.forEach(normalizeTeam);
-    return camp;
-}
-
-async function loadCamp(id) {
-    return parseCamp(await getCamp(id));
-}
-
-async function loadCampOr404(id) {
-    const camp = await loadCamp(id);
-    if (!camp) throw new HttpError(404, 'مسابقه یافت نشد.');
+    camp.teams.forEach(t => { normalizeTeam(t); recomputeTeamScore(t); });
     return camp;
 }
 
@@ -200,7 +195,7 @@ function publicTeam(t) {
 
 // What the live board and everyone with the link may see: no passwords, no user list.
 function publicState(camp) {
-    const { password, users, auditLog, ...rest } = camp;
+    const { password, users, auditLog, deletedAt, ...rest } = camp;
     return { ...rest, locked: isLocked(camp), archived: !!camp.archived, teams: camp.teams.map(publicTeam) };
 }
 
@@ -225,8 +220,59 @@ function sendToClients(id, payload) {
     }
 }
 
-function broadcastState(id, camp) {
-    if (sseClients.get(id)?.size) sendToClients(id, `data: ${JSON.stringify(publicState(camp))}\n\n`);
+// Called by the cache after every change, whether made here or by another server instance.
+const pendingBroadcast = new Set();
+function scheduleBroadcast(id, entry) {
+    if (!sseClients.get(id)?.size) return;
+    if (!entry) return sendToClients(id, 'event: deleted\ndata: {}\n\n');
+    if (pendingBroadcast.has(id)) return;
+    pendingBroadcast.add(id);
+    setImmediate(() => { // several changes in a row become one update
+        pendingBroadcast.delete(id);
+        if (entry.doc.deletedAt) return sendToClients(id, 'event: deleted\ndata: {}\n\n');
+        sendToClients(id, `data: ${repo.jsonOf(entry).json}\n\n`);
+    });
+}
+
+// Full-screen "score" animation on live boards for each new instant score.
+function sendSplash(id, entry, log) {
+    if (!sseClients.get(id)?.size) return;
+    const team = repo.campOf(entry).teams.find(t => t.id === log.teamId);
+    if (!team) return;
+    sendToClients(id, `event: splash\ndata: ${JSON.stringify({
+        teamId: team.id, delta: log.value, teamName: team.name, score: team.score,
+        user: publicUser(log.user), tag: log.tag || '', logId: log.id,
+        image: team.image || '', happyImage: team.happyImage || '', sadImage: team.sadImage || '',
+        teamColor: team.color || '#3b82f6'
+    })}\n\n`);
+}
+
+const repo = createCampRepo(store, {
+    parse: parseCamp,
+    publicView: publicState,
+    maxDocBytes: MAX_CAMP_BYTES,
+    idleMs: CACHE_IDLE_MS,
+    isInUse: id => !!sseClients.get(id)?.size,
+    onChange: scheduleBroadcast,
+    onInstant: sendSplash
+});
+
+// Cached camp (never mutate the returned object). Camps in the trash count as missing.
+async function loadEntry(id, { includeDeleted = false } = {}) {
+    const entry = await repo.get(id);
+    if (!entry || (!includeDeleted && entry.doc.deletedAt)) return null;
+    return entry;
+}
+
+async function loadCamp(id, opts) {
+    const entry = await loadEntry(id, opts);
+    return entry ? repo.campOf(entry) : null;
+}
+
+async function loadCampOr404(id, opts) {
+    const camp = await loadCamp(id, opts);
+    if (!camp) throw new HttpError(404, 'مسابقه یافت نشد.');
+    return camp;
 }
 
 setInterval(() => {
@@ -259,27 +305,39 @@ async function withLock(id, fn) {
     }
 }
 
-// Load → mutate → save → broadcast, all under the camp lock.
-async function mutateCamp(id, { allowLocked = false } = {}, mutate) {
+// Load → mutate (a copy) → save → broadcast, under the camp lock of this server instance.
+// Another instance may have changed the camp in the meantime: then the save is refused
+// (revision check) and the operation runs again on the fresh data.
+async function mutateCamp(id, { allowLocked = false, allowDeleted = false } = {}, mutate) {
     return withLock(id, async lease => {
-        const camp = await loadCampOr404(id);
-        if (!allowLocked && isLocked(camp)) throw new HttpError(403, 'این مسابقه قفل شده است.');
-        const result = await mutate(camp);
-        let changes = result && result.changes;
-        if (changes && result.audit) {
-            const { user, action, details } = result.audit;
-            const entry = { ts: Date.now(), by: { username: user.username, name: displayName(user), role: user.role }, action, details: details || {} };
-            changes = { ...changes, auditLog: [...camp.auditLog, entry].slice(-AUDIT_LIMIT) };
-        }
-        if (changes) {
-            Object.assign(camp, changes);
-            assertSize(camp);
+        for (let attempt = 0; ; attempt++) {
+            const entry = await repo.get(id, { fresh: attempt > 0 });
+            if (!entry || (!allowDeleted && entry.doc.deletedAt)) throw new HttpError(404, 'مسابقه یافت نشد.');
+            const { camp, baseLogs } = repo.snapshot(entry);
+            if (!allowLocked && isLocked(camp)) throw new HttpError(403, 'این مسابقه قفل شده است.');
+            const result = await mutate(camp);
+            let changes = result && result.changes;
+            if (changes && result.audit) {
+                const { user, action, details } = result.audit;
+                const item = { ts: Date.now(), by: { username: user.username, name: displayName(user), role: user.role }, action, details: details || {} };
+                changes = { ...changes, auditLog: [...camp.auditLog, item].slice(-AUDIT_LIMIT) };
+            }
+            if (!changes || !Object.keys(changes).length) return { ...(result || {}), camp };
             // A timed-out operation must not write after the lock has passed to the next request.
             if (lease.expired) throw new HttpError(503, 'انجام عملیات بیش از حد طول کشید و لغو شد.');
-            await updateCamp(id, changes);
-            broadcastState(id, camp);
+            try {
+                await repo.commit(entry, changes, { baseLogs });
+            } catch (e) {
+                if (e instanceof ConflictError) {
+                    if (attempt < MAX_CONFLICT_RETRIES) continue;
+                    throw new HttpError(409, 'هم‌زمان تغییر دیگری روی این مسابقه ثبت شد. لطفاً دوباره تلاش کنید.');
+                }
+                if (e instanceof TooLargeError) throw tooLarge();
+                if (e instanceof NotFoundError) throw new HttpError(404, 'مسابقه یافت نشد.');
+                throw e;
+            }
+            return { ...(result || {}), camp: repo.campOf(entry) };
         }
-        return { camp, ...(result || {}) };
     });
 }
 
@@ -292,44 +350,65 @@ const loginLimiter = createRateLimiter({ max: 10, windowMs: 5 * 60 * 1000 });
 
 async function initSecurity() {
     if (!SESSION_SECRET) {
-        SESSION_SECRET = await getSetting('session_secret');
-        if (!SESSION_SECRET) {
-            SESSION_SECRET = randomSecret();
-            await setSetting('session_secret', SESSION_SECRET);
-        }
+        // Created once and shared by every server instance (the first one to start wins).
+        SESSION_SECRET = await getSetting('session_secret') || await store.createSettingIfAbsent('session_secret', randomSecret());
     }
-    // A password changed from the panel wins over the environment variable,
-    // unless SUPERADMIN_PASS_RESET=1 is set (recovery when the password is forgotten).
-    const custom = process.env.SUPERADMIN_PASS_RESET === '1' ? null : await getSetting('superadmin_password_custom');
-    if (custom) {
-        superadminHash = custom;
-    } else if (process.env.SUPERADMIN_PASS) {
-        if (process.env.SUPERADMIN_PASS === 'admin123') {
-            console.warn('⚠️  SUPERADMIN_PASS is the well-known default "admin123". Please change it.');
-        }
-        superadminHash = await hashPassword(process.env.SUPERADMIN_PASS);
-    } else {
-        superadminHash = await getSetting('superadmin_password_hash');
-        if (!superadminHash) {
-            const generated = randomPassword(14);
-            superadminHash = await hashPassword(generated);
-            await setSetting('superadmin_password_hash', superadminHash);
-            console.log('==============================================================');
-            console.log(`🔐 Generated superadmin password: ${generated}`);
-            console.log('   Set SUPERADMIN_PASS to choose your own.');
-            console.log('==============================================================');
-        }
-    }
+    superadminHash = await loadSuperadminHash({ generate: true });
     ready = true;
 }
+
+// A password changed from the panel wins over the environment variable,
+// unless SUPERADMIN_PASS_RESET=1 is set (recovery when the password is forgotten).
+let envSuperadminHash = null;
+async function loadSuperadminHash({ generate = false } = {}) {
+    const custom = process.env.SUPERADMIN_PASS_RESET === '1' ? null : await getSetting('superadmin_password_custom');
+    if (custom) return custom;
+    if (process.env.SUPERADMIN_PASS) {
+        if (!envSuperadminHash) {
+            if (process.env.SUPERADMIN_PASS === 'admin123') console.warn('⚠️  SUPERADMIN_PASS is the well-known default "admin123". Please change it.');
+            // Same salt on every instance → same hash → a superadmin session works on all of them.
+            const salt = crypto.createHmac('sha256', SESSION_SECRET).update('superadmin-env-salt').digest('hex').slice(0, 32);
+            envSuperadminHash = await hashPassword(process.env.SUPERADMIN_PASS, salt);
+        }
+        return envSuperadminHash;
+    }
+    let stored = await getSetting('superadmin_password_hash');
+    if (!stored && generate) {
+        const generated = randomPassword(14);
+        const hash = await hashPassword(generated);
+        stored = await store.createSettingIfAbsent('superadmin_password_hash', hash);
+        console.log('==============================================================');
+        if (stored === hash) {
+            console.log(`🔐 Generated superadmin password: ${generated}`);
+            console.log('   Set SUPERADMIN_PASS to choose your own.');
+        } else {
+            console.log('🔐 The superadmin password was generated by another server instance (see its log),');
+            console.log('   or set SUPERADMIN_PASS to choose your own.');
+        }
+        console.log('==============================================================');
+    }
+    return stored;
+}
+
+// The superadmin password may have been changed on another server instance.
+let superadminCheckedAt = 0;
+async function refreshSuperadminHash(force = false) {
+    if (!ready || (!force && Date.now() - superadminCheckedAt < 3000)) return false;
+    superadminCheckedAt = Date.now();
+    const h = await loadSuperadminHash();
+    if (!h || h === superadminHash) return false;
+    superadminHash = h;
+    return true;
+}
+setInterval(() => { refreshSuperadminHash(true).catch(() => {}); }, 60000).unref();
 
 // Configuration problems that do not stop the server but are reported by /health.
 function configWarnings() {
     const w = [];
-    const info = typeof rawDb.adapterInfo === 'function' ? rawDb.adapterInfo() : {};
+    const info = rawStore.info();
     if (info.mode === 'web') w.push('FIREBASE_SERVICE_ACCOUNT is not set: using the Firebase Web SDK, which needs open (insecure) Firestore rules.');
     if (process.env.SUPERADMIN_PASS === 'admin123') w.push('SUPERADMIN_PASS is the well-known default "admin123".');
-    if ((process.env.DB_ADAPTER || 'firebase') === 'memory') w.push('DB_ADAPTER=memory: data is lost when the server restarts.');
+    if (adapterName === 'memory') w.push('DB_ADAPTER=memory: data is lost when the server restarts.');
     return w;
 }
 
@@ -354,8 +433,9 @@ function readToken(req) {
     return req.get('X-Auth-Token') || '';
 }
 
-function requireSuperadmin(req) {
+async function requireSuperadmin(req) {
     const p = verifyToken(readToken(req), SESSION_SECRET);
+    if (p && p.t === 'sa' && p.pv !== fingerprint(superadminHash)) await refreshSuperadminHash();
     if (!p || p.t !== 'sa' || p.pv !== fingerprint(superadminHash)) throw new HttpError(401, 'نشست سوپرادمین نامعتبر یا منقضی شده است. دوباره وارد شوید.');
 }
 
@@ -471,7 +551,7 @@ app.get('/health', async (req, res) => {
     const started = Date.now();
     let db = { ok: false };
     try {
-        await withTimeout(rawDb.getSetting('session_secret'), 3000, () => new Error('timeout'));
+        await withTimeout(rawStore.getSetting('session_secret'), 3000, () => new Error('timeout'));
         db = { ok: true, latencyMs: Date.now() - started };
     } catch (e) {
         db = { ok: false, error: e.message === 'timeout' ? 'database did not answer within 3 s' : 'database error' };
@@ -482,8 +562,10 @@ app.get('/health', async (req, res) => {
     res.status(healthy ? 200 : 503).json({
         status: healthy ? 'ok' : (ready ? 'degraded' : 'starting'),
         db,
-        adapter: process.env.DB_ADAPTER || 'firebase',
-        firebaseMode: typeof rawDb.adapterInfo === 'function' ? rawDb.adapterInfo().mode : undefined,
+        adapter: adapterName,
+        firebaseMode: adapterName === 'firebase' ? rawStore.info().mode : undefined,
+        media: rawStore.info().media,
+        cachedCamps: repo.size(),
         uptimeSec: Math.round((Date.now() - STARTED_AT) / 1000),
         liveBoards: sse,
         startupError: ready ? undefined : (lastStartupError || undefined),
@@ -515,31 +597,81 @@ app.use((req, res, next) => {
 
 // Large bodies (images) only for the few routes that carry them, and only for signed-in users:
 // an anonymous request is rejected before its body is read.
-const LARGE_BODY_ROUTES = new Set(['/setup', '/api', '/api/settings', '/api/user/profile-pic']);
+const LARGE_BODY_ROUTES = new Set(['/setup', '/api', '/api/settings', '/api/user/profile-pic', '/superadmin/import']);
 const jsonSmall = express.json({ limit: BODY_LIMIT_SMALL });
 const jsonLarge = express.json({ limit: BODY_LIMIT_LARGE });
+const jsonImport = express.json({ limit: BODY_LIMIT_IMPORT });
 app.use((req, res, next) => {
     if (req.method !== 'POST' || !LARGE_BODY_ROUTES.has(req.path)) return jsonSmall(req, res, next);
     if (!verifyToken(readToken(req), SESSION_SECRET)) {
         return res.status(401).json({ success: false, error: 'برای این عملیات باید وارد شوید.', message: 'برای این عملیات باید وارد شوید.' });
     }
-    return jsonLarge(req, res, next);
+    return (req.path === '/superadmin/import' ? jsonImport : jsonLarge)(req, res, next);
 });
+
+// ---------------------------------------------------------------------------
+// Images (team pictures, logos, profile photos): stored once, cached by browsers for a year.
+// ---------------------------------------------------------------------------
+const mediaCache = new Map(); // name -> { data, type } (least recently used first)
+let mediaCacheBytes = 0;
+function rememberMedia(name, item) {
+    if (item.data.length > MEDIA_CACHE_BYTES / 4) return;
+    mediaCache.set(name, item);
+    mediaCacheBytes += item.data.length;
+    for (const [k, v] of mediaCache) {
+        if (mediaCacheBytes <= MEDIA_CACHE_BYTES) break;
+        mediaCache.delete(k);
+        mediaCacheBytes -= v.data.length;
+    }
+}
+
+app.get('/media/:name', route(async (req, res) => {
+    const name = req.params.name;
+    if (!MEDIA_NAME_RE.test(name)) throw new HttpError(404, 'تصویر یافت نشد.');
+    let item = mediaCache.get(name);
+    if (item) { mediaCache.delete(name); mediaCache.set(name, item); }
+    else {
+        if (!ready) throw new HttpError(503, 'سرور در حال راه‌اندازی است.');
+        const found = await store.getMedia(name);
+        if (!found) throw new HttpError(404, 'تصویر یافت نشد.');
+        item = { data: Buffer.from(found.data), type: MEDIA_TYPES[name.split('.').pop()] };
+        rememberMedia(name, item);
+    }
+    // The name is the hash of the content, so the file never changes.
+    res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+    res.setHeader('ETag', '"' + name + '"');
+    // Uploaded SVGs must never run scripts when opened directly.
+    res.setHeader('Content-Security-Policy', "default-src 'none'; style-src 'unsafe-inline'; sandbox");
+    if (req.get('If-None-Match') === '"' + name + '"') return res.status(304).end();
+    res.type(item.type).send(item.data);
+}));
 
 // ---------------------------------------------------------------------------
 // Global settings
 // ---------------------------------------------------------------------------
+// Read by every page load; cached briefly (another server instance may change it).
+let systemLogoCache = { value: null, until: 0 };
 app.get('/api/settings', route(async (req, res) => {
-    res.json({ systemLogo: await getSetting('systemLogo') });
+    if (systemLogoCache.until < Date.now()) {
+        let value = await getSetting('systemLogo');
+        if (typeof value === 'string' && value.startsWith('data:image/')) { // stored before images moved out
+            value = await repo.externalize(value);
+            await setSetting('systemLogo', value);
+        }
+        systemLogoCache = { value, until: Date.now() + 30000 };
+    }
+    res.json({ systemLogo: systemLogoCache.value });
 }));
 
 app.post('/api/settings', route(async (req, res) => {
-    requireSuperadmin(req);
+    await requireSuperadmin(req);
     const { key, value } = req.body || {};
     if (key !== 'systemLogo') throw new HttpError(400, 'کلید تنظیمات مجاز نیست.');
     if (typeof value !== 'string' || value.length > 2_000_000) throw new HttpError(400, 'مقدار نامعتبر است.');
-    await setSetting(key, value);
-    res.json({ success: true });
+    const stored = await repo.externalize(value);
+    await setSetting(key, stored);
+    systemLogoCache = { value: stored, until: Date.now() + 30000 };
+    res.json({ success: true, value: stored });
 }));
 
 // ---------------------------------------------------------------------------
@@ -550,7 +682,10 @@ app.get('/', (req, res) => res.redirect('/superadmin.html'));
 app.post('/superadmin/login', route(async (req, res) => {
     if (!loginLimiter.check('sa:' + clientIp(req))) throw new HttpError(429, 'تلاش‌های ناموفق زیاد بود. چند دقیقه دیگر دوباره امتحان کنید.');
     const password = req.body && req.body.password;
-    if (!await verifyPassword(password, superadminHash)) {
+    let ok = await verifyPassword(password, superadminHash);
+    // Changed on another server instance?
+    if (!ok && await refreshSuperadminHash()) ok = await verifyPassword(password, superadminHash);
+    if (!ok) {
         return res.json({ success: false, message: 'رمز عبور سوپرادمین اشتباه است!' });
     }
     loginLimiter.reset('sa:' + clientIp(req));
@@ -558,36 +693,38 @@ app.post('/superadmin/login', route(async (req, res) => {
 }));
 
 app.get('/superadmin/camps', route(async (req, res) => {
-    requireSuperadmin(req);
-    const camps = (await getAllCamps()).map(c => ({
+    await requireSuperadmin(req);
+    const all = await store.listCamps(['orgName', 'title', 'locked', 'campType', 'archived', 'deletedAt']);
+    purgeExpiredTrash(all).catch(e => console.error('[trash]', e.message));
+    const camps = all.filter(c => !c.deletedAt).map(c => ({
         id: c.id, orgName: c.orgName, title: c.title, locked: isLocked(c), campType: c.campType, archived: !!c.archived
     }));
-    res.json({ success: true, camps });
+    res.json({ success: true, camps, trashCount: all.length - camps.length });
 }));
 
 app.get('/superadmin/camps/:id', route(async (req, res) => {
-    requireSuperadmin(req);
+    await requireSuperadmin(req);
     const camp = await loadCamp(requireId(req.params.id));
     if (!camp) return res.json({ success: false, message: 'یافت نشد' });
     res.json({ success: true, camp: adminState(camp) });
 }));
 
 app.post('/superadmin/camps/:id/lock', route(async (req, res) => {
-    requireSuperadmin(req);
+    await requireSuperadmin(req);
     const id = requireId(req.params.id);
     await mutateCamp(id, { allowLocked: true }, () => ({ changes: { locked: req.body && req.body.locked ? 1 : 0 } }));
     res.json({ success: true });
 }));
 
 app.post('/superadmin/camps/:id/archive', route(async (req, res) => {
-    requireSuperadmin(req);
+    await requireSuperadmin(req);
     const id = requireId(req.params.id);
     await mutateCamp(id, { allowLocked: true }, () => ({ changes: { archived: !!(req.body && req.body.archived) } }));
     res.json({ success: true });
 }));
 
 app.post('/setup', route(async (req, res) => {
-    requireSuperadmin(req);
+    await requireSuperadmin(req);
     const b = req.body || {};
     const base = {
         orgName: strOrEmpty(b.orgName, 200),
@@ -631,18 +768,22 @@ app.post('/setup', route(async (req, res) => {
         closedStages: {},
         stageTieredResults: {}
     };
-    assertSize(camp);
     await createCampUnique(id, camp);
     res.json({ success: true, campId: id });
 }));
 
 // Superadmin form: live check of a custom camp link.
 app.get('/superadmin/id_available', route(async (req, res) => {
-    requireSuperadmin(req);
+    await requireSuperadmin(req);
     const id = String(req.query.id || '').trim();
     if (!CAMP_ID_RE.test(id)) return res.json({ success: true, available: false, reason: 'invalid', message: CAMP_ID_HELP });
-    const taken = !!(await getCamp(id));
-    res.json({ success: true, available: !taken, reason: taken ? 'taken' : null, message: taken ? 'این لینک قبلاً برای مسابقه دیگری استفاده شده است.' : '' });
+    const existing = await store.getCampDoc(id);
+    if (!existing) return res.json({ success: true, available: true, reason: null, message: '' });
+    const inTrash = !!existing.doc.deletedAt;
+    res.json({
+        success: true, available: false, reason: inTrash ? 'trash' : 'taken',
+        message: inTrash ? 'این لینک متعلق به مسابقه‌ای در سطل زباله است.' : 'این لینک قبلاً برای مسابقه دیگری استفاده شده است.'
+    });
 }));
 
 // ---------------------------------------------------------------------------
@@ -667,25 +808,20 @@ app.post('/login', route(async (req, res) => {
     const limiterKey = `camp:${id}:${clientIp(req)}`;
     if (!loginLimiter.check(limiterKey)) throw new HttpError(429, 'تلاش‌های ناموفق زیاد بود. چند دقیقه دیگر دوباره امتحان کنید.');
 
-    const result = await withLock(id, async () => {
-        const camp = await loadCamp(id);
-        if (!camp) return null;
-        const found = findCampUser(camp, username);
-        if (!found || !await verifyPassword(password, found.secret)) return null;
-        let secret = found.secret;
-        // Upgrade legacy plain-text passwords to hashes on first successful login.
-        if (!isHashed(secret)) {
-            secret = await hashPassword(password);
-            if (!camp.users.includes(found.user)) {
-                await updateCamp(id, { password: secret });
-            } else {
-                found.user.password = secret;
-                await updateCamp(id, { users: camp.users });
-            }
-        }
-        return { camp, user: found.user, secret };
-    });
-    if (!result) return fail();
+    const camp = await loadCamp(id);
+    if (!camp) return fail();
+    const found = findCampUser(camp, username);
+    if (!found || !await verifyPassword(password, found.secret)) return fail();
+    let result = { camp, user: found.user, secret: found.secret };
+    // Upgrade legacy plain-text passwords to hashes on first successful login.
+    if (!isHashed(found.secret)) {
+        const secret = await hashPassword(password);
+        result = await mutateCamp(id, { allowLocked: true }, c => {
+            const user = c.users.find(u => u.username === username);
+            if (user) { user.password = secret; return { user, secret, changes: { users: c.users } }; }
+            return { user: found.user, secret, changes: { password: secret } };
+        });
+    }
     loginLimiter.reset(limiterKey);
     res.json({
         success: true,
@@ -698,8 +834,8 @@ app.post('/login', route(async (req, res) => {
 app.post('/api/user/profile-pic', route(async (req, res) => {
     const { campId, profilePic } = req.body || {};
     const id = requireId(campId, 'شناسه مسابقه');
-    const pic = typeof profilePic === 'string' ? profilePic : '';
-    if (pic.length > 500_000) throw new HttpError(413, 'حجم عکس پروفایل بیش از حد مجاز است.');
+    if (typeof profilePic === 'string' && profilePic.length > 500_000) throw new HttpError(413, 'حجم عکس پروفایل بیش از حد مجاز است.');
+    const pic = typeof profilePic === 'string' ? await repo.externalize(profilePic) : '';
     await mutateCamp(id, { allowLocked: true }, camp => {
         const me = requireCampUser(req, camp);
         const user = camp.users.find(u => u.username === me.username);
@@ -721,8 +857,14 @@ app.get('/api', route(async (req, res) => {
         return res.json({ success: true, orgName: camp.orgName || '', title: camp.title || '', logo: camp.logo || '', campType: camp.campType });
     }
     if (action === 'poll') {
-        const camp = await loadCampOr404(requireId(id, 'شناسه مسابقه'));
-        return res.json(publicState(camp));
+        const entry = await loadEntry(requireId(id, 'شناسه مسابقه'));
+        if (!entry) throw new HttpError(404, 'مسابقه یافت نشد.');
+        // Prepared once per change; unchanged data costs a "304 Not Modified" without a body.
+        const { json, etag } = repo.jsonOf(entry);
+        res.setHeader('Cache-Control', 'no-cache');
+        res.setHeader('ETag', etag);
+        if (req.get('If-None-Match') === etag) return res.status(304).end();
+        return res.type('application/json').send(json);
     }
     if (action === 'stream') {
         requireId(id, 'شناسه مسابقه');
@@ -732,7 +874,8 @@ app.get('/api', route(async (req, res) => {
         for (const set of sseClients.values()) total += set.size;
         if (total >= SSE_MAX_TOTAL) throw new HttpError(503, 'ظرفیت تابلوهای زنده سرور پر است. کمی بعد دوباره تلاش کنید.');
         if ((sseByIp.get(ip) || 0) >= SSE_MAX_PER_IP) throw new HttpError(429, 'تعداد تابلوهای باز از این شبکه بیش از حد مجاز است.');
-        const camp = await loadCampOr404(id);
+        const entry = await loadEntry(id);
+        if (!entry) throw new HttpError(404, 'مسابقه یافت نشد.');
         sseByIp.set(ip, (sseByIp.get(ip) || 0) + 1);
         res.setHeader('Content-Type', 'text/event-stream');
         res.setHeader('Cache-Control', 'no-cache, no-transform');
@@ -742,7 +885,7 @@ app.get('/api', route(async (req, res) => {
         if (!sseClients.has(id)) sseClients.set(id, new Set());
         const clients = sseClients.get(id);
         clients.add(res);
-        res.write(`data: ${JSON.stringify(publicState(camp))}\n\n`);
+        res.write(`data: ${repo.jsonOf(entry).json}\n\n`);
         req.on('close', () => {
             const n = (sseByIp.get(ip) || 1) - 1;
             if (n > 0) sseByIp.set(ip, n); else sseByIp.delete(ip);
@@ -806,22 +949,17 @@ app.post('/api/instant', route(async (req, res) => {
         const team = camp.teams.find(t => t.id === teamId);
         if (!team) throw new HttpError(404, 'تیم یافت نشد.');
         if (camp.teams.some(t => t.scoreLogs.some(l => l && l.id === logId))) return { team, duplicate: true };
+        const now = Date.now();
         team.scoreLogs.push({
-            id: logId, type: 'instant', value: round2(value), timestamp: Date.now(),
+            id: logId, type: 'instant', value: round2(value), timestamp: now, createdAt: now,
             user: publicUser(user), tag: strOrEmpty(tag, 100)
         });
         recomputeTeamScore(team);
+        // Only the new log is written (the camp document is not touched); live boards get the splash from the cache.
         return { team, changes: { teams: camp.teams } };
     });
     if (duplicate) return res.json({ success: true, logId, duplicate: true });
-
-    sendToClients(id, `event: splash\ndata: ${JSON.stringify({
-        teamId, delta: round2(value), teamName: team.name, score: team.score,
-        user: publicUser(team.scoreLogs[team.scoreLogs.length - 1].user), tag: strOrEmpty(tag, 100), logId,
-        image: team.image || '', happyImage: team.happyImage || '', sadImage: team.sadImage || '',
-        teamColor: team.color || '#3b82f6'
-    })}\n\n`);
-    res.json({ success: true, logId });
+    res.json({ success: true, logId, score: team.score });
 }));
 
 app.post('/api/undo_instant', route(async (req, res) => {
@@ -1026,19 +1164,133 @@ function resetTeamScores(team) {
     team.score = 0;
 }
 
+// Deleting moves the camp to the trash; it can be restored for TRASH_DAYS days.
 app.post('/superadmin/camps/:id/delete', route(async (req, res) => {
-    requireSuperadmin(req);
+    await requireSuperadmin(req);
     const id = requireId(req.params.id);
-    await withLock(id, async () => {
-        await loadCampOr404(id);
-        await deleteCamp(id);
+    await mutateCamp(id, { allowLocked: true }, () => ({ changes: { deletedAt: Date.now() } }));
+    res.json({ success: true, trashDays: TRASH_DAYS });
+}));
+
+app.get('/superadmin/trash', route(async (req, res) => {
+    await requireSuperadmin(req);
+    const all = await store.listCamps(['orgName', 'title', 'campType', 'deletedAt']);
+    await purgeExpiredTrash(all);
+    const limit = Date.now() - TRASH_DAYS * 86400000;
+    const camps = all.filter(c => c.deletedAt && c.deletedAt >= limit)
+        .map(c => ({ id: c.id, orgName: c.orgName || '', title: c.title || '', campType: c.campType, deletedAt: c.deletedAt, purgeAt: c.deletedAt + TRASH_DAYS * 86400000 }))
+        .sort((a, b) => b.deletedAt - a.deletedAt);
+    res.json({ success: true, camps, trashDays: TRASH_DAYS });
+}));
+
+app.post('/superadmin/camps/:id/restore', route(async (req, res) => {
+    await requireSuperadmin(req);
+    const id = requireId(req.params.id);
+    await mutateCamp(id, { allowLocked: true, allowDeleted: true }, camp => {
+        if (!camp.deletedAt) throw new HttpError(400, 'این مسابقه در سطل زباله نیست.');
+        return { changes: { deletedAt: null } };
     });
-    sendToClients(id, `event: deleted\ndata: {}\n\n`);
     res.json({ success: true });
 }));
 
+// Permanent removal (only from the trash).
+app.post('/superadmin/camps/:id/purge', route(async (req, res) => {
+    await requireSuperadmin(req);
+    const id = requireId(req.params.id);
+    await withLock(id, async () => {
+        const d = await store.getCampDoc(id);
+        if (!d) throw new HttpError(404, 'مسابقه یافت نشد.');
+        if (!d.doc.deletedAt) throw new HttpError(400, 'فقط مسابقه‌های داخل سطل زباله را می‌توان برای همیشه حذف کرد.');
+        await repo.purge(id);
+    });
+    res.json({ success: true });
+}));
+
+let lastTrashPurge = 0;
+async function purgeExpiredTrash(list) {
+    if (Date.now() - lastTrashPurge < 3600000) return;
+    lastTrashPurge = Date.now();
+    const limit = Date.now() - TRASH_DAYS * 86400000;
+    for (const c of list || await store.listCamps(['deletedAt'])) {
+        if (c.deletedAt && c.deletedAt < limit) {
+            await repo.purge(c.id);
+            console.log(`[trash] camp ${c.id} permanently deleted after ${TRASH_DAYS} days in the trash`);
+        }
+    }
+}
+setInterval(() => { if (ready) purgeExpiredTrash().catch(e => console.error('[trash]', e.message)); }, 6 * 3600000).unref();
+
+// ---------------------------------------------------------------------------
+// Backups: one camp or everything, as a JSON file that both editions (Node / PHP) can import.
+// ---------------------------------------------------------------------------
+function sendBackup(res, backup, name) {
+    const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-');
+    res.setHeader('Content-Disposition', `attachment; filename="${name}-${stamp}.json"`);
+    res.setHeader('Cache-Control', 'no-store');
+    res.type('application/json').send(JSON.stringify(backup));
+}
+
+app.get('/superadmin/camps/:id/export', route(async (req, res) => {
+    await requireSuperadmin(req);
+    const id = requireId(req.params.id);
+    const backup = await buildBackup(store, [id]);
+    if (!backup.camps.length) throw new HttpError(404, 'مسابقه یافت نشد.');
+    sendBackup(res, backup, `sim-camp-${id}`);
+}));
+
+app.get('/superadmin/backup', route(async (req, res) => {
+    await requireSuperadmin(req);
+    sendBackup(res, await buildBackup(store, await allCampIds(store), { includeSettings: true }), 'sim-camp-backup');
+}));
+
+// Restores camps from a backup file. Existing camps are never overwritten: a camp whose link is
+// taken is imported under a new link.
+app.post('/superadmin/import', route(async (req, res) => {
+    await requireSuperadmin(req);
+    const b = req.body || {};
+    if (b.format !== BACKUP_FORMAT || !Array.isArray(b.camps)) throw new HttpError(400, 'این فایل، فایل پشتیبان سیم‌کمپ نیست.');
+    // Images first, so the camps can refer to them.
+    let mediaCount = 0;
+    for (const [name, data] of Object.entries(isPlainObject(b.media) ? b.media : {})) {
+        if (!MEDIA_NAME_RE.test(name) || typeof data !== 'string') continue;
+        const buf = Buffer.from(data, 'base64');
+        if (mediaNameFor(buf, name.split('.').pop()) !== name) continue; // corrupted
+        await store.putMedia(name, buf, MEDIA_TYPES[name.split('.').pop()]);
+        mediaCount++;
+    }
+    const imported = [];
+    let foreignPasswords = false;
+    for (const raw of b.camps) {
+        if (!isPlainObject(raw) || !Array.isArray(raw.teams)) continue;
+        const camp = parseCamp({ ...raw });
+        delete camp.deletedAt;
+        delete camp.rev;
+        // Password hashes of the PHP edition (bcrypt) cannot be checked here and vice versa.
+        const secrets = [camp.password, ...camp.users.map(u => u.password)].filter(Boolean);
+        if (secrets.some(h => /^\$2[aby]\$/.test(h))) foreignPasswords = true;
+        let id = CAMP_ID_RE.test(String(raw.id || '')) ? raw.id : newRandomCampId();
+        for (let i = 0; ; i++) {
+            try {
+                await repo.create(id, { ...camp, id });
+                break;
+            } catch (e) {
+                if (e instanceof TooLargeError) throw tooLarge();
+                if (!(e instanceof ExistsError) || i > 5) throw e;
+                id = `${String(raw.id || 'camp').slice(0, 50)}-${crypto.randomBytes(3).toString('hex')}`;
+            }
+        }
+        imported.push({ id, originalId: raw.id || null, title: camp.title || '' });
+    }
+    if (isPlainObject(b.settings) && typeof b.settings.systemLogo === 'string' && b.settings.systemLogo && !(await getSetting('systemLogo'))) {
+        const stored = await repo.externalize(b.settings.systemLogo);
+        await setSetting('systemLogo', stored);
+        systemLogoCache = { value: stored, until: Date.now() + 30000 };
+    }
+    res.json({ success: true, imported, media: mediaCount, foreignPasswords });
+}));
+
 app.post('/superadmin/camps/:id/duplicate', route(async (req, res) => {
-    requireSuperadmin(req);
+    await requireSuperadmin(req);
     const src = await loadCampOr404(requireId(req.params.id));
     const newId = requestedCampId((req.body || {}).customId) || newRandomCampId();
     const title = typeof (req.body || {}).title === 'string' && req.body.title.trim() ? strOrEmpty(req.body.title.trim(), 200) : `${src.title || ''} (کپی)`;
@@ -1054,13 +1306,12 @@ app.post('/superadmin/camps/:id/duplicate', route(async (req, res) => {
         positiveTags: src.positiveTags, negativeTags: src.negativeTags,
         locked: 0, archived: false, closedStages: {}, stageTieredResults: {}, auditLog: [], announcement: null, activeStageId: null
     };
-    assertSize(camp);
     await createCampUnique(newId, camp);
     res.json({ success: true, campId: newId });
 }));
 
 app.post('/superadmin/password', route(async (req, res) => {
-    requireSuperadmin(req);
+    await requireSuperadmin(req);
     const { currentPassword, newPassword } = req.body || {};
     if (!await verifyPassword(currentPassword, superadminHash)) throw new HttpError(400, 'رمز عبور فعلی اشتباه است.');
     superadminHash = await hashPassword(requireNewPassword(newPassword));

@@ -29,4 +29,4 @@ async function call(method, path, body, token) {
     return { status: res.status, json, text };
 }
 
-registerScenarios({ call, saPassword: 'test-superadmin-pass' });
+registerScenarios({ call, raw: (url, init) => fetch(base + url, init), saPassword: 'test-superadmin-pass', mediaRe: /^\/media\/[a-f0-9]{32}\.png$/ });

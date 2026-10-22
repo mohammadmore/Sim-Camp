@@ -5,16 +5,22 @@
  */
 
 ini_set('display_errors', '0');
+// backup.php includes this file only for its functions (command line, no request).
+$isCli = defined('SIMCAMP_CLI');
+if (!$isCli) {
 @set_time_limit(30); // a stuck request is stopped instead of holding a PHP worker
 header('Content-Type: application/json; charset=utf-8');
 header('X-Content-Type-Options: nosniff');
 header('Referrer-Policy: same-origin');
+}
 
 // ---- Request size and rate limits (checked before the database is touched) ----
 const BODY_LIMIT_SMALL = 256 * 1024;
 const BODY_LIMIT_LARGE = 10 * 1024 * 1024;
+const BODY_LIMIT_IMPORT = 100 * 1024 * 1024; // restoring a backup file (images included)
 const RATE_READ_PER_MIN = 3000;   // per IP; a whole venue often shares one public IP
 const RATE_WRITE_PER_MIN = 1200;
+const TRASH_DAYS = 30;            // deleted camps can be restored for this long
 
 function early_fail($status, $message, $retryAfter = null) {
     http_response_code($status);
@@ -24,20 +30,23 @@ function early_fail($status, $message, $retryAfter = null) {
 }
 
 $earlyAction = strtolower($_GET['action'] ?? '');
-if ($earlyAction === '' && $_SERVER['REQUEST_METHOD'] === 'POST') $earlyAction = 'update_camp';
+if ($earlyAction === '' && ($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') $earlyAction = 'update_camp';
+if ($isCli) $earlyAction = 'health';
+@set_time_limit($earlyAction === 'superadmin_import' || $earlyAction === 'superadmin_backup' ? 300 : 30);
 // Only the forms that carry images may send large bodies.
-$bodyLimit = in_array($earlyAction, ['setup', 'update_camp', 'settings', 'user_profile_pic'], true) ? BODY_LIMIT_LARGE : BODY_LIMIT_SMALL;
+$bodyLimit = $earlyAction === 'superadmin_import' ? BODY_LIMIT_IMPORT
+    : (in_array($earlyAction, ['setup', 'update_camp', 'settings', 'user_profile_pic'], true) ? BODY_LIMIT_LARGE : BODY_LIMIT_SMALL);
 if ((int)($_SERVER['CONTENT_LENGTH'] ?? 0) > $bodyLimit) {
     early_fail(413, 'حجم اطلاعات ارسالی بیش از حد مجاز است. تصاویر کوچک‌تر انتخاب کنید.');
 }
-$rawBody = file_get_contents('php://input', false, null, 0, $bodyLimit + 1);
+$rawBody = $isCli ? '' : file_get_contents('php://input', false, null, 0, $bodyLimit + 1);
 if ($rawBody !== false && strlen($rawBody) > $bodyLimit) {
     early_fail(413, 'حجم اطلاعات ارسالی بیش از حد مجاز است. تصاویر کوچک‌تر انتخاب کنید.');
 }
 
 // Per-IP rate limit in shared memory (APCu). Hosts without APCu skip it; use the host's
 // own protection (cPanel / Cloudflare) there - a database-backed counter would cost a write per request.
-if ($earlyAction !== 'health' && function_exists('apcu_inc') && ini_get('apc.enabled')) {
+if (!$isCli && $earlyAction !== 'health' && function_exists('apcu_inc') && ini_get('apc.enabled')) {
     $isRead = $_SERVER['REQUEST_METHOD'] === 'GET';
     $key = 'simcamp_rl_' . ($isRead ? 'r' : 'w') . '_' . ($_SERVER['REMOTE_ADDR'] ?? '-') . '_' . intdiv(time(), 60);
     apcu_add($key, 0, 120);
@@ -71,7 +80,7 @@ function out($data, $status = 200) {
     exit;
 }
 
-$method = $_SERVER['REQUEST_METHOD'];
+$method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
 $action = strtolower($_GET['action'] ?? '');
 // Clean URL "POST /api?id=..." (see .htaccess) is the camp settings update.
 if ($action === '' && $method === 'POST') $action = 'update_camp';
@@ -206,6 +215,8 @@ function is_hashed($stored) {
 function verify_password($plain, $stored) {
     if (!is_string($plain) || $plain === '' || !$stored) return false;
     if (is_hashed($stored)) return password_verify($plain, $stored);
+    // A scrypt hash from the Node edition (imported backup) cannot be checked here: never compare it as plain text.
+    if (strpos((string)$stored, 'scrypt$') === 0) return false;
     return hash_equals((string)$stored, $plain); // legacy plain-text value
 }
 
@@ -444,7 +455,8 @@ function parse_camp($raw) {
     $c['activeStageId'] = !empty($raw['activeStageId']) ? $raw['activeStageId'] : null;
     $c['locked'] = !empty($raw['locked']);
     $c['archived'] = !empty($raw['archived']);
-    foreach ($c['teams'] as &$t) normalize_team($t);
+    $c['deletedAt'] = !empty($raw['deletedAt']) ? (int)$raw['deletedAt'] : null;
+    foreach ($c['teams'] as &$t) { normalize_team($t); recompute_score($t); } // the total is always derived from the scores
     unset($t);
     return $c;
 }
@@ -480,7 +492,7 @@ function public_state($c) {
         $teams[] = $t;
     }
     $s = $c;
-    unset($s['password'], $s['users'], $s['auditLog']);
+    unset($s['password'], $s['users'], $s['auditLog'], $s['deletedAt']);
     $s['teams'] = teams_for_json($teams);
     $s['closedStages'] = as_map($c['closedStages']);
     $s['stageTieredResults'] = as_map($c['stageTieredResults']);
@@ -500,12 +512,82 @@ function admin_state($c) {
     return $s;
 }
 
-function load_camp($id) {
-    global $conn;
+// ---------------------------------------------------------------------------
+// Images: stored once as files in data/media (name = hash of the content) and served by
+// media.php with a one-year cache, instead of being repeated inside every poll response.
+// ---------------------------------------------------------------------------
+const MEDIA_NAME_RE = '/^[a-f0-9]{32}\.(png|jpg|gif|webp|svg)$/';
+const MEDIA_REF_RE = '#^(?:/media/|media\.php\?f=)([a-f0-9]{32}\.(?:png|jpg|gif|webp|svg))$#';
+const DATA_URL_RE = '#^data:image/(png|jpe?g|gif|webp|svg\+xml);base64,([A-Za-z0-9+/=\s]+)$#i';
+
+function media_dir() {
+    $dir = __DIR__ . '/data/media';
+    if (!is_dir($dir)) {
+        @mkdir($dir, 0755, true);
+        if (!file_exists(__DIR__ . '/data/.htaccess')) @file_put_contents(__DIR__ . '/data/.htaccess', "Require all denied\nDeny from all\n");
+    }
+    return $dir;
+}
+
+function media_put($name, $bytes) {
+    $path = media_dir() . '/' . $name;
+    if (file_exists($path)) return;
+    $tmp = $path . '.' . bin2hex(random_bytes(4)) . '.tmp';
+    if (@file_put_contents($tmp, $bytes) === false) throw new HttpError(500, 'ذخیره تصویر ممکن نشد (پوشه data قابل نوشتن نیست).');
+    @rename($tmp, $path);
+}
+
+function media_get($name) {
+    if (!preg_match(MEDIA_NAME_RE, $name)) return null;
+    $path = __DIR__ . '/data/media/' . $name;
+    return is_file($path) ? file_get_contents($path) : null;
+}
+
+// Replaces embedded images (data: URLs) with media links; Node-style links become PHP links.
+function externalize($v) {
+    if (is_string($v)) {
+        if (strncmp($v, 'data:image/', 11) === 0 && preg_match(DATA_URL_RE, $v, $m)) {
+            $ext = ['png' => 'png', 'jpeg' => 'jpg', 'jpg' => 'jpg', 'gif' => 'gif', 'webp' => 'webp', 'svg+xml' => 'svg'][strtolower($m[1])];
+            $bytes = base64_decode(preg_replace('/\s+/', '', $m[2]));
+            $name = substr(hash('sha256', $bytes), 0, 32) . '.' . $ext;
+            media_put($name, $bytes);
+            return 'media.php?f=' . $name;
+        }
+        if (preg_match(MEDIA_REF_RE, $v, $m)) return 'media.php?f=' . $m[1];
+        return $v;
+    }
+    if (is_array($v)) {
+        foreach ($v as $k => $x) $v[$k] = externalize($x);
+        return $v;
+    }
+    return $v;
+}
+
+function collect_media_names($v, &$into) {
+    if (is_string($v)) { if (preg_match(MEDIA_REF_RE, $v, $m)) $into[$m[1]] = true; }
+    elseif (is_array($v) || is_object($v)) foreach ($v as $x) collect_media_names($x, $into);
+}
+
+$in_mutation = false;
+
+// $includeDeleted: camps in the trash are invisible except to the superadmin's trash actions.
+function load_camp($id, $includeDeleted = false) {
+    global $conn, $in_mutation;
     if (!is_valid_id($id)) return null;
     $stmt = $conn->prepare("SELECT * FROM camps WHERE id = ?");
     $stmt->execute([$id]);
-    return parse_camp($stmt->fetch(PDO::FETCH_ASSOC));
+    $row = $stmt->fetch(PDO::FETCH_ASSOC);
+    if (!$row || (!$includeDeleted && !empty($row['deletedAt']))) return null;
+    // Camps saved before images moved to files are converted on first use.
+    if (!$in_mutation) {
+        foreach (['logo', 'teams', 'users'] as $col) {
+            if (is_string($row[$col] ?? null) && strpos($row[$col], 'data:image/') !== false) {
+                $res = mutate_camp($id, true, function ($c) { return ['changes' => ['logo' => $c['logo'] ?? '', 'teams' => $c['teams'], 'users' => $c['users']]]; }, true);
+                return $res['camp'];
+            }
+        }
+    }
+    return parse_camp($row);
 }
 
 // Serialises a set of changed camp fields into DB columns.
@@ -522,6 +604,7 @@ function column_values($changes) {
             case 'locked': case 'archived': $vals[$k] = $v ? 1 : 0; break;
             case 'auditLog': $vals[$k] = enc(array_values($v)); break;
             case 'announcement': $vals[$k] = $v === null ? null : enc($v); break;
+            case 'deletedAt': $vals[$k] = $v ? (int)$v : null; break;
             default: $vals[$k] = $v;
         }
     }
@@ -530,35 +613,39 @@ function column_values($changes) {
 
 const CAMP_COLUMNS = ['orgName', 'password', 'title', 'logo', 'locked', 'archived', 'numLang', 'dir', 'teams', 'stages', 'users',
     'campType', 'tieredPointsLadder', 'closedStages', 'stageTieredResults', 'fieldJudgingMode', 'fieldJudgingValues', 'positiveTags', 'negativeTags',
-    'auditLog', 'announcement', 'activeStageId'];
+    'auditLog', 'announcement', 'activeStageId', 'deletedAt'];
 
+// Returns the changes as stored (images replaced by media links).
 function save_camp_changes($id, $changes) {
     global $conn;
+    $changes = externalize($changes);
     $vals = column_values(array_intersect_key($changes, array_flip(CAMP_COLUMNS)));
-    if (!$vals) return;
+    if (!$vals) return $changes;
     $total = 0;
     foreach ($vals as $v) $total += is_string($v) ? strlen($v) : 8;
     if ($total > MAX_CAMP_BYTES) throw new HttpError(413, 'حجم اطلاعات مسابقه (به‌ویژه تصاویر) بیش از حد مجاز است.');
     $sets = implode(', ', array_map(function ($k) { return "$k = ?"; }, array_keys($vals)));
     $stmt = $conn->prepare("UPDATE camps SET $sets WHERE id = ?");
     $stmt->execute(array_merge(array_values($vals), [$id]));
+    return $changes;
 }
 
 // Load → mutate → save inside one transaction holding a write lock on the camp.
-function mutate_camp($id, $allowLocked, callable $fn) {
-    global $conn, $active_driver;
+function mutate_camp($id, $allowLocked, callable $fn, $allowDeleted = false) {
+    global $conn, $active_driver, $in_mutation;
     require_id($id, 'شناسه مسابقه');
     if ($active_driver === 'mysql') $conn->beginTransaction();
     else $conn->exec('BEGIN IMMEDIATE');
+    $in_mutation = true;
     try {
         if ($active_driver === 'mysql') {
             $stmt = $conn->prepare("SELECT * FROM camps WHERE id = ? FOR UPDATE");
             $stmt->execute([$id]);
             $camp = parse_camp($stmt->fetch(PDO::FETCH_ASSOC));
         } else {
-            $camp = load_camp($id);
+            $camp = load_camp($id, true);
         }
-        if (!$camp) throw new HttpError(404, 'مسابقه یافت نشد.');
+        if (!$camp || (!$allowDeleted && !empty($camp['deletedAt']))) throw new HttpError(404, 'مسابقه یافت نشد.');
         if (!$allowLocked && $camp['locked']) throw new HttpError(403, 'این مسابقه قفل شده است.');
         $result = $fn($camp) ?: [];
         if (!empty($result['changes']) && !empty($result['audit'])) {
@@ -573,13 +660,14 @@ function mutate_camp($id, $allowLocked, callable $fn) {
             $result['changes']['auditLog'] = array_slice($log, -AUDIT_LIMIT);
         }
         if (!empty($result['changes'])) {
-            save_camp_changes($id, $result['changes']);
-            $camp = array_merge($camp, $result['changes']);
+            $camp = array_merge($camp, save_camp_changes($id, $result['changes']));
         }
         if ($active_driver === 'mysql') $conn->commit(); else $conn->exec('COMMIT');
+        $in_mutation = false;
         $result['camp'] = $camp;
         return $result;
     } catch (Throwable $e) {
+        $in_mutation = false;
         if ($active_driver === 'mysql') { if ($conn->inTransaction()) $conn->rollBack(); }
         else { try { $conn->exec('ROLLBACK'); } catch (Throwable $ignored) {} }
         throw $e;
@@ -760,6 +848,107 @@ function now_ms() {
 }
 
 // ---------------------------------------------------------------------------
+// Trash and backups
+// ---------------------------------------------------------------------------
+const BACKUP_FORMAT = 'sim-camp-backup';
+
+// Camps deleted more than TRASH_DAYS ago are removed for good (checked at most once an hour).
+function purge_expired_trash() {
+    global $conn;
+    $last = (int)get_setting('trash_purged_at');
+    if (time() - $last < 3600) return;
+    set_setting('trash_purged_at', (string)time());
+    $limit = now_ms() - TRASH_DAYS * 86400000;
+    $stmt = $conn->prepare("SELECT id FROM camps WHERE deletedAt IS NOT NULL AND deletedAt > 0 AND deletedAt < ?");
+    $stmt->execute([$limit]);
+    foreach ($stmt->fetchAll(PDO::FETCH_COLUMN) as $id) purge_camp($id);
+}
+
+function purge_camp($id) {
+    global $conn;
+    $conn->prepare("DELETE FROM camps WHERE id = ?")->execute([$id]);
+    $conn->prepare("DELETE FROM settings WHERE `key` = ?")->execute(['admin_pic_' . $id]);
+}
+
+// One camp in the backup format shared with the Node edition (scores inside the teams).
+function export_camp($id) {
+    $c = load_camp($id, true);
+    if (!$c) return null;
+    unset($c['deletedAt']);
+    $c['teams'] = teams_for_json($c['teams']);
+    $c['closedStages'] = as_map($c['closedStages']);
+    $c['stageTieredResults'] = as_map($c['stageTieredResults']);
+    $c['locked'] = $c['locked'] ? 1 : 0;
+    $pic = get_setting('admin_pic_' . $id);
+    if ($pic) $c['adminProfilePic'] = $pic;
+    return $c;
+}
+
+function build_backup($ids, $includeSettings) {
+    $camps = [];
+    foreach ($ids as $id) { $c = export_camp($id); if ($c) $camps[] = $c; }
+    $settings = [];
+    if ($includeSettings) { $logo = get_setting('systemLogo'); if ($logo) $settings['systemLogo'] = $logo; }
+    $names = [];
+    collect_media_names([$camps, $settings], $names);
+    $media = [];
+    foreach (array_keys($names) as $name) { $bytes = media_get($name); if ($bytes !== null) $media[$name] = base64_encode($bytes); }
+    return ['format' => BACKUP_FORMAT, 'version' => 1, 'source' => 'php', 'exportedAt' => gmdate('c'), 'camps' => $camps, 'settings' => (object)$settings, 'media' => (object)$media];
+}
+
+function send_backup($backup, $name) {
+    header('Content-Disposition: attachment; filename="' . $name . '-' . gmdate('Y-m-d-H-i-s') . '.json"');
+    header('Cache-Control: no-store');
+    out($backup);
+}
+
+function all_camp_ids() {
+    global $conn;
+    return $conn->query("SELECT id FROM camps ORDER BY id")->fetchAll(PDO::FETCH_COLUMN);
+}
+
+// Restores camps from a backup file; existing camps are never overwritten.
+function import_backup($b) {
+    if (($b['format'] ?? null) !== BACKUP_FORMAT || !is_array($b['camps'] ?? null)) throw new HttpError(400, 'این فایل، فایل پشتیبان سیم‌کمپ نیست.');
+    $mediaCount = 0;
+    foreach ((is_array($b['media'] ?? null) ? $b['media'] : []) as $name => $data) {
+        if (!preg_match(MEDIA_NAME_RE, (string)$name) || !is_string($data)) continue;
+        $bytes = base64_decode($data, true);
+        if ($bytes === false || substr(hash('sha256', $bytes), 0, 32) !== substr($name, 0, 32)) continue; // corrupted
+        media_put($name, $bytes);
+        $mediaCount++;
+    }
+    $imported = [];
+    $foreign = false;
+    foreach ($b['camps'] as $raw) {
+        if (!is_array($raw) || !is_array($raw['teams'] ?? null)) continue;
+        $c = parse_camp(array_merge(['fieldJudgingMode' => '', 'campType' => '', 'numLang' => '', 'dir' => ''], $raw));
+        $secrets = array_filter(array_merge([$c['password'] ?? ''], array_map(function ($u) { return $u['password'] ?? ''; }, $c['users'])));
+        foreach ($secrets as $h) if (strpos((string)$h, 'scrypt$') === 0) $foreign = true;
+        $orig = (string)($raw['id'] ?? '');
+        $id = preg_match(CAMP_ID_RE, $orig) ? $orig : new_random_camp_id();
+        for ($i = 0; ; $i++) {
+            try { insert_new_camp($id); break; }
+            catch (HttpError $e) {
+                if ($e->status !== 409 || $i > 5) throw $e;
+                $id = substr($orig !== '' ? $orig : 'camp', 0, 50) . '-' . bin2hex(random_bytes(3));
+            }
+        }
+        $fields = array_intersect_key($c, array_flip(CAMP_COLUMNS));
+        unset($fields['deletedAt']);
+        save_camp_changes($id, $fields);
+        if (!empty($raw['adminProfilePic']) && is_string($raw['adminProfilePic'])) set_setting('admin_pic_' . $id, externalize($raw['adminProfilePic']));
+        $imported[] = ['id' => $id, 'originalId' => $orig !== '' ? $orig : null, 'title' => $c['title'] ?? ''];
+    }
+    if (is_array($b['settings'] ?? null) && is_string($b['settings']['systemLogo'] ?? null) && $b['settings']['systemLogo'] !== '' && !get_setting('systemLogo')) {
+        set_setting('systemLogo', externalize($b['settings']['systemLogo']));
+    }
+    return ['success' => true, 'imported' => $imported, 'media' => $mediaCount, 'foreignPasswords' => $foreign];
+}
+
+if ($isCli) return; // backup.php: functions only
+
+// ---------------------------------------------------------------------------
 // Routes
 // ---------------------------------------------------------------------------
 try {
@@ -782,12 +971,17 @@ try {
         ], $dbOk ? 200 : 503);
 
     case 'settings':
-        if ($method === 'GET') out(['systemLogo' => get_setting('systemLogo')]);
+        if ($method === 'GET') {
+            $logo = get_setting('systemLogo');
+            if (is_string($logo) && strncmp($logo, 'data:image/', 11) === 0) { $logo = externalize($logo); set_setting('systemLogo', $logo); }
+            out(['systemLogo' => $logo]);
+        }
         require_superadmin();
         if (($data['key'] ?? '') !== 'systemLogo') throw new HttpError(400, 'کلید تنظیمات مجاز نیست.');
         if (!is_string($data['value'] ?? null) || strlen($data['value']) > 2000000) throw new HttpError(400, 'مقدار نامعتبر است.');
-        set_setting('systemLogo', $data['value']);
-        out(['success' => true]);
+        $stored = externalize($data['value']);
+        set_setting('systemLogo', $stored);
+        out(['success' => true, 'value' => $stored]);
 
     case 'superadmin_login':
         $secret = superadmin_secret();
@@ -800,13 +994,65 @@ try {
 
     case 'superadmin_camps':
         require_superadmin();
-        $rows = $conn->query("SELECT id, orgName, title, locked, archived, campType FROM camps ORDER BY id DESC")->fetchAll(PDO::FETCH_ASSOC);
-        foreach ($rows as &$c) {
+        purge_expired_trash();
+        $rows = $conn->query("SELECT id, orgName, title, locked, archived, campType, deletedAt FROM camps ORDER BY id DESC")->fetchAll(PDO::FETCH_ASSOC);
+        $camps = [];
+        $trash = 0;
+        foreach ($rows as $c) {
+            if (!empty($c['deletedAt'])) { $trash++; continue; }
+            unset($c['deletedAt']);
             $c['locked'] = !empty($c['locked']);
             $c['archived'] = !empty($c['archived']);
+            $camps[] = $c;
         }
-        unset($c);
-        out(['success' => true, 'camps' => $rows]);
+        out(['success' => true, 'camps' => $camps, 'trashCount' => $trash]);
+
+    case 'superadmin_trash':
+        require_superadmin();
+        purge_expired_trash();
+        $limit = now_ms() - TRASH_DAYS * 86400000;
+        $stmt = $conn->prepare("SELECT id, orgName, title, campType, deletedAt FROM camps WHERE deletedAt IS NOT NULL AND deletedAt >= ? ORDER BY deletedAt DESC");
+        $stmt->execute([$limit]);
+        $camps = array_map(function ($c) {
+            $c['deletedAt'] = (int)$c['deletedAt'];
+            $c['orgName'] = $c['orgName'] ?? '';
+            $c['title'] = $c['title'] ?? '';
+            $c['purgeAt'] = $c['deletedAt'] + TRASH_DAYS * 86400000;
+            return $c;
+        }, $stmt->fetchAll(PDO::FETCH_ASSOC));
+        out(['success' => true, 'camps' => $camps, 'trashDays' => TRASH_DAYS]);
+
+    case 'superadmin_camp_restore':
+        require_superadmin();
+        mutate_camp($_GET['id'] ?? '', true, function ($camp) {
+            if (empty($camp['deletedAt'])) throw new HttpError(400, 'این مسابقه در سطل زباله نیست.');
+            return ['changes' => ['deletedAt' => null]];
+        }, true);
+        out(['success' => true]);
+
+    case 'superadmin_camp_purge':
+        require_superadmin();
+        $id = require_id($_GET['id'] ?? '');
+        $camp = load_camp($id, true);
+        if (!$camp) throw new HttpError(404, 'مسابقه یافت نشد.');
+        if (empty($camp['deletedAt'])) throw new HttpError(400, 'فقط مسابقه‌های داخل سطل زباله را می‌توان برای همیشه حذف کرد.');
+        purge_camp($id);
+        out(['success' => true]);
+
+    case 'superadmin_camp_export':
+        require_superadmin();
+        $id = require_id($_GET['id'] ?? '');
+        $backup = build_backup([$id], false);
+        if (!$backup['camps']) throw new HttpError(404, 'مسابقه یافت نشد.');
+        send_backup($backup, 'sim-camp-' . $id);
+
+    case 'superadmin_backup':
+        require_superadmin();
+        send_backup(build_backup(all_camp_ids(), true), 'sim-camp-backup');
+
+    case 'superadmin_import':
+        require_superadmin();
+        out(import_backup($data));
 
     case 'superadmin_camp':
         require_superadmin();
@@ -910,7 +1156,14 @@ try {
         $id = require_id($_GET['id'] ?? '', 'شناسه مسابقه');
         $camp = load_camp($id);
         if (!$camp) throw new HttpError(404, 'مسابقه یافت نشد');
-        out(public_state($camp));
+        // Unchanged data costs a "304 Not Modified" without a body.
+        $json = json_encode(public_state($camp), JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        $etag = '"' . sha1($json) . '"';
+        header('Cache-Control: no-cache');
+        header('ETag: ' . $etag);
+        if (trim($_SERVER['HTTP_IF_NONE_MATCH'] ?? '') === $etag) { http_response_code(304); exit; }
+        echo $json;
+        exit;
 
     case 'update_camp':
         if ($method !== 'POST') throw new HttpError(405, 'Method not allowed');
@@ -1137,6 +1390,7 @@ try {
     case 'user_profile_pic':
         $pic = is_string($data['profilePic'] ?? null) ? $data['profilePic'] : '';
         if (strlen($pic) > 500000) throw new HttpError(413, 'حجم عکس پروفایل بیش از حد مجاز است.');
+        $pic = externalize($pic);
         mutate_camp($data['campId'] ?? ($_GET['id'] ?? ''), true, function ($camp) use ($pic) {
             $me = require_camp_user($camp);
             $users = $camp['users'];
@@ -1156,16 +1410,17 @@ try {
         require_superadmin();
         $id = trim((string)($_GET['id'] ?? ''));
         if (!preg_match(CAMP_ID_RE, $id)) out(['success' => true, 'available' => false, 'reason' => 'invalid', 'message' => CAMP_ID_HELP]);
-        $taken = (bool)load_camp($id);
-        out(['success' => true, 'available' => !$taken, 'reason' => $taken ? 'taken' : null, 'message' => $taken ? 'این لینک قبلاً برای مسابقه دیگری استفاده شده است.' : '']);
+        $existing = load_camp($id, true);
+        if (!$existing) out(['success' => true, 'available' => true, 'reason' => null, 'message' => '']);
+        $inTrash = !empty($existing['deletedAt']);
+        out(['success' => true, 'available' => false, 'reason' => $inTrash ? 'trash' : 'taken',
+            'message' => $inTrash ? 'این لینک متعلق به مسابقه‌ای در سطل زباله است.' : 'این لینک قبلاً برای مسابقه دیگری استفاده شده است.']);
 
+    // Deleting moves the camp to the trash; it can be restored for TRASH_DAYS days.
     case 'superadmin_camp_delete':
         require_superadmin();
-        $id = require_id($_GET['id'] ?? '');
-        if (!load_camp($id)) throw new HttpError(404, 'مسابقه یافت نشد.');
-        $conn->prepare("DELETE FROM camps WHERE id = ?")->execute([$id]);
-        $conn->prepare("DELETE FROM settings WHERE `key` = ?")->execute(['admin_pic_' . $id]);
-        out(['success' => true]);
+        mutate_camp($_GET['id'] ?? '', true, function () { return ['changes' => ['deletedAt' => now_ms()]]; });
+        out(['success' => true, 'trashDays' => TRASH_DAYS]);
 
     case 'superadmin_camp_duplicate':
         require_superadmin();

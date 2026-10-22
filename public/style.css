@@ -2246,3 +2246,10 @@ body.ui-idle .conn-status.conn-ok { opacity: 0; pointer-events: none; }
 .custom-id-status { font-size: 12px; margin-bottom: 15px; opacity: 0.9; line-height: 1.7; word-break: break-all; }
 .custom-id-status.ok { color: var(--tx-green); font-weight: 700; }
 .custom-id-status.bad { color: var(--danger-color); font-weight: 700; }
+
+/* Superadmin: trash and backups */
+.count-badge { display: inline-block; min-width: 20px; padding: 0 6px; border-radius: 10px; background: var(--danger-color); color: #fff; font-size: 12px; line-height: 20px; text-align: center; }
+.trash-row { display: flex; gap: 12px; justify-content: space-between; align-items: center; flex-wrap: wrap; padding: 12px 0; border-bottom: 1px solid var(--glass-border); }
+.trash-info { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.trash-info .manage-note { margin: 0; }
+.manage-row button i { width: 16px; height: 16px; vertical-align: middle; }

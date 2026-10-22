@@ -130,7 +130,8 @@ function ensure_database_schema($conn, $active_driver) {
                 'archived' => 'TINYINT DEFAULT 0',
                 'auditLog' => 'LONGTEXT',
                 'announcement' => 'TEXT',
-                'activeStageId' => 'VARCHAR(64)'
+                'activeStageId' => 'VARCHAR(64)',
+                'deletedAt' => 'BIGINT NULL'
             ];
             foreach ($columns_to_check as $col => $type) {
                 try {
@@ -188,7 +189,8 @@ function ensure_database_schema($conn, $active_driver) {
                 'archived' => 'INTEGER DEFAULT 0',
                 'auditLog' => 'TEXT',
                 'announcement' => 'TEXT',
-                'activeStageId' => 'TEXT'
+                'activeStageId' => 'TEXT',
+                'deletedAt' => 'INTEGER'
             ];
             foreach ($sqlite_cols as $col => $type) {
                 try {

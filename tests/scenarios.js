@@ -342,4 +342,113 @@ export function registerScenarios(ctx) {
         assert.equal(d.json.campId, 'winter-1405');
         assert.equal((await call('POST', '/superadmin/camps/summer-1405/duplicate', { customId: 'winter-1405' }, saToken)).status, 409);
     });
+
+    // ---- storage, trash and backups ------------------------------------------------------
+    const PNG = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
+    let mediaCampId;
+
+    test('images are stored as files and are not part of the polled data', async () => {
+        const r = await call('POST', '/setup', {
+            orgName: 'Media', title: 'Images', password: 'oppass', logo: PNG,
+            teams: [{ id: 't_1', name: 'A', image: PNG, happyImage: PNG }, { id: 't_2', name: 'B' }],
+            stages: [{ id: 's_1', name: 'S' }],
+            users: [{ id: 'u_r', username: 'pic', password: 'picpass', role: 'referee', profilePic: PNG }]
+        }, saToken);
+        assert.equal(r.json.success, true);
+        mediaCampId = r.json.campId;
+        const ref = (await call('POST', '/login', { id: mediaCampId, username: 'pic', password: 'picpass' })).json.token;
+        assert.equal((await call('POST', `/api/instant?id=${mediaCampId}`, { teamId: 't_1', delta: 3 }, ref)).json.success, true);
+        const poll = await call('GET', `/api?action=poll&id=${mediaCampId}`);
+        assert.ok(!poll.text.includes('base64'), 'no embedded images in poll');
+        assert.match(poll.json.logo, ctx.mediaRe);
+        assert.equal(poll.json.teams[0].image, poll.json.logo); // same picture stored once
+        assert.match(poll.json.teams[0].scoreLogs[0].user.profilePic, ctx.mediaRe);
+        const img = await ctx.raw(poll.json.logo);
+        assert.equal(img.status, 200);
+        assert.match(img.headers.get('content-type'), /^image\/png/);
+        assert.match(img.headers.get('cache-control') || '', /immutable/);
+        assert.equal(Buffer.from(await img.arrayBuffer()).length, 70);
+        assert.equal((await ctx.raw(poll.json.logo.replace(/[a-f0-9]{32}/, '0'.repeat(32)))).status, 404);
+        const pic = await call('POST', '/api/user/profile-pic', { campId: mediaCampId, profilePic: PNG }, ref);
+        assert.match(pic.json.profilePic, ctx.mediaRe);
+    });
+
+    test('unchanged live data answers 304 Not Modified', async () => {
+        const url = `/api?action=poll&id=${mediaCampId}`;
+        const first = await call('GET', url);
+        const r1 = await ctx.raw(ctx.pollUrl ? ctx.pollUrl(mediaCampId) : url);
+        const etag = r1.headers.get('etag');
+        assert.ok(etag, 'poll has an ETag');
+        const again = await ctx.raw(ctx.pollUrl ? ctx.pollUrl(mediaCampId) : url, { headers: { 'If-None-Match': etag } });
+        assert.equal(again.status, 304);
+        const op = await login2(mediaCampId, 'admin', 'oppass');
+        await call('POST', `/api/board?id=${mediaCampId}`, { activeStageId: 's_1' }, op);
+        const changed = await ctx.raw(ctx.pollUrl ? ctx.pollUrl(mediaCampId) : url, { headers: { 'If-None-Match': etag } });
+        assert.equal(changed.status, 200);
+        assert.notEqual(changed.headers.get('etag'), etag);
+        assert.equal(first.status, 200);
+    });
+
+    async function login2(id, username, password) {
+        const r = await call('POST', '/login', { id, username, password });
+        assert.equal(r.json.success, true, `login ${username}`);
+        return r.json.token;
+    }
+
+    test('deleted camps go to the trash and can be restored or removed for good', async () => {
+        const c = await call('POST', '/setup', { orgName: 'T', title: 'Trash me', password: 'oppass', customId: 'trash-test', teams: [{ id: 't_1', name: 'A' }], stages: [{ id: 's_1', name: 'S' }], users: [] }, saToken);
+        assert.equal(c.json.success, true);
+        const id = c.json.campId;
+        assert.equal((await call('POST', `/superadmin/camps/${id}/purge`, {}, saToken)).status, 400); // not in the trash
+        assert.equal((await call('POST', `/superadmin/camps/${id}/delete`, {}, saToken)).json.success, true);
+        assert.equal((await call('GET', `/api?action=poll&id=${id}`)).status, 404);
+        assert.equal((await call('POST', '/login', { id, username: 'admin', password: 'oppass' })).json.success, false);
+        const list = (await call('GET', '/superadmin/camps', undefined, saToken)).json;
+        assert.ok(!list.camps.some(x => x.id === id));
+        assert.ok(list.trashCount >= 1);
+        assert.equal((await call('GET', '/superadmin/trash')).status, 401);
+        const trash = (await call('GET', '/superadmin/trash', undefined, saToken)).json;
+        const item = trash.camps.find(x => x.id === id);
+        assert.ok(item && item.title === 'Trash me' && item.purgeAt > item.deletedAt);
+        assert.equal((await call('GET', `/superadmin/id_available?id=${id}`, undefined, saToken)).json.reason, 'trash');
+        assert.equal((await call('POST', `/superadmin/camps/${id}/restore`, {}, saToken)).json.success, true);
+        assert.equal((await call('GET', `/api?action=poll&id=${id}`)).status, 200);
+        assert.equal((await call('POST', `/superadmin/camps/${id}/restore`, {}, saToken)).status, 400);
+        await call('POST', `/superadmin/camps/${id}/delete`, {}, saToken);
+        assert.equal((await call('POST', `/superadmin/camps/${id}/purge`, {}, saToken)).json.success, true);
+        assert.ok(!(await call('GET', '/superadmin/trash', undefined, saToken)).json.camps.some(x => x.id === id));
+        assert.equal((await call('GET', `/superadmin/id_available?id=${id}`, undefined, saToken)).json.available, true);
+    });
+
+    test('a camp exported to a backup file can be imported again', async () => {
+        assert.equal((await call('GET', `/superadmin/camps/${mediaCampId}/export`)).status, 401);
+        const exp = await call('GET', `/superadmin/camps/${mediaCampId}/export`, undefined, saToken);
+        assert.equal(exp.status, 200);
+        const backup = exp.json;
+        assert.equal(backup.format, 'sim-camp-backup');
+        assert.equal(backup.camps.length, 1);
+        assert.equal(backup.camps[0].teams[0].scoreLogs.length, 1);
+        assert.equal(Object.keys(backup.media).length, 1); // one picture used everywhere
+        const full = await call('GET', '/superadmin/backup', undefined, saToken);
+        assert.ok(full.json.camps.length >= 2);
+        assert.equal((await call('POST', '/superadmin/import', backup)).status, 401);
+        assert.equal((await call('POST', '/superadmin/import', { hello: 1 }, saToken)).status, 400);
+        const imp = await call('POST', '/superadmin/import', backup, saToken);
+        assert.equal(imp.json.success, true);
+        assert.equal(imp.json.imported.length, 1);
+        const newId = imp.json.imported[0].id;
+        assert.notEqual(newId, mediaCampId); // the original link is taken
+        const poll = (await call('GET', `/api?action=poll&id=${newId}`)).json;
+        assert.equal(poll.title, 'Images');
+        assert.equal(poll.teams[0].score, 3);
+        assert.equal((await ctx.raw(poll.logo)).status, 200);
+        assert.equal((await call('POST', '/login', { id: newId, username: 'pic', password: 'picpass' })).json.success, true);
+        // Restoring a deleted camp from the backup keeps its original link.
+        await call('POST', `/superadmin/camps/${newId}/delete`, {}, saToken);
+        await call('POST', `/superadmin/camps/${newId}/purge`, {}, saToken);
+        const copy = JSON.parse(JSON.stringify(backup));
+        copy.camps[0].id = newId;
+        const again = await call('POST', '/superadmin/import', copy, saToken);
+        assert.equal(again.json.imported[0].id, newId);
+    });
 }

@@ -4,7 +4,9 @@ module.exports = {
     apps: [{
         name: 'sim-camp',
         script: 'server.js',
-        instances: 1,            // keep ONE instance: camp locks and live boards live in this process
+        // With Firebase several instances can run side by side (see README, "چند نسخه از سرور"):
+        // set instances: 'max' and exec_mode: 'cluster'. Keep 1 with DB_ADAPTER=memory.
+        instances: 1,
         exec_mode: 'fork',
         autorestart: true,
         max_restarts: 50,

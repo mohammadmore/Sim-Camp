@@ -10,7 +10,7 @@
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <link rel="stylesheet" href="style.css?v=12">
+    <link rel="stylesheet" href="style.css?v=13">
     <title>پنل سوپرادمین - سیمولیشن کمپ</title>    <script src="vendor/lucide-1.61.0.min.js"></script>
     <script src="common.js"></script>
     <script>
@@ -108,6 +108,13 @@
             <button onclick="openGlobalSettings()" class="main-action-btn" style="background: rgba(255, 255, 255, 0.15); color: var(--text-color); border: 1px solid var(--glass-border);" title="تنظیمات کلی سیستم و سوپرادمین">
                 <i data-lucide="settings"></i> <span class="btn-text">تنظیمات</span>
             </button>
+            <button type="button" onclick="openTrash()" class="main-action-btn" style="background: rgba(255, 255, 255, 0.15); color: var(--text-color); border: 1px solid var(--glass-border);" title="مسابقه‌های حذف‌شده (قابل بازگرداندن)">
+                <i data-lucide="trash"></i> <span class="btn-text">سطل زباله</span> <span id="trashCountBadge" class="count-badge" style="display:none"></span>
+            </button>
+            <button type="button" onclick="openBackupMenu()" class="main-action-btn" style="background: rgba(255, 255, 255, 0.15); color: var(--text-color); border: 1px solid var(--glass-border);" title="دانلود فایل پشتیبان یا بازیابی از آن">
+                <i data-lucide="hard-drive-download"></i> <span class="btn-text">پشتیبان‌گیری</span>
+            </button>
+            <input type="file" id="backupFileInput" accept=".json,application/json" style="display:none" onchange="importBackupFile(this)">
             <button type="button" onclick="showSuperadminHelp()" class="main-action-btn" style="background: rgba(255, 255, 255, 0.15); color: var(--text-color); border: 1px solid var(--glass-border);" title="راهنما">
                 <i data-lucide="circle-help"></i> <span class="btn-text">راهنما</span>
             </button>
@@ -806,6 +813,8 @@
             .then(jsonOrThrow)
             .then(data => {
                 allFetchedCamps = data.camps;
+                const badge = document.getElementById('trashCountBadge');
+                if (badge) { badge.textContent = fmtNum(data.trashCount || 0); badge.style.display = data.trashCount ? '' : 'none'; }
                 renderCampsGrid();
             })
             .catch(e => { if (e.status !== 401) window.showToast('دریافت فهرست مسابقات انجام نشد: ' + e.message, 'error'); });
@@ -859,7 +868,8 @@
                         <button onclick="openCampLinks('${camp.id}')" title="لینک‌ها و QR"><i data-lucide="qr-code"></i> لینک‌ها و QR</button>
                         <button onclick="duplicateCamp('${camp.id}')" title="ساخت دوره جدید با همین تیم‌ها، مراحل و کاربران"><i data-lucide="copy"></i> تکثیر</button>
                         ${archiveBtn}
-                        <button onclick="deleteCamp('${camp.id}')" class="camp-delete-btn" title="حذف دائمی مسابقه"><i data-lucide="trash-2"></i> حذف</button>
+                        <button onclick="exportCamp('${camp.id}')" title="دانلود فایل پشتیبان همین مسابقه (با امتیازها و تصاویر)"><i data-lucide="download"></i> خروجی</button>
+                        <button onclick="deleteCamp('${camp.id}')" class="camp-delete-btn" title="انتقال به سطل زباله"><i data-lucide="trash-2"></i> حذف</button>
                         <a href="operator.html?id=${camp.id}" target="_blank" class="icon-btn camp-wide"><i data-lucide="external-link"></i> پنل اپراتور</a>
                         <a href="board.html?id=${camp.id}" target="_blank" class="icon-btn camp-wide"><i data-lucide="monitor"></i> تابلوی زنده</a>
                     </div>
@@ -933,16 +943,126 @@
                 .catch(e => window.showToast('تکثیر انجام نشد: ' + e.message, 'error'));
         }
 
+        // Deleting moves the camp to the trash (restorable for 30 days); the live board and logins stop at once.
         function deleteCamp(id) {
             const camp = campById(id);
             const name = camp.title || 'بدون عنوان';
-            const typed = prompt(`حذف دائمی «${name}»\n\nهمه تیم‌ها، امتیازها، کاربران و تاریخچه این مسابقه برای همیشه پاک می‌شود و قابل بازگشت نیست.\nاگر فقط می‌خواهید از فهرست پنهان شود، «آرشیو» را بزنید.\n\nبرای تأیید، عنوان مسابقه را دقیقاً وارد کنید:`);
-            if (typed === null) return;
-            if (typed.trim() !== name.trim()) return window.showToast('عنوان واردشده مطابقت ندارد؛ مسابقه حذف نشد.', 'error');
+            if (!confirm(`«${name}» به سطل زباله منتقل شود؟\n\nلینک‌های ورود و تابلوی زنده از کار می‌افتند. تا ۳۰ روز می‌توانید آن را از «سطل زباله» بازگردانید؛ بعد از آن برای همیشه پاک می‌شود.`)) return;
             fetch(`api.php?action=superadmin_camp_delete&id=${id}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' })
                 .then(jsonOrThrow)
-                .then(() => { window.showToast(`«${name}» حذف شد.`, 'success'); loadCamps(); })
+                .then(() => {
+                    loadCamps();
+                    window.undoToast(`«${name}» به سطل زباله رفت.`, () => restoreCamp(id, true), 8);
+                })
                 .catch(e => window.showToast('حذف انجام نشد: ' + e.message, 'error'));
+        }
+
+        // ---- Trash ----
+        function trashRow(c) {
+            const days = Math.max(0, Math.ceil((c.purgeAt - Date.now()) / 86400000));
+            const when = new Date(c.deletedAt).toLocaleString('fa-IR');
+            return `<div class="trash-row">
+                <div class="trash-info"><b>${esc(c.title || 'بدون عنوان')}</b>
+                    <span class="manage-note">${esc(c.orgName || '-')} · <span dir="ltr">${esc(c.id)}</span></span>
+                    <span class="manage-note">حذف: ${esc(when)} · پاک‌شدن خودکار تا ${fmtNum(days)} روز دیگر</span></div>
+                <div class="manage-row">
+                    <button type="button" onclick="restoreCamp(${jsArg(c.id)})"><i data-lucide="rotate-ccw"></i> بازگرداندن</button>
+                    <button type="button" class="camp-delete-btn" onclick="purgeCamp(${jsArg(c.id)}, ${jsArg(c.title || '')})"><i data-lucide="x-circle"></i> حذف دائمی</button>
+                </div></div>`;
+        }
+
+        function openTrash() {
+            fetch('api.php?action=superadmin_trash').then(jsonOrThrow).then(data => {
+                const body = data.camps.length
+                    ? `<p class="manage-note">مسابقه‌های حذف‌شده ${fmtNum(data.trashDays)} روز اینجا می‌مانند و بعد خودکار پاک می‌شوند.</p>` + data.camps.map(trashRow).join('')
+                    : '<div class="empty-state"><span class="empty-icon">🗑️</span>سطل زباله خالی است.</div>';
+                Help.show('سطل زباله', body);
+                if (typeof refreshIcons === 'function') refreshIcons();
+            }).catch(e => window.showToast('دریافت سطل زباله انجام نشد: ' + e.message, 'error'));
+        }
+
+        function restoreCamp(id, quiet) {
+            fetch(`api.php?action=superadmin_camp_restore&id=${encodeURIComponent(id)}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' })
+                .then(jsonOrThrow)
+                .then(() => {
+                    window.showToast(quiet ? 'حذف لغو شد.' : 'مسابقه بازگردانده شد.', 'success');
+                    loadCamps();
+                    if (!quiet) openTrash();
+                })
+                .catch(e => window.showToast('بازگرداندن انجام نشد: ' + e.message, 'error'));
+        }
+
+        function purgeCamp(id, title) {
+            const typed = prompt(`حذف دائمی «${title || id}»\n\nهمه تیم‌ها، امتیازها، کاربران و تاریخچه برای همیشه پاک می‌شود و قابل بازگشت نیست (مگر از فایل پشتیبان).\n\nبرای تأیید، کلمه «حذف» را بنویسید:`);
+            if (typed === null) return;
+            if (typed.trim() !== 'حذف') return window.showToast('تأیید نشد؛ مسابقه حذف نشد.', 'error');
+            fetch(`api.php?action=superadmin_camp_purge&id=${encodeURIComponent(id)}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' })
+                .then(jsonOrThrow)
+                .then(() => { window.showToast('مسابقه برای همیشه حذف شد.', 'success'); loadCamps(); openTrash(); })
+                .catch(e => window.showToast('حذف انجام نشد: ' + e.message, 'error'));
+        }
+
+        // ---- Backups (JSON files that both the Node and the cPanel edition can restore) ----
+        function downloadBlob(blob, filename) {
+            const a = document.createElement('a');
+            a.href = URL.createObjectURL(blob);
+            a.download = filename;
+            document.body.appendChild(a);
+            a.click();
+            setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
+        }
+
+        function fetchBackup(url, fallbackName) {
+            window.showToast('در حال آماده‌سازی فایل پشتیبان…', 'info');
+            return fetch(url).then(res => {
+                if (!res.ok) return jsonOrThrow(res);
+                const m = /filename="([^"]+)"/.exec(res.headers.get('Content-Disposition') || '');
+                return res.blob().then(b => { downloadBlob(b, m ? m[1] : fallbackName); window.showToast('فایل پشتیبان دانلود شد.', 'success'); });
+            }).catch(e => window.showToast('پشتیبان‌گیری انجام نشد: ' + e.message, 'error'));
+        }
+
+        function exportCamp(id) {
+            fetchBackup(`api.php?action=superadmin_camp_export&id=${encodeURIComponent(id)}`, `sim-camp-${id}.json`);
+        }
+
+        function openBackupMenu() {
+            Help.show('پشتیبان‌گیری و بازیابی', `
+                <p>فایل پشتیبان شامل همه مسابقه‌ها (حتی داخل سطل زباله)، امتیازها، کاربران و تصاویر است و در هر دو نسخه (Node و cPanel) قابل بازیابی است.</p>
+                <div class="manage-row">
+                    <button type="button" onclick="fetchBackup('api.php?action=superadmin_backup', 'sim-camp-backup.json')"><i data-lucide="download"></i> دانلود پشتیبان کامل</button>
+                    <button type="button" onclick="document.getElementById('backupFileInput').click()"><i data-lucide="upload"></i> بازیابی از فایل پشتیبان</button>
+                </div>
+                <p class="manage-note">بازیابی هیچ مسابقه موجودی را بازنویسی نمی‌کند: اگر لینک یک مسابقه از قبل وجود داشته باشد، با لینک جدید ساخته می‌شود.</p>
+                <p class="manage-note">برای پشتیبان‌گیری خودکار روزانه، راهنمای README (بخش «پشتیبان‌گیری») را ببینید.</p>`);
+            if (typeof refreshIcons === 'function') refreshIcons();
+        }
+
+        function importBackupFile(input) {
+            const file = input.files && input.files[0];
+            input.value = '';
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = () => {
+                let backup;
+                try { backup = JSON.parse(reader.result); } catch (e) { return window.showToast('فایل انتخاب‌شده JSON معتبر نیست.', 'error'); }
+                if (!backup || backup.format !== 'sim-camp-backup') return window.showToast('این فایل، فایل پشتیبان سیم‌کمپ نیست.', 'error');
+                const n = Array.isArray(backup.camps) ? backup.camps.length : 0;
+                if (!confirm(`${fmtNum(n)} مسابقه از این فایل بازیابی شود؟`)) return;
+                window.showToast('در حال بازیابی…', 'info');
+                fetch('api.php?action=superadmin_import', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: reader.result })
+                    .then(jsonOrThrow)
+                    .then(r => {
+                        const renamed = r.imported.filter(x => x.originalId && x.originalId !== x.id);
+                        let html = `<p>${fmtNum(r.imported.length)} مسابقه و ${fmtNum(r.media)} تصویر بازیابی شد.</p>`;
+                        if (renamed.length) html += '<p>این مسابقه‌ها چون لینکشان از قبل وجود داشت، با لینک جدید ساخته شدند:</p><ul>' +
+                            renamed.map(x => `<li>${esc(x.title || x.originalId)}: <span dir="ltr">${esc(x.originalId)} → ${esc(x.id)}</span></li>`).join('') + '</ul>';
+                        if (r.foreignPasswords) html += '<p><b>توجه:</b> این فایل از نسخه دیگر برنامه (Node / cPanel) است و رمزهای عبور آن اینجا قابل استفاده نیست. از «ویرایش» هر مسابقه برای اپراتور و کاربران رمز جدید تعیین کنید.</p>';
+                        Help.show('بازیابی انجام شد', html);
+                        loadCamps();
+                    })
+                    .catch(e => window.showToast('بازیابی انجام نشد: ' + (e.status === 413 ? 'حجم فایل بیش از حد مجاز سرور است.' : e.message), 'error'));
+            };
+            reader.readAsText(file);
         }
 
         function openCampLinks(id) {
@@ -981,7 +1101,8 @@
                 <li><b>لینک‌ها و QR:</b> لینک ورود داوران و تابلوی زنده را کپی کنید یا QR را برای اسکن نشان دهید.</li>
                 <li><b>قفل:</b> ثبت امتیاز را متوقف می‌کند (اپراتور هم می‌تواند با «پایان مسابقه» قفل کند؛ باز کردن فقط از اینجا).</li>
                 <li><b>تکثیر:</b> برای دوره بعدی، همان تیم‌ها، مراحل و کاربران با امتیاز صفر ساخته می‌شوند.</li>
-                <li><b>آرشیو</b> مسابقه را پنهان می‌کند؛ <b>حذف</b> برای همیشه پاک می‌کند.</li>
+                <li><b>آرشیو</b> مسابقه را پنهان می‌کند؛ <b>حذف</b> آن را به <b>سطل زباله</b> می‌برد که تا ۳۰ روز قابل بازگرداندن است.</li>
+                <li><b>خروجی / پشتیبان‌گیری:</b> فایل پشتیبان یک مسابقه یا همه مسابقه‌ها (با امتیازها و تصاویر) را دانلود کنید و هر زمان از «بازیابی از فایل پشتیبان» برگردانید.</li>
                 <li><b>تنظیمات:</b> لوگوی سیستم و تغییر رمز سوپرادمین.</li>
             </ul>`;
         function showSuperadminHelp() { Help.show('راهنمای پنل سوپرادمین', SUPERADMIN_HELP); }

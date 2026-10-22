@@ -1,8 +1,9 @@
 // Service worker: keeps the app shell available offline. API calls are never cached.
-const CACHE = 'simcamp-shell-v1';
+const CACHE = 'simcamp-shell-v2';
+const MEDIA_CACHE = 'simcamp-media-v1';
 const SHELL = [
     './', 'operator.html', 'board.html', 'superadmin.html', 'results.html',
-    'style.css?v=12', 'common.js', 'tooltip.js', 'validateRealTime.js?v=5',
+    'style.css?v=13', 'common.js', 'tooltip.js', 'validateRealTime.js?v=5',
     'favicon.svg', 'favicon.png', 'icon-192.png', 'manifest.webmanifest',
     'vendor/lucide-1.61.0.min.js', 'vendor/canvas-confetti-1.9.4.js', 'vendor/html2canvas-1.4.1.min.js',
     'vendor/qrcode-generator-1.4.4.js', 'vendor/vazirmatn/Vazirmatn-font-face.css',
@@ -14,7 +15,7 @@ self.addEventListener('install', event => {
 });
 
 self.addEventListener('activate', event => {
-    event.waitUntil(caches.keys().then(keys => Promise.all(keys.filter(k => k !== CACHE).map(k => caches.delete(k)))).then(() => self.clients.claim()));
+    event.waitUntil(caches.keys().then(keys => Promise.all(keys.filter(k => k !== CACHE && k !== MEDIA_CACHE).map(k => caches.delete(k)))).then(() => self.clients.claim()));
 });
 
 function isApi(url) {
@@ -26,7 +27,16 @@ self.addEventListener('fetch', event => {
     const req = event.request;
     if (req.method !== 'GET') return;
     const url = new URL(req.url);
-    if (url.origin !== self.location.origin || isApi(url)) return;
+    if (url.origin !== self.location.origin) return;
+    // Uploaded images never change (the name is the hash of the content): cache first.
+    if (/\/media\/[a-f0-9]{32}\.\w+$/.test(url.pathname) || /\/media\.php$/.test(url.pathname)) {
+        event.respondWith(caches.open(MEDIA_CACHE).then(c => c.match(req).then(hit => hit || fetch(req).then(res => {
+            if (res.ok) c.put(req, res.clone());
+            return res;
+        }))));
+        return;
+    }
+    if (isApi(url)) return;
 
     // Pages: network first (always fresh), cached copy when offline.
     if (req.mode === 'navigate' || req.destination === 'document') {

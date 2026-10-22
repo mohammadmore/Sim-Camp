@@ -10,7 +10,7 @@
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <link rel="stylesheet" href="style.css?v=12">
+    <link rel="stylesheet" href="style.css?v=13">
     <title>پنل اپراتور</title>    <script src="vendor/lucide-1.61.0.min.js"></script>
     <script src="common.js"></script>
     <script>
@@ -1051,12 +1051,23 @@
             return override ? [override] : entries;
         }
 
+        let lastPollEtag = null, unchangedPolls = 0;
         setInterval(() => {
             if (!currentUser || document.hidden) return; // nothing to refresh before login / in a background tab
             fetch(`/api?action=poll&id=${campId}`)
-            .then(res => res.ok ? res.json() : Promise.reject())
+            .then(res => {
+                if (!res.ok) return Promise.reject();
+                // Same version as last time (the server answered "304 Not Modified"): nothing to redraw
+                // (a full redraw still happens every few polls, in case the screen changed locally).
+                const etag = res.headers.get('ETag');
+                if (etag && etag === lastPollEtag && ++unchangedPolls < 5) return null;
+                lastPollEtag = etag;
+                unchangedPolls = 0;
+                return res.json();
+            })
             .then(data => {
             ConnectionStatus.ok();
+            if (!data) return;
             isLocked = data.locked;
             currentTeams = data.teams;
             currentNumLang = data.numLang || 'fa';

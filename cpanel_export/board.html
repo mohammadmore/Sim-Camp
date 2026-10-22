@@ -10,7 +10,7 @@
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <link rel="stylesheet" href="style.css?v=12">
+    <link rel="stylesheet" href="style.css?v=13">
     <title>جدول زنده سیمولیشن کمپ</title>
     <script src="vendor/lucide-1.61.0.min.js"></script>
     <script src="common.js"></script>
@@ -284,15 +284,23 @@
 let lastSeenLogTime = Date.now();
 let isFirstLoad = true;
 
+let lastBoardEtag = null;
+
 function pollBoardState() {
     if (document.hidden) return;
     fetch(`api.php?action=poll&id=${campId}`)
     .then(r => {
         if (r.status === 404) { clearInterval(boardPollTimer); ConnectionStatus.show(false); showBoardMessage('🔍', 'مسابقه‌ای با این لینک پیدا نشد.<br><small>ممکن است حذف شده باشد یا لینک اشتباه باشد.</small>'); return Promise.reject(); }
-        return r.ok ? r.json() : Promise.reject(new Error('http'));
+        if (!r.ok) return Promise.reject(new Error('http'));
+        // Unchanged since the last poll ("304 Not Modified" from the server): nothing to do.
+        const etag = r.headers.get('ETag');
+        if (etag && etag === lastBoardEtag) return null;
+        lastBoardEtag = etag;
+        return r.json();
     })
     .then(state => {
         ConnectionStatus.ok();
+        if (!state) return;
         latestState = state;
         let maxTime = lastSeenLogTime;
         (state.teams || []).forEach(t => {
