@@ -46,7 +46,8 @@
 
     let camp = null, access = '', D = null;
     const N = n => fmtNum(typeof n === 'number' ? r2(n) : n, camp ? camp.numLang : 'fa');
-    const sN = n => (n > 0 ? '+' : n < 0 ? '−' : '') + N(Math.abs(n));
+    // Signed number, isolated left-to-right so the sign stays in front inside RTL text.
+    const sN = n => '\u2066' + (n > 0 ? '+' : n < 0 ? '−' : '') + N(Math.abs(n)) + '\u2069';
     const on = k => !!(camp.features && camp.features[k] === true);
     const shown = k => !camp.display || camp.display[k] !== false;
     const locale = () => (camp && camp.numLang === 'en' ? 'en-GB' : 'fa-IR');
@@ -511,7 +512,7 @@
         const badges = (D.badges[t.id] || []).map(b => `<span class="chip">${b.icon} ${esc(b.label)}</span>`).join('');
         const notes = s.notes.slice(-3).map(l => `<li>💬 ${esc(l.note)} <small>(${esc(l.tag || '')}${l.tag ? ' · ' : ''}${esc(sN(num(l.value)))})</small></li>`);
         (camp.moments || []).filter(m => m.kind === 'moment' && m.teamId === t.id).slice(-2).forEach(m => notes.push(`<li>⭐ ${esc(m.text)}</li>`));
-        const sub = [div ? 'گروه ' + div : '', cap ? 'کاپیتان: ' + cap.name : '', (t.members || []).length ? N(t.members.length) + ' بازیکن' : ''].filter(Boolean).join(' · ');
+        const sub = [div ? (/^گروه/.test(div) ? div : 'گروه ' + div) : '', cap ? 'کاپیتان: ' + cap.name : '', (t.members || []).length ? N(t.members.length) + ' بازیکن' : ''].filter(Boolean).join(' · ');
         const budgetTile = on('budget') && shown('budget') ? `<div><b>${N(num(t.budget))}</b><span>بودجه</span></div>` : `<div><b>${N(s.tags.size)}</b><span>برچسب متفاوت</span></div>`;
         return `<article class="fc ${rank === 1 ? 'gold' : ''}" style="--tc:${esc(safeColor(t.color, '#3b82f6'))}">
             <div class="fc-top">
@@ -523,8 +524,8 @@
             <div class="fc-stats">
                 <div><b>${N(num(t.score))}</b><span>امتیاز</span></div>
                 ${budgetTile}
-                <div><b>${N(s.pos)}</b><span>برچسب مثبت</span></div>
-                <div><b>${N(s.neg)}</b><span>برچسب منفی</span></div>
+                <div><b>${N(s.pos)}</b><span>مثبت 👍</span></div>
+                <div><b>${N(s.neg)}</b><span>منفی 👎</span></div>
             </div>
             ${strengths.length ? `<div class="fc-row"><em>نقطه قوت</em>${strengths.map(x => `<span class="chip good">💪 ${esc(x.name)}</span>`).join('')}</div>` : ''}
             ${weak ? `<div class="fc-row"><em>قابل بهبود</em><span class="chip bad">🎯 ${esc(weak.name)}</span></div>` : ''}
@@ -548,10 +549,10 @@
             const cmp = cmpSkills.length && o.selfAvg !== null ? `<table class="pc-cmp"><thead><tr><th>مهارت</th><th>خودم</th><th>هم‌تیمی‌ها</th><th>فاصله</th></tr></thead><tbody>${cmpSkills.map(s => {
                 const a = o.selfBy[s.id], b = o.peerBy[s.id];
                 const g = a !== undefined && b !== undefined ? r2(a - b) : null;
-                return `<tr><td>${esc(s.name)}</td><td>${a !== undefined ? N(r2(a)) : '—'}</td><td>${b !== undefined ? N(r2(b)) : '—'}</td><td>${g === null ? '—' : (g > 0 ? '▲' : g < 0 ? '▼' : '=') + N(Math.abs(g))}</td></tr>`;
+                return `<tr><td>${esc(s.name)}</td><td>${a !== undefined ? N(r2(a)) : '—'}</td><td>${b !== undefined ? N(r2(b)) : '—'}</td><td>${g === null ? '—' : `<bdi dir="ltr">${g > 0 ? '▲' : g < 0 ? '▼' : '='} ${N(Math.abs(g))}</bdi>`}</td></tr>`;
             }).join('')}</tbody></table>` : '';
             const isMvp = mvp && mvp.member.id === m.id;
-            const crowd = voteTop > 0 && o.mvpVotes === voteTop;
+            const crowd = voteTop > 0 && o.mvpVotes === voteTop && members.filter(x => fb[x.id].mvpVotes === voteTop).length === 1;
             return `<article class="fc ${isMvp || crowd ? 'gold' : ''}" style="--tc:${esc(safeColor(t.color, '#3b82f6'))}">
                 <div class="fc-top">
                     <div class="fc-ovr"><b>${N(pts[m.id] || 0)}</b><small>امتیاز</small></div>
@@ -562,7 +563,7 @@
                 <div class="fc-stats">
                     <div><b>${N(i + 1)}</b><span>رتبه در تیم</span></div>
                     <div><b>${N(o.mvpVotes)}</b><span>رأی MVP</span></div>
-                    <div><b>${o.peerAvg === null ? '—' : N(r2(o.peerAvg))}</b><span>نظر هم‌تیمی‌ها</span></div>
+                    <div><b>${o.peerAvg === null ? '—' : N(r2(o.peerAvg))}</b><span>هم‌تیمی‌ها</span></div>
                     <div><b>${o.selfAvg === null ? '—' : N(r2(o.selfAvg))}</b><span>خودارزیابی</span></div>
                 </div>
                 ${crowd ? '<div class="fc-row"><span class="chip good">👏 محبوب هم‌تیمی‌ها</span></div>' : ''}
@@ -800,14 +801,16 @@
             if (useAsg) {
                 const who = Object.entries(asg).filter(([, a]) => covers(a, t.id, s.id)).map(([u]) => u);
                 const done = who.filter(u => rec.includes(u)).length;
-                const cls = !who.length ? 'flag' : done >= who.length ? 'ok' : done ? 'mid' : '';
-                if (!who.length) gaps++;
-                return `<td class="${cls}" title="${esc('سپرده به: ' + (who.map(u => refName({ username: u })).join('، ') || 'هیچ‌کس') + ' — ثبت: ' + (recNames.join('، ') || 'هیچ'))}">${who.length ? `${N(done)}/${N(who.length)}` : 'بدون داور'}</td>`;
+                const extra = rec.length - done; // free referees / head referee without an assignment
+                const cls = !who.length ? (rec.length ? 'ok' : 'flag') : done >= who.length ? 'ok' : done || extra ? 'mid' : '';
+                if (!who.length && !rec.length) gaps++;
+                const label = who.length ? `${N(done)}/${N(who.length)}${extra > 0 ? ` <small>+${N(extra)}</small>` : ''}` : rec.length ? `${N(rec.length)} داور <small>(آزاد)</small>` : 'بدون داور';
+                return `<td class="${cls}" title="${esc('سپرده به: ' + (who.map(u => refName({ username: u })).join('، ') || 'هیچ‌کس') + ' — ثبت: ' + (recNames.join('، ') || 'هیچ'))}">${label}</td>`;
             }
             if (!rec.length) gaps++;
             return `<td class="${rec.length ? 'ok' : (camp.closedStages || {})[s.id] ? 'flag' : ''}" title="${esc(recNames.join('، '))}">${rec.length ? N(rec.length) + ' داور' : '—'}</td>`;
         }).join('')}</tr>`).join('');
-        const hint = useAsg ? 'هر خانه: «نمره ثبت‌شده / داورهای سپرده‌شده». قرمز = هیچ داوری به این تیم و مرحله سپرده نشده؛ زرد = بخشی از داورها هنوز نمره نداده‌اند.' : 'تقسیم داورها روشن نیست؛ هر خانه تعداد داورهایی است که برای آن تیم و مرحله نمره ثبت کرده‌اند (قرمز = مرحله بسته شده ولی نمره داوری ندارد).';
+        const hint = useAsg ? 'هر خانه: «نمره ثبت‌شده / داورهای سپرده‌شده». «+» = داورهای بدون تقسیم (مثل سرداور) که نمره داده‌اند. قرمز = نه داوری سپرده شده و نه نمره‌ای ثبت شده؛ زرد = بخشی از داورهای سپرده‌شده هنوز نمره نداده‌اند.' : 'تقسیم داورها روشن نیست؛ هر خانه تعداد داورهایی است که برای آن تیم و مرحله نمره ثبت کرده‌اند (قرمز = مرحله بسته شده ولی نمره داوری ندارد).';
         let idle = '';
         if (useAsg) {
             const free = (camp.users || []).filter(u => u.role === 'referee' && !asg[u.username]).map(u => u.name || u.username);
@@ -954,7 +957,7 @@
             if (a === null || b === null || a === undefined || b === undefined) return '<span class="delta-eq">—</span>';
             const d = r2(rankLike ? a - b : b - a);
             if (!d) return '<span class="delta-eq">=</span>';
-            return d > 0 ? `<span class="delta-up">▲ ${N(Math.abs(d))}</span>` : `<span class="delta-down">▼ ${N(Math.abs(d))}</span>`;
+            return d > 0 ? `<bdi dir="ltr" class="delta-up">▲ ${N(Math.abs(d))}</bdi>` : `<bdi dir="ltr" class="delta-down">▼ ${N(Math.abs(d))}</bdi>`;
         };
         const pairs = [];
         (B.teams || []).forEach(tb => { const ta = (A.teams || []).find(x => norm(x.name) === norm(tb.name)); if (ta) pairs.push([ta, tb]); });

@@ -89,7 +89,7 @@
         .an-count { font-size: 13px; color: var(--an-muted); margin-inline-start: auto; }
 
         /* Timeline */
-        .tl { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+        .tl { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; max-height: min(1100px, 78vh); overflow-y: auto; overscroll-behavior: contain; padding-inline-end: 4px; }
         .tl-item { display: grid; grid-template-columns: 54px 34px minmax(0, 1fr) auto; gap: 8px; align-items: start; padding: 10px 12px;
             border-radius: 12px; background: var(--an-surface-2); border: 1px solid var(--an-line); border-inline-start: 5px solid var(--tc, #94a3b8); }
         .tl-time { font-size: 12.5px; color: var(--an-muted); padding-top: 4px; font-variant-numeric: tabular-nums; }
@@ -166,7 +166,8 @@
         .fc-sub { font-size: 13px; opacity: 0.85; }
         .fc-medal { font-size: 30px; line-height: 1; }
         .fc-radar { display: flex; justify-content: center; color: #e2e8f0; }
-        .fc-radar .radar-chart { max-width: 250px; }
+        .fc-radar { padding: 0 34px; }
+        .fc-radar .radar-chart { max-width: 240px; overflow: visible; }
         .fc-stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; text-align: center; border-top: 1px solid rgba(255, 255, 255, 0.2); border-bottom: 1px solid rgba(255, 255, 255, 0.2); padding: 8px 0; }
         .fc-stats b { display: block; font-size: 19px; font-weight: 900; font-variant-numeric: tabular-nums; }
         .fc-stats span { font-size: 11.5px; opacity: 0.85; }
