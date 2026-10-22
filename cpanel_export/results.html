@@ -6,6 +6,7 @@
     <link rel="icon" type="image/svg+xml" href="favicon.svg">
     <link rel="manifest" href="manifest.webmanifest">
     <title>نتایج و تقدیرنامه‌ها</title>
+    <script src="i18n.js" data-scope="public"></script>
     <script>window.SIMCAMP_PHP = true;</script>
     <script src="common.js"></script>
     <script src="features.js"></script>
@@ -114,7 +115,7 @@
             teams.forEach((t, i) => { ranks[t.id] = (i > 0 && t.score === teams[i - 1].score) ? ranks[teams[i - 1].id] : i + 1; });
             const stages = state.stages || [];
             const logo = state.logo ? `<img src="${esc(safeUrl(state.logo))}" alt="">` : '';
-            const today = new Date().toLocaleDateString('fa-IR', { year: 'numeric', month: 'long', day: 'numeric' });
+            const today = new Date().toLocaleDateString(I18N.locale, { year: 'numeric', month: 'long', day: 'numeric' });
             const logsSum = t => (t.scoreLogs || []).reduce((a, l) => a + (l.type !== 'cancelled' ? (parseFloat(l.value) || 0) : 0), 0);
 
             const table = `
@@ -169,7 +170,7 @@
         } else {
             fetch('api.php?action=poll&id=' + campId)
                 .then(r => r.ok ? r.json() : Promise.reject(r.status))
-                .then(data => { state = data; document.title = 'نتایج ' + (data.title || ''); render(); })
+                .then(data => { state = data; I18N.campLang(data.uiLang, data); document.title = `نتایج ${data.title || ''}`; render(); })
                 .catch(() => { document.getElementById('root').innerHTML = '<div class="empty">مسابقه پیدا نشد یا ارتباط با سرور برقرار نیست.</div>'; });
         }
     </script>

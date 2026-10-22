@@ -377,13 +377,19 @@ export function registerFeatureScenarios(ctx) {
         assert.equal((await call('GET', `/api/analysis?id=${campId}&key=${k.json.key}`)).status, 401);
     });
 
-    test('features: notifications reach the camp webhook', async () => {
+    test('features: notifications reach the camp webhook, in the camp language', async () => {
+        // The competition language: fa, en or ar; anything else falls back to Persian.
+        await call('POST', `/api/advanced?id=${campId}`, { uiLang: 'xx' }, op);
+        assert.equal((await poll()).json.uiLang, 'fa');
+        await call('POST', `/api/advanced?id=${campId}`, { uiLang: 'ar' }, op);
+        assert.equal((await poll()).json.uiLang, 'ar');
         hooks.length = 0;
         await call('POST', `/api/finish?id=${campId}`, { announce: true }, op);
         const got = await waitFor(() => hooks.find(h => h.event === 'finish'));
         assert.ok(got, 'webhook received the final results');
         assert.equal(got.campId, campId);
         assert.match(got.text, /Alpha|Beta|Gamma/);
+        assert.match(got.text, /النتائج النهائية/);
     });
 
     test('features: superadmin defaults, templates and duplicate keep the settings', async () => {

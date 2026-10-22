@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Sim-Camp</title>
     <link rel="stylesheet" href="vendor/vazirmatn/Vazirmatn-font-face.css">
+    <script src="i18n.js" data-scope="public"></script>
     <script src="common.js"></script>
     <script src="features.js"></script>
     <style>
@@ -36,14 +37,15 @@
                 return r.json();
             }).then(s => {
                 if (!s) return;
-                document.documentElement.dir = s.dir || 'rtl';
+                I18N.campLang(s.uiLang, s);
+                document.documentElement.dir = I18N.pageDir(s.dir);
                 const showRanks = Feat.shown(s, 'ranks');
                 const teams = showRanks ? [...s.teams].sort((a, b) => b.score - a.score) : [...s.teams];
                 const ranks = Feat.rankMap(s.teams);
                 const N = v => fmtNum(v, s.numLang);
-                document.getElementById('root').innerHTML = `<h1>${esc(s.title || '')}${s.frozen ? ' <small>🙈</small>' : ''}<small>● ${s.uiLang === 'en' ? 'live' : 'زنده'}</small></h1>` +
+                document.getElementById('root').innerHTML = `<h1>${esc(s.title || '')}${s.frozen ? ' <small>🙈</small>' : ''}<small>● زنده</small></h1>` +
                     teams.slice(0, max).map(t => `<div class="row" style="--team:${safeColor(t.color, '#3b82f6')}">${showRanks ? `<span class="r">${N(ranks[t.id])}</span>` : ''}<span class="n">${esc(t.name)}</span><span class="s">${N(t.score)}</span></div>`).join('') +
-                    `<a class="more" href="${esc(appUrl('board.html?id=' + encodeURIComponent(campId)))}" target="_blank" rel="noopener">${s.uiLang === 'en' ? 'Full board' : 'جدول کامل'}</a>`;
+                    `<a class="more" href="${esc(appUrl('board.html?id=' + encodeURIComponent(campId)))}" target="_blank" rel="noopener">جدول کامل</a>`;
             }).catch(() => {});
         }
         if (campId) { load(); setInterval(load, 5000); }

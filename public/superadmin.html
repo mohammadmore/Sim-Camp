@@ -10,8 +10,9 @@
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <link rel="stylesheet" href="style.css?v=13">
-    <title>پنل سوپرادمین - سیمولیشن کمپ</title>    <script src="vendor/lucide-1.61.0.min.js"></script>
+    <link rel="stylesheet" href="style.css?v=14">
+    <title>پنل سوپرادمین - سیمولیشن کمپ</title>    <script src="i18n.js" data-scope="panel"></script>
+    <script src="vendor/lucide-1.61.0.min.js"></script>
     <script src="common.js"></script>
     <script>
         window.AUTH_STORAGE_KEY = 'sa_token';
@@ -622,8 +623,10 @@
                                     }
                                     
                                     let role = 'operator';
-                                    if (roleStr.includes('سرداور') || roleStr.includes('ارشد')) role = 'head_referee';
-                                    else if (roleStr.includes('داور') && !roleStr.includes('ارشد')) role = 'referee';
+                                    // Persian, English or Arabic role names in the sheet.
+                                    const rs = roleStr.toLowerCase();
+                                    if (/سرداور|ارشد|head|chief|senior|رئيس/.test(rs)) role = 'head_referee';
+                                    else if (/داور|referee|judge|حكم|حَكَم/.test(rs)) role = 'referee';
                                     
                                     if (role === 'operator' || role === 'head_referee') hasOp = true;
 
@@ -834,6 +837,7 @@
             .then(jsonOrThrow)
             .then(data => {
                 allFetchedCamps = data.camps;
+                (data.camps || []).forEach(c => I18N.names(c));
                 const badge = document.getElementById('trashCountBadge');
                 if (badge) { badge.textContent = fmtNum(data.trashCount || 0); badge.style.display = data.trashCount ? '' : 'none'; }
                 renderCampsGrid();
@@ -983,7 +987,7 @@
         // ---- Trash ----
         function trashRow(c) {
             const days = Math.max(0, Math.ceil((c.purgeAt - Date.now()) / 86400000));
-            const when = new Date(c.deletedAt).toLocaleString('fa-IR');
+            const when = new Date(c.deletedAt).toLocaleString(I18N.locale);
             return `<div class="trash-row">
                 <div class="trash-info"><b>${esc(c.title || 'بدون عنوان')}</b>
                     <span class="manage-note">${esc(c.orgName || '-')} · <span dir="ltr">${esc(c.id)}</span></span>
@@ -1018,7 +1022,7 @@
         function purgeCamp(id, title) {
             const typed = prompt(`حذف دائمی «${title || id}»\n\nهمه تیم‌ها، امتیازها، کاربران و تاریخچه برای همیشه پاک می‌شود و قابل بازگشت نیست (مگر از فایل پشتیبان).\n\nبرای تأیید، کلمه «حذف» را بنویسید:`);
             if (typed === null) return;
-            if (typed.trim() !== 'حذف') return window.showToast('تأیید نشد؛ مسابقه حذف نشد.', 'error');
+            if (!I18N.typed(typed, 'حذف')) return window.showToast('تأیید نشد؛ مسابقه حذف نشد.', 'error');
             fetch(`/superadmin/camps/${encodeURIComponent(id)}/purge`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' })
                 .then(jsonOrThrow)
                 .then(() => { window.showToast('مسابقه برای همیشه حذف شد.', 'success'); loadCamps(); openTrash(); })

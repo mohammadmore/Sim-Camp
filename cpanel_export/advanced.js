@@ -115,7 +115,7 @@
                 <div class="adv-row"><input type="text" class="adv-bg" dir="ltr" value="${attr(b.background || '')}" placeholder="https://..."><input type="file" accept="image/*" class="adv-file" data-target="adv-bg"></div>
                 <label class="adv-label">رنگ سازمانی</label><input type="color" class="adv-accent" value="${attr(/^#[0-9a-f]{6}$/i.test(b.accent || '') ? b.accent : '#7c3aed')}"><label class="adv-inline"><input type="checkbox" class="adv-accent-on" ${b.accent ? 'checked' : ''}> استفاده از رنگ سازمانی</label>
                 <label class="adv-label">نام اسپانسر / حامی</label><input type="text" class="adv-sponsor" value="${attr(b.sponsor || '')}">
-                <label class="adv-label">زبان تابلو و صفحات عمومی</label><select class="adv-lang"><option value="fa" ${cfg.uiLang !== 'en' ? 'selected' : ''}>فارسی</option><option value="en" ${cfg.uiLang === 'en' ? 'selected' : ''}>English</option></select>
+                <label class="adv-label">زبان مسابقه (تابلو، صفحات عمومی و پیش‌فرض پنل‌ها)</label><select class="adv-lang" translate="no">${[['fa', 'فارسی'], ['en', 'English'], ['ar', 'العربية']].map(([v, n]) => `<option value="${v}" ${(cfg.uiLang || 'fa') === v ? 'selected' : ''}>${n}</option>`).join('')}</select>
              </div>`);
         html += '</div>';
         el.innerHTML = html;

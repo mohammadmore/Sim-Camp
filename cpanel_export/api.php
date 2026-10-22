@@ -1351,7 +1351,7 @@ function parse_extras($c) {
     foreach (['timer', 'ticker', 'judgeMessage', 'ceremony', 'frozen', 'lastChance', 'bracket', 'certificate'] as $k) {
         $c[$k] = is_array($c[$k] ?? null) && $c[$k] ? $c[$k] : null;
     }
-    $c['uiLang'] = ($c['uiLang'] ?? '') === 'en' ? 'en' : 'fa';
+    $c['uiLang'] = in_array($c['uiLang'] ?? '', ['en', 'ar'], true) ? $c['uiLang'] : 'fa';
     if (!array_key_exists('clientKey', $c)) $c['clientKey'] = '';
     if (!array_key_exists('ownerId', $c)) $c['ownerId'] = null;
     foreach ($c['teams'] as &$t) {
@@ -1587,6 +1587,15 @@ function apply_undo($camp, $u) {
 // ---------------------------------------------------------------------------
 $notify_queue = [];
 
+// Message headings in the competition's language (uiLang).
+function notify_heading($camp, $key, $arg = '') {
+    $h = [
+        'stageResults' => ['fa' => 'نتایج مرحله «{0}»:', 'en' => 'Stage results “{0}”:', 'ar' => 'نتائج المرحلة «{0}»:'],
+        'finalResults' => ['fa' => 'نتایج نهایی:', 'en' => 'Final results:', 'ar' => 'النتائج النهائية:'],
+    ][$key];
+    return str_replace('{0}', $arg, $h[$camp['uiLang'] ?? 'fa'] ?? $h['fa']);
+}
+
 function standings_text($camp, $n = 5) {
     $teams = $camp['teams'];
     usort($teams, function ($a, $b) { return num($b['score'] ?? 0) <=> num($a['score'] ?? 0); });
@@ -1767,7 +1776,7 @@ function apply_advanced($camp, $b) {
     if ($has('rounds')) $changes['rounds'] = clean_rounds($b['rounds'], $camp['rounds']);
     if ($has('brand')) $changes['brand'] = clean_brand($b['brand']);
     if ($has('certificate')) $changes['certificate'] = clean_certificate($b['certificate']);
-    if ($has('uiLang')) $changes['uiLang'] = $b['uiLang'] === 'en' ? 'en' : 'fa';
+    if ($has('uiLang')) $changes['uiLang'] = in_array($b['uiLang'], ['en', 'ar'], true) ? $b['uiLang'] : 'fa';
     if ($has('calibrationCases')) $changes['calibration'] = array_merge($camp['calibration'], ['cases' => clean_calibration_cases($b['calibrationCases'], $camp['calibration']['cases'])]);
     if ($has('registrationOpen')) $changes['registration'] = array_merge($camp['registration'], ['open' => !empty($b['registrationOpen'])]);
     if (is_obj($b['teamsExtra'] ?? null) || is_list($b['regeneratePins'] ?? null)) {
@@ -2515,7 +2524,7 @@ try {
         if (!empty($res['payload']['closed'])) {
             $lines = [];
             foreach (array_slice($res['payload']['results'], 0, 5) as $r) $lines[] = $r['rank'] . '. ' . $r['teamName'] . ': ' . $r['assignedScore'];
-            notify_camp($res['camp'], 'stage_close', 'نتایج مرحله «' . stage_name($res['camp'], $stageId) . "»:\n" . implode("\n", $lines));
+            notify_camp($res['camp'], 'stage_close', notify_heading($res['camp'], 'stageResults', stage_name($res['camp'], $stageId)) . "\n" . implode("\n", $lines));
         }
         out(array_merge($res['payload'], ['teams' => public_state($res['camp'], 'member')['teams']]));
 
@@ -2706,7 +2715,7 @@ try {
             if (!empty($data['announce'])) $c['announcement'] = ['active' => true, 'at' => now_ms()];
             return ['changes' => $c, 'audit' => ['user' => $user, 'action' => 'finish', 'details' => []]];
         });
-        notify_camp($res['camp'], 'finish', "نتایج نهایی:\n" . standings_text($res['camp']));
+        notify_camp($res['camp'], 'finish', notify_heading($res['camp'], 'finalResults') . "\n" . standings_text($res['camp']));
         out(['success' => true]);
 
     case 'audit':

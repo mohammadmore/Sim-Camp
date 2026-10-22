@@ -6,8 +6,9 @@
     <link rel="icon" type="image/svg+xml" href="favicon.svg">
     <link rel="manifest" href="manifest.webmanifest">
     <meta name="theme-color" content="#312e81">
-    <link rel="stylesheet" href="style.css?v=13">
+    <link rel="stylesheet" href="style.css?v=14">
     <title>جدول زنده</title>
+    <script src="i18n.js" data-scope="public"></script>
     <script>window.SIMCAMP_PHP = true;</script>
     <script src="common.js"></script>
     <script src="features.js"></script>
@@ -36,7 +37,8 @@
 
         function render() {
             const s = state, N = v => fmtNum(v, s.numLang);
-            document.documentElement.dir = s.dir || 'rtl';
+            I18N.campLang(s.uiLang, s);
+            document.documentElement.dir = I18N.pageDir(s.dir);
             document.title = s.title || 'جدول زنده';
             const showRanks = Feat.shown(s, 'ranks');
             const teams = showRanks ? [...s.teams].sort((a, b) => b.score - a.score) : [...s.teams];

@@ -76,7 +76,7 @@ export function registerFeatureRoutes(app, ctx) {
         if (b.chanceCards !== undefined) changes.chanceCards = cleanChanceCards(b.chanceCards);
         if (b.rounds !== undefined) changes.rounds = cleanRounds(b.rounds, camp.rounds);
         if (b.brand !== undefined) changes.brand = cleanBrand(b.brand);
-        if (b.uiLang !== undefined) changes.uiLang = b.uiLang === 'en' ? 'en' : 'fa';
+        if (b.uiLang !== undefined) changes.uiLang = ['en', 'ar'].includes(b.uiLang) ? b.uiLang : 'fa';
         if (b.certificate !== undefined) changes.certificate = cleanCertificate(b.certificate);
         if (b.calibrationCases !== undefined) changes.calibration = { ...camp.calibration, cases: cleanCalibrationCases(b.calibrationCases, camp.calibration.cases) };
         if (b.registrationOpen !== undefined) changes.registration = { ...camp.registration, open: !!b.registrationOpen };

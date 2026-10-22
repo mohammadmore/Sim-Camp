@@ -263,7 +263,7 @@ button:hover {
 .theme-toggle {
     position: fixed;
     top: 14px;
-    left: 14px;
+    inset-inline-end: 14px;
     width: 44px;
     height: 44px;
     border-radius: 50%;
@@ -964,7 +964,7 @@ input[type=number] {
         height: 38px;
         font-size: 18px;
         top: 10px;
-        left: 10px;
+        inset-inline-end: 10px;
     }
 }
 
@@ -1011,8 +1011,8 @@ input[type=number] {
     border-radius: 12px;
     box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
     z-index: 4000;
-    text-align: right;
-    direction: rtl;
+    text-align: start;
+    
     font-size: 14px;
     line-height: 1.8;
     text-shadow: none;
@@ -2035,7 +2035,7 @@ body.ui-idle .conn-status.conn-ok { opacity: 0; pointer-events: none; }
 .board-controls {
     position: fixed;
     top: 14px;
-    left: 66px;
+    inset-inline-end: 66px;
     z-index: 900;
     display: flex;
     gap: 8px;
@@ -2047,7 +2047,7 @@ body.ui-idle .conn-status.conn-ok { opacity: 0; pointer-events: none; }
     background: var(--glass-bg); border: 1px solid var(--glass-border); box-shadow: var(--glass-shadow);
 }
 @media (max-width: 768px) {
-    .board-controls { top: 10px; left: 56px; }
+    .board-controls { top: 10px; inset-inline-end: 56px; }
     .board-ctrl-btn { width: 38px; height: 38px; }
 }
 .team-name-wrap {
@@ -2501,3 +2501,17 @@ body.pub-page { padding: 12px; }
 .pub-name { flex: 1; font-weight: 700; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
 .pub-name small { font-weight: normal; opacity: 0.8; }
 .pub-score { font-weight: 900; font-size: 22px; font-variant-numeric: tabular-nums; }
+
+/* Interface language menu (panels), next to the theme button */
+.lang-picker {
+    font: inherit; font-size: 13px; color: var(--text-color, inherit);
+    background: var(--glass-bg); border: 1px solid var(--glass-border); box-shadow: var(--glass-shadow);
+    border-radius: 22px; padding: 0 10px; height: 44px; cursor: pointer;
+}
+.lang-picker.lang-fixed { position: fixed; top: 14px; inset-inline-end: 66px; z-index: 900; }
+.lang-picker option { color: #111; background: #fff; }
+@media (max-width: 600px) { .lang-picker.lang-fixed { height: 38px; top: 10px; inset-inline-end: 56px; font-size: 12px; padding: 0 6px; } }
+body.ui-idle .lang-picker.lang-fixed { opacity: 0; pointer-events: none; }
+/* Left-to-right pages (English): space between a label and the icon after it */
+[dir="ltr"] button > svg.lucide:last-child:not(:first-child),
+[dir="ltr"] .btn > svg.lucide:last-child:not(:first-child) { margin-left: 6px; margin-right: 0; }

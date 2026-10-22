@@ -5,8 +5,9 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <link rel="icon" type="image/svg+xml" href="favicon.svg">
     <meta name="theme-color" content="#312e81">
-    <link rel="stylesheet" href="style.css?v=13">
+    <link rel="stylesheet" href="style.css?v=14">
     <title>ثبت‌نام تیم</title>
+    <script src="i18n.js" data-scope="public"></script>
     <script>window.SIMCAMP_PHP = true;</script>
     <script src="common.js"></script>
     <script src="features.js"></script>
@@ -34,7 +35,8 @@
         let lang = 'fa';
         fetch(`api.php?action=poll&id=${encodeURIComponent(campId || '')}`).then(r => r.ok ? r.json() : Promise.reject()).then(s => {
             lang = s.uiLang || 'fa';
-            document.documentElement.dir = s.dir || 'rtl';
+            I18N.campLang(s.uiLang, s);
+            document.documentElement.dir = I18N.pageDir(s.dir);
             document.getElementById('org').textContent = s.orgName || '';
             document.getElementById('title').textContent = s.title || '';
             if (s.logo) { const l = document.getElementById('logo'); l.src = s.logo; l.style.display = ''; }

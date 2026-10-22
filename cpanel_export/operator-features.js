@@ -350,7 +350,7 @@
             const m = toolModal('اعتراض‌ها (VAR)', list.map(a => `
                 <section class="manage-section appeal ${a.status}"><div class="manage-row" style="justify-content:space-between"><b>${esc(teamName(a.teamId))}</b>
                 <span class="manage-badge">${{ open: 'در حال بررسی', accepted: 'پذیرفته شد', rejected: 'رد شد' }[a.status]}</span></div>
-                <p>${esc(a.text)}</p><p class="manage-note">ثبت: ${esc(a.by.name)} · ${esc(new Date(a.at).toLocaleTimeString('fa-IR'))}${a.resolution ? ' · پاسخ: ' + esc(a.resolution) : ''}</p>
+                <p>${esc(a.text)}</p><p class="manage-note">ثبت: ${esc(a.by.name)} · ${esc(new Date(a.at).toLocaleTimeString(I18N.locale))}${a.resolution ? ' · پاسخ: ' + esc(a.resolution) : ''}</p>
                 ${a.status === 'open' ? `<div class="manage-row"><input type="text" class="ap-res" placeholder="توضیح (اختیاری)"><button type="button" class="manage-primary" data-ap="${esc(a.id)}" data-st="accepted">پذیرفتن</button><button type="button" class="manage-danger" data-ap="${esc(a.id)}" data-st="rejected">رد</button></div>` : ''}
                 </section>`).join('') || '<p class="manage-note">اعتراضی ثبت نشده است.</p>');
             m.querySelectorAll('[data-ap]').forEach(b => b.onclick = () => {
@@ -450,7 +450,7 @@
     TOOLS.registrations = function () {
         loadManage().then(cfg => {
             const reqs = cfg.registration.requests || [];
-            const m = toolModal('درخواست‌های ثبت‌نام', reqs.map(r => `<section class="manage-section"><div class="manage-row" style="justify-content:space-between"><b>${esc(r.name)}</b><span class="manage-note">${esc(new Date(r.at).toLocaleString('fa-IR'))}</span></div>
+            const m = toolModal('درخواست‌های ثبت‌نام', reqs.map(r => `<section class="manage-section"><div class="manage-row" style="justify-content:space-between"><b>${esc(r.name)}</b><span class="manage-note">${esc(new Date(r.at).toLocaleString(I18N.locale))}</span></div>
                 ${r.members.length ? `<p class="manage-note">اعضا: ${esc(r.members.join('، '))}</p>` : ''}${r.contact ? `<p class="manage-note">تماس: <span dir="ltr">${esc(r.contact)}</span></p>` : ''}
                 <div class="manage-row"><button type="button" class="manage-primary" data-rq="${esc(r.id)}" data-ok="1">تأیید و افزودن تیم</button><button type="button" class="manage-danger" data-rq="${esc(r.id)}">رد</button></div></section>`).join('')
                 || `<p class="manage-note">درخواستی وجود ندارد. ${cfg.registration.open ? '' : 'فرم ثبت‌نام بسته است (تنظیمات پیشرفته ← ثبت‌نام آنلاین).'}</p>`);

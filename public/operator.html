@@ -10,8 +10,9 @@
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <link rel="stylesheet" href="style.css?v=13">
-    <title>پنل اپراتور</title>    <script src="vendor/lucide-1.61.0.min.js"></script>
+    <link rel="stylesheet" href="style.css?v=14">
+    <title>پنل اپراتور</title>    <script src="i18n.js" data-scope="panel"></script>
+    <script src="vendor/lucide-1.61.0.min.js"></script>
     <script src="common.js"></script>
     <script>
     function renderFjValueWheel() {
@@ -1074,6 +1075,7 @@
             currentTeams = data.teams;
             currentNumLang = data.numLang || 'fa';
             currentDir = data.dir || 'rtl';
+            I18N.campLang(data.uiLang, data);
             if (data.fieldJudgingMode) currentFieldJudgingMode = data.fieldJudgingMode;
             if (data.fieldJudgingValues) currentFieldJudgingValues = data.fieldJudgingValues;
             if (data.positiveTags) currentPositiveTags = data.positiveTags;
@@ -1638,7 +1640,7 @@
         }
         
         function exportCSV() {
-            let csv = '\uFEFFشناسه,نام تیم,امتیاز مراحل,امتیاز لحظه‌ای,امتیاز کل\n';
+            let csv = '\uFEFF' + I18N.t('شناسه,نام تیم,امتیاز مراحل,امتیاز لحظه‌ای,امتیاز کل') + '\n';
             currentTeams.forEach(t => {
                 let sSum = 0; for(let s in t.stageScores) sSum += scoreNum(t.stageScores[s]);
                 let lSum = (t.scoreLogs||[]).reduce((a,b) => a + (b.type!=='cancelled'?scoreNum(b.value):0), 0);
@@ -1798,7 +1800,7 @@
                 sortedLogs.forEach(log => {
                     let title = log.type === 'stage' ? 'مرحله: ' + (currentStages.find(s => s.id === log.stageId)?.name || 'نامشخص') + ' (مجموع داوران)' : 'امتیاز لحظه‌ای (دستی)';
                     let tagBadge = log.tag ? `<span class="log-tag-badge"><i data-lucide="tag" style="width: 11px; height: 11px;"></i> ${esc(log.tag)}</span>` : '';
-                    let dateStr = log.timestamp === 0 ? 'ثبت گروهی' : new Date(log.timestamp).toLocaleTimeString('fa-IR');
+                    let dateStr = log.timestamp === 0 ? 'ثبت گروهی' : new Date(log.timestamp).toLocaleTimeString(I18N.locale);
                     let userStr = '';
                     if (log.user) {
                         const logPic = log.user.profilePic || log.user.photo || log.user.avatar || log.user.image;
@@ -3170,7 +3172,7 @@
             if (!data.entries.length) { pane.innerHTML = '<p class="manage-note">هنوز تغییری ثبت نشده است. (امتیازهای لحظه‌ای در «تاریخچه امتیازات» هر تیم دیده می‌شوند.)</p>'; return; }
             pane.innerHTML = `<div class="audit-list">${data.entries.map(e => `
                 <div class="audit-item">
-                    <div class="audit-head"><b>${esc(AUDIT_LABELS[e.action] || e.action)}</b><span class="manage-note">${esc(new Date(e.ts).toLocaleString('fa-IR'))}</span></div>
+                    <div class="audit-head"><b>${esc(AUDIT_LABELS[e.action] || e.action)}</b><span class="manage-note">${esc(new Date(e.ts).toLocaleString(I18N.locale))}</span></div>
                     <div class="manage-note">توسط ${esc(e.by.name)} (${ROLE_LABELS[e.by.role] || ''})</div>
                     ${auditText(e) ? `<div class="audit-details">${esc(auditText(e))}</div>` : ''}
                     ${e.undone ? '<div class="manage-note">↶ برگردانده شد</div>' : (e.canUndo ? `<button type="button" class="audit-undo" onclick="OPF.undo(${jsArg(e.id)}, ${jsArg(AUDIT_LABELS[e.action] || e.action)})">↶ برگرداندن این تغییر</button>` : '')}
@@ -3209,7 +3211,7 @@
     function resetAllScores() {
         const word = prompt('برای پاک کردن همه امتیازها، کلمه «بازنشانی» را تایپ کنید:');
         if (word === null) return;
-        if (word.trim() !== 'بازنشانی') return showToast('عبارت تأیید درست وارد نشد؛ کاری انجام نشد.', 'error');
+        if (!I18N.typed(word, 'بازنشانی')) return showToast('عبارت تأیید درست وارد نشد؛ کاری انجام نشد.', 'error');
         apiPost(`/api/scores/reset?id=${campId}`, { confirm: 'RESET' }).then(res => {
             if (res.teams) { currentTeams = res.teams; ensureLogsFormat(currentTeams); }
             currentClosedStages = {}; currentStageTieredResults = {};
@@ -4717,7 +4719,7 @@
     }
 
     function exportJudgesBreakdownToCsv() {
-        let csv = '\uFEFFشناسه,نام تیم,مرحله,داور,امتیاز داور,مجموع داوران این مرحله,امتیاز کل تیم\n';
+        let csv = '\uFEFF' + I18N.t('شناسه,نام تیم,مرحله,داور,امتیاز داور,مجموع داوران این مرحله,امتیاز کل تیم') + '\n';
         currentTeams.forEach(team => {
             (currentStages || []).forEach(stage => {
                 const jMap = (team.judgeStageScores && team.judgeStageScores[stage.id]) ? team.judgeStageScores[stage.id] : {};
@@ -5104,7 +5106,7 @@
                 const btn = document.getElementById('fjSubmitBtn');
                 const oldHtml = btn.innerHTML;
                 const oldBg = btn.style.background;
-                btn.innerHTML = res.queued ? '⏳ در صف ارسال' : ((typeof currentNumLang !== 'undefined' && currentNumLang === 'fa') ? '✔ ثبت شد' : '✔ Saved');
+                btn.innerHTML = res.queued ? '⏳ در صف ارسال' : '✔ ثبت شد';
                 btn.style.background = '#3b82f6';
                 setTimeout(() => {
                     btn.innerHTML = oldHtml;
@@ -5119,7 +5121,8 @@
     // Undo for a just-recorded instant score (also works while it is still waiting offline).
     function offerScoreUndo(logId, team, delta, queued) {
         const name = team ? team.name : '';
-        const text = `${delta > 0 ? '+' : ''}${fmtNum(delta, currentNumLang)} برای ${name}` + (queued ? ' (در صف ارسال، بدون اینترنت)' : ' ثبت شد');
+        const amount = `${delta > 0 ? '+' : ''}${fmtNum(delta, currentNumLang)}`;
+        const text = queued ? `${amount} برای ${name} (در صف ارسال، بدون اینترنت)` : `${amount} برای ${name} ثبت شد`;
         undoToast(text, () => {
             const revertLocal = () => {
                 if (team) { team.score = (team.score || 0) - delta; if (typeof updateFjSelectedTeamBanner === 'function' && fjSelectedTeamId === team.id) updateFjSelectedTeamBanner(team); }

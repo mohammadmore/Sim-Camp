@@ -10,8 +10,9 @@
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <link rel="stylesheet" href="style.css?v=13">
+    <link rel="stylesheet" href="style.css?v=14">
     <title>جدول زنده سیمولیشن کمپ</title>
+    <script src="i18n.js" data-scope="public"></script>
     <script src="vendor/lucide-1.61.0.min.js"></script>
     <script>window.SIMCAMP_PHP = true;</script>
     <script src="common.js"></script>
@@ -903,7 +904,7 @@ const boardPollTimer = setInterval(pollBoardState, 1500);
             const bg = b.background ? 'url(' + JSON.stringify(safeUrl(b.background)) + ')' : '';
             if (document.body.dataset.bg !== bg) { document.body.dataset.bg = bg; document.body.style.backgroundImage = bg ? `linear-gradient(rgba(0,0,0,0.25), rgba(0,0,0,0.25)), ${bg}` : ''; document.body.classList.toggle('has-brand-bg', !!bg); }
             const sp = document.getElementById('sponsorLine');
-            sp.textContent = b.sponsor ? (data.uiLang === 'en' ? 'Sponsored by ' : 'با حمایت ') + b.sponsor : '';
+            sp.innerHTML = b.sponsor ? `با حمایت <span translate="no">${esc(b.sponsor)}</span>` : '';
             sp.style.display = b.sponsor ? '' : 'none';
         }
 
@@ -1038,7 +1039,8 @@ const boardPollTimer = setInterval(pollBoardState, 1500);
         });
 
         function renderBoard(data) {
-            document.documentElement.dir = data.dir || 'rtl';
+            I18N.campLang(data.uiLang, data);
+            document.documentElement.dir = I18N.pageDir(data.dir);
             // Update Header
             if (data.title || data.orgName) {
                 const org = data.orgName ? data.orgName + ' - ' : '';

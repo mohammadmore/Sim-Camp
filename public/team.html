@@ -6,8 +6,9 @@
     <link rel="icon" type="image/svg+xml" href="favicon.svg">
     <link rel="manifest" href="manifest.webmanifest">
     <meta name="theme-color" content="#312e81">
-    <link rel="stylesheet" href="style.css?v=13">
+    <link rel="stylesheet" href="style.css?v=14">
     <title>صفحه تیم</title>
+    <script src="i18n.js" data-scope="public"></script>
     <script>window.AUTH_STORAGE_KEY = 'team_page';</script>
     <script src="common.js"></script>
     <script src="features.js"></script>
@@ -47,7 +48,8 @@
         function render(force) {
             if (busy() && !force) { renderLater = true; return; }
             const team = (state.teams || []).find(t => t.id === teamId);
-            document.documentElement.dir = state.dir || 'rtl';
+            I18N.campLang(state.uiLang, state);
+            document.documentElement.dir = I18N.pageDir(state.dir);
             if (!team) { root.innerHTML = '<div class="empty-state"><span class="empty-icon">🔍</span>این تیم پیدا نشد.</div>'; return; }
             if (!Feat.shown(state, 'teamPage')) { root.innerHTML = '<div class="empty-state"><span class="empty-icon">🔒</span>صفحه تیم‌ها برای این مسابقه فعال نیست.</div>'; return; }
             document.title = team.name + ' — ' + (state.title || '');
@@ -96,7 +98,7 @@
                     const member = l.memberId ? ((team.members || []).find(m => m.id === l.memberId) || {}).name : '';
                     return `<div class="pub-log ${l.type === 'cancelled' ? 'cancelled' : (v >= 0 ? 'pos' : 'neg')}">
                         <b dir="ltr">${v > 0 ? '+' : ''}${N(v)}</b><span>${esc(l.tag || '')}${member ? ' · ' + esc(member) : ''}${l.note ? ' · ' + esc(l.note) : ''}</span>
-                        <small>${esc(who)} · ${esc(new Date(l.createdAt || l.timestamp).toLocaleTimeString('fa-IR', { hour: '2-digit', minute: '2-digit' }))}</small>
+                        <small>${esc(who)} · ${esc(new Date(l.createdAt || l.timestamp).toLocaleTimeString(I18N.locale, { hour: '2-digit', minute: '2-digit' }))}</small>
                         ${l.photo ? `<img src="${esc(safeUrl(l.photo))}" alt="" loading="lazy">` : ''}</div>`;
                 }).join('')}</div></section>`;
             }

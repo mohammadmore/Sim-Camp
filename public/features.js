@@ -153,7 +153,7 @@
             const res = ((state.stageTieredResults || {})[sid] || {}).results || [];
             const first = res.find(r => r.rank === 1);
             const stage = (state.stages || []).find(s => s.id === sid);
-            if (first && out[first.teamId]) out[first.teamId].push({ icon: '🏅', label: 'قهرمان مرحله ' + (stage ? stage.name : '') });
+            if (first && out[first.teamId]) out[first.teamId].push({ icon: '🏅', label: `قهرمان مرحله ${stage ? stage.name : ''}` });
         });
         return out;
     };
@@ -232,18 +232,8 @@
         return out;
     };
 
-    // ---- English strings for the public pages (uiLang = 'en') ---------------------------------------
-    const EN = {
-        'مرحله در حال اجرا': 'Now playing', 'نتایج نهایی': 'Final results', 'امتیاز': 'points', 'تیم': 'Team', 'رتبه': 'Rank',
-        'بودجه': 'Budget', 'بهترین بازیکن': 'Best player', 'کاپیتان': 'Captain', 'جدول مخفی است': 'Standings are hidden',
-        'بررسی اعتراض': 'VAR check', 'کارت شانس': 'Chance card', 'مرحله بعد': 'Next', 'نمودار روند امتیاز': 'Score trend',
-        'جدول حذفی': 'Knockout', 'تصمیم تیم‌ها': 'Team decisions', 'مراسم اهدای جوایز': 'Award ceremony', 'برنده': 'Winner',
-        'تاریخچه امتیازها': 'Score history', 'مهارت‌ها': 'Skills', 'اعضای تیم': 'Members', 'نشان‌ها': 'Badges', 'کد تیم': 'Team code',
-        'ورود': 'Enter', 'ارسال': 'Submit', 'گروه': 'Group', 'مسابقه‌ای با این لینک پیدا نشد.': 'No competition found for this link.',
-        'ثبت‌نام تیم': 'Team registration', 'نام تیم': 'Team name', 'اعضا (هر نفر در یک خط)': 'Members (one per line)',
-        'راه ارتباطی (اختیاری)': 'Contact (optional)', 'لیگ': 'League', 'مجموع': 'Total', 'بازی': 'Played'
-    };
-    F.t = (s, lang) => (lang === 'en' && EN[s]) || s;
+    // ---- Interface language: the page's language comes from i18n.js (lang/en.js, lang/ar.js) ------
+    F.t = s => (window.I18N ? window.I18N.t(s) : s);
 
     window.Feat = F;
 })();

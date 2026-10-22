@@ -17,7 +17,7 @@ import {
     cleanDisplay, cleanSkills, cleanNotify, cleanLeagues, newKey, templateFromCamp,
     DISPLAY_KEYS, FEATURE_KEYS, DISPLAY_PRESETS, DEFAULT_SKILLS, DEFAULT_TAG_SKILLS, TAG_PACKS, BUILTIN_TEMPLATES
 } from './lib/features.js';
-import { notifyChannels, standingsText } from './lib/notify.js';
+import { notifyChannels, notifyHeading, standingsText } from './lib/notify.js';
 import { registerFeatureRoutes } from './routes/features.js';
 import {
     hashPassword, isHashed, verifyPassword, randomPassword, randomSecret, createToken, verifyToken, createRateLimiter
@@ -1402,7 +1402,7 @@ app.post('/api/stage/close_tiered', route(async (req, res) => {
     if (payload.closed) {
         const st = camp.stages.find(x => x.id === stageId);
         const rows = (camp.stageTieredResults[stageId] || {}).results || [];
-        notifyChannels(camp, 'stage_close', `نتایج مرحله «${st ? st.name : ''}»:\n` + rows.slice(0, 5).map(r => `${r.rank}. ${r.teamName}: ${r.assignedScore}`).join('\n'));
+        notifyChannels(camp, 'stage_close', notifyHeading(camp, 'stageResults', st ? st.name : '') + '\n' + rows.slice(0, 5).map(r => `${r.rank}. ${r.teamName}: ${r.assignedScore}`).join('\n'));
     }
     res.json({ ...payload, teams: publicState(camp, 'member').teams });
 }));
@@ -1714,7 +1714,7 @@ app.post('/api/finish', route(async (req, res) => {
         if ((req.body || {}).announce) changes.announcement = { active: true, at: Date.now() };
         return { changes, audit: { user, action: 'finish', details: {} } };
     });
-    notifyChannels(camp, 'finish', 'نتایج نهایی:\n' + standingsText(camp));
+    notifyChannels(camp, 'finish', notifyHeading(camp, 'finalResults') + '\n' + standingsText(camp));
     res.json({ success: true });
 }));
 

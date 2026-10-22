@@ -50,7 +50,7 @@
     const sN = n => '\u2066' + (n > 0 ? '+' : n < 0 ? '−' : '') + N(Math.abs(n)) + '\u2069';
     const on = k => !!(camp.features && camp.features[k] === true);
     const shown = k => !camp.display || camp.display[k] !== false;
-    const locale = () => (camp && camp.numLang === 'en' ? 'en-GB' : 'fa-IR');
+    const locale = () => (I18N.lang !== 'fa' ? I18N.locale : camp && camp.numLang === 'en' ? 'en-GB' : 'fa-IR');
     function fmtTime(ts) {
         if (!ts) return '—';
         const d = new Date(ts);
@@ -512,7 +512,7 @@
         const badges = (D.badges[t.id] || []).map(b => `<span class="chip">${b.icon} ${esc(b.label)}</span>`).join('');
         const notes = s.notes.slice(-3).map(l => `<li>💬 ${esc(l.note)} <small>(${esc(l.tag || '')}${l.tag ? ' · ' : ''}${esc(sN(num(l.value)))})</small></li>`);
         (camp.moments || []).filter(m => m.kind === 'moment' && m.teamId === t.id).slice(-2).forEach(m => notes.push(`<li>⭐ ${esc(m.text)}</li>`));
-        const sub = [div ? (/^گروه/.test(div) ? div : 'گروه ' + div) : '', cap ? 'کاپیتان: ' + cap.name : '', (t.members || []).length ? N(t.members.length) + ' بازیکن' : ''].filter(Boolean).join(' · ');
+        const sub = [div ? (/^گروه/.test(div) ? div : `گروه ${div}`) : '', cap ? `کاپیتان: ${cap.name}` : '', (t.members || []).length ? `${N(t.members.length)} بازیکن` : ''].filter(Boolean).join(' · ');
         const budgetTile = on('budget') && shown('budget') ? `<div><b>${N(num(t.budget))}</b><span>بودجه</span></div>` : `<div><b>${N(s.tags.size)}</b><span>برچسب متفاوت</span></div>`;
         return `<article class="fc ${rank === 1 ? 'gold' : ''}" style="--tc:${esc(safeColor(t.color, '#3b82f6'))}">
             <div class="fc-top">
@@ -1036,6 +1036,7 @@
         loadAnalysis(campId, clientKey).then(data => {
             access = data.access;
             camp = data;
+            I18N.campLang(data.uiLang, data);
             D = derive(camp);
             $('#anStatus').style.display = 'none';
             renderHead();
