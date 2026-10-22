@@ -14,6 +14,7 @@
     <title>جدول زنده سیمولیشن کمپ</title>
     <script src="vendor/lucide-1.61.0.min.js"></script>
     <script src="common.js"></script>
+    <script src="features.js"></script>
     <script src="vendor/canvas-confetti-1.9.4.js"></script>
     <script>
         const savedTheme = localStorage.getItem('theme') || 'light';
@@ -51,10 +52,12 @@
         </div>
         <div class="logo-container">
             <img id="orgLogo" style="display:none; object-fit: contain;" />
+            <img id="clientLogo" class="client-logo" alt="" style="display:none; object-fit: contain;" />
         </div>
     </div>
 
     <div id="stageStrip" class="stage-strip" style="display: none;" aria-label="مراحل مسابقه"></div>
+    <div id="liveBar" class="live-bar" style="display: none;" aria-live="polite"></div>
     <div id="boardMessage" class="empty-state" style="display: none;"></div>
 
     <!-- FLIP Animation Container -->
@@ -91,13 +94,35 @@
     </div>
 
     <div class="asva-spacer" style="flex-grow: 1; flex-shrink: 0; min-height: 20px;"></div>
+    <div id="tickerBar" class="ticker-bar" style="display: none;" aria-live="polite"><span class="ticker-icon">📣</span><div class="ticker-track"><span id="tickerText"></span></div></div>
+    <div id="sponsorLine" class="sponsor-line" style="display: none;"></div>
     <div class="asva-footer"><span class="en-credit">Powered by Asva Studio</span><span class="credit-divider"> | </span><span class="fa-credit">توسعه یافته توسط شرکت داده‌پردازان اسوا</span></div>
     
+    <!-- Award ceremony: ranks revealed one by one, from the last place to the champion -->
+    <div id="ceremonyOverlay" class="ceremony-overlay" style="display: none;" aria-live="assertive">
+        <div class="ceremony-title"></div>
+        <div id="ceremonyCurrent" class="ceremony-current"></div>
+        <div id="ceremonyList" class="ceremony-list"></div>
+    </div>
+
+    <!-- Chance card -->
+    <div id="chanceOverlay" class="chance-overlay" style="display: none;" aria-live="assertive">
+        <div class="chance-card"><div class="chance-inner">
+            <div class="chance-back">🎴</div>
+            <div class="chance-front"><div class="chance-kicker"></div><div class="chance-title"></div><div class="chance-text"></div><div class="chance-effect"></div></div>
+        </div></div>
+    </div>
+
+    <!-- Rotating panels: score trend, knockout bracket, team decisions -->
+    <div id="panelOverlay" class="panel-overlay" style="display: none;">
+        <div class="panel-card glass"><h2 class="panel-title"></h2><div class="panel-body"></div></div>
+    </div>
+
     <!-- Final results announcement -->
     <div id="announceOverlay" class="announce-overlay" style="display: none;" aria-live="assertive">
         <div id="announceCountdown" class="announce-countdown"></div>
         <div id="announcePodium" class="announce-podium" style="display: none;">
-            <div class="announce-title">🏆 نتایج نهایی</div>
+            <div class="announce-title">🏆 <span id="announceTitleText">نتایج نهایی</span></div>
             <div id="announceSteps" class="podium-steps"></div>
         </div>
     </div>
@@ -240,6 +265,7 @@
         const unlockAudio = () => { if (audioCtx && audioCtx.state === 'suspended') audioCtx.resume(); };
         ['click', 'touchstart', 'keydown'].forEach(evt => window.addEventListener(evt, unlockAudio, { once: true }));
         function playSound(type) {
+            if (!Feat.shown(latestState, 'sound')) return;
             if (audioCtx.state === 'suspended') audioCtx.resume();
             const osc = audioCtx.createOscillator();
             const gainNode = audioCtx.createGain();
@@ -326,6 +352,7 @@ evtSource.addEventListener('splash', function(e) {
         let activeAlarmInterval = null;
 
         function startSirenAlarm() {
+            if (!Feat.shown(latestState, 'sound')) return;
             try {
                 if (audioCtx.state === 'suspended') audioCtx.resume();
                 stopSirenAlarm();
@@ -375,6 +402,7 @@ evtSource.addEventListener('splash', function(e) {
         }
 
         function playSuccessChime() {
+            if (!Feat.shown(latestState, 'sound')) return;
             try {
                 if (audioCtx.state === 'suspended') audioCtx.resume();
                 const notes = [523.25, 659.25, 783.99, 1046.5]; // C5, E5, G5, C6
@@ -398,6 +426,7 @@ evtSource.addEventListener('splash', function(e) {
         }
 
         function triggerConfetti() {
+            if (!Feat.shown(latestState, 'confetti')) return;
             try {
                 if (typeof confetti === 'function') {
                     confetti({
@@ -483,6 +512,13 @@ evtSource.addEventListener('splash', function(e) {
         }
 
         async function runSplashQueue() {
+            // Score animation switched off for this camp: the table simply updates.
+            if (!Feat.shown(latestState, 'splash')) {
+                splashQueue.length = 0;
+                isSplashing = false;
+                if (latestState) renderBoard(latestState);
+                return;
+            }
             isSplashing = true; 
             const popup = document.querySelector('.splash-popup');
             const sirenOverlay = document.getElementById('sirenOverlay');
@@ -515,8 +551,11 @@ evtSource.addEventListener('splash', function(e) {
                 // Determine photo: happy image for +, sad image for -, fallback to default team image
                 const targetTeam = (latestState?.teams || []).find(t => t.id === sp.teamId);
                 let teamPhoto = '';
+                const mood = Feat.shown(latestState, 'moodImages');
 
-                if (isPositive) {
+                if (!mood) {
+                    teamPhoto = sp.image || targetTeam?.image || '';
+                } else if (isPositive) {
                     if (sp.happyImage || targetTeam?.happyImage) {
                         teamPhoto = sp.happyImage || targetTeam?.happyImage;
                     } else if (sp.image || targetTeam?.image) {
@@ -706,7 +745,7 @@ evtSource.addEventListener('splash', function(e) {
                 const mark = st.id === active ? '▶' : (closed[st.id] ? '✓' : formatNumber(i + 1, data.numLang || 'fa'));
                 return `<span class="stage-chip ${cls}"><span class="stage-chip-mark">${mark}</span>${esc(st.name)}</span>`;
             }).join('');
-            const label = activeStage ? `<span class="stage-now">مرحله در حال اجرا: <b>${esc(activeStage.name)}</b></span>` : '';
+            const label = activeStage ? `<span class="stage-now">${esc(L('مرحله در حال اجرا'))}: <b>${esc(activeStage.name)}</b></span>` : '';
             const html = label + `<div class="stage-chips">${chips}</div>`;
             if (strip.dataset.html !== html) { strip.innerHTML = html; strip.dataset.html = html; }
             strip.style.display = '';
@@ -733,7 +772,7 @@ evtSource.addEventListener('splash', function(e) {
                 cd.style.display = 'none';
                 podium.style.display = 'flex';
                 renderPodium(data);
-                if (typeof confetti === 'function') {
+                if (typeof confetti === 'function' && Feat.shown(data, 'confetti')) {
                     confetti({ particleCount: 220, spread: 120, origin: { y: 0.6 } });
                     setTimeout(() => confetti({ particleCount: 150, spread: 160, origin: { y: 0.4 } }), 700);
                 }
@@ -769,12 +808,203 @@ evtSource.addEventListener('splash', function(e) {
                 <div class="podium-step podium-rank-${g.rank}">
                     <div class="podium-medal">${document.getElementById('medal-' + g.rank).innerHTML}</div>
                     ${g.teams.map(t => `<div class="podium-team" style="border-color: ${safeColor(t.color, '#fff')}">${esc(t.name)}</div>`).join('')}
-                    <div class="podium-score">${formatNumber(g.teams[0].score, lang)} امتیاز</div>
+                    <div class="podium-score">${formatNumber(g.teams[0].score, lang)} ${esc(L('امتیاز'))}</div>
                     <div class="podium-block">${formatNumber(g.rank, lang)}</div>
                 </div>`).join('');
+            document.getElementById('announceTitleText').textContent = L('نتایج نهایی');
             const steps = document.getElementById('announceSteps');
             if (steps.dataset.html !== html) { steps.innerHTML = html; steps.dataset.html = html; }
         }
+
+
+        // ---------------------------------------------------------------------------
+        // Optional elements (each can be hidden per camp from the operator's advanced settings)
+        // ---------------------------------------------------------------------------
+        const L = s => Feat.t(s, latestState && latestState.uiLang);
+        Feat.syncClock();
+        setInterval(Feat.syncClock, 5 * 60000);
+
+        // Info bar: stage timer, next stage of the schedule, hidden table, appeal under review.
+        function renderLiveBar(data) {
+            const bar = document.getElementById('liveBar');
+            const lang = data.numLang || 'fa';
+            const parts = [];
+            if (data.timer && Feat.shown(data, 'timer')) {
+                const ms = Feat.timerRemaining(data.timer);
+                parts.push(`<span class="live-timer ${ms < 60000 ? 'urgent' : ''} ${data.timer.running ? '' : 'paused'}">⏱ ${data.timer.label ? `<small>${esc(data.timer.label)}</small>` : ''}<b>${Feat.fmtClock(ms, lang)}</b>${data.timer.running ? '' : ' ⏸'}</span>`);
+            }
+            if (Feat.shown(data, 'schedule')) {
+                const nowMin = new Date().getHours() * 60 + new Date().getMinutes();
+                const next = (data.stages || []).filter(st => st.startAt && st.id !== data.activeStageId)
+                    .map(st => ({ st, m: parseInt(st.startAt, 10) * 60 + parseInt(st.startAt.split(':')[1], 10) }))
+                    .filter(x => x.m >= nowMin).sort((a, b) => a.m - b.m)[0];
+                if (next) parts.push(`<span class="live-next">${esc(L('مرحله بعد'))}: <b>${esc(next.st.name)}</b> <span dir="ltr">${formatNumber(next.st.startAt, lang)}</span></span>`);
+            }
+            if (data.frozen) parts.push(`<span class="live-frozen">🙈 ${esc(L('جدول مخفی است'))}</span>`);
+            if (Feat.shown(data, 'varBanner') && (data.varOpen || []).length) {
+                const names = data.varOpen.map(a => ((data.teams || []).find(t => t.id === a.teamId) || {}).name).filter(Boolean);
+                parts.push(`<span class="live-var">⚖️ ${esc(L('بررسی اعتراض'))}: <b>${esc([...new Set(names)].join('، '))}</b></span>`);
+            }
+            const html = parts.join('');
+            if (bar.dataset.html !== html) { bar.innerHTML = html; bar.dataset.html = html; }
+            bar.style.display = parts.length ? '' : 'none';
+        }
+        setInterval(() => { if (latestState && latestState.timer) renderLiveBar(latestState); }, 500);
+
+        function renderTicker(data) {
+            const bar = document.getElementById('tickerBar');
+            const on = data.ticker && data.ticker.text && Feat.shown(data, 'ticker');
+            bar.style.display = on ? '' : 'none';
+            const el = document.getElementById('tickerText');
+            if (on && el.textContent !== data.ticker.text) {
+                el.textContent = data.ticker.text;
+                el.style.animationDuration = Math.max(12, data.ticker.text.length * 0.28) + 's';
+            }
+        }
+
+        // Client organisation branding: second logo, accent colour, background picture, sponsor line.
+        function applyBrand(data) {
+            const b = (Feat.shown(data, 'brand') && data.brand) || {};
+            const logo = document.getElementById('clientLogo');
+            if (b.clientLogo) { if (logo.getAttribute('src') !== b.clientLogo) logo.src = b.clientLogo; logo.style.display = 'block'; } else logo.style.display = 'none';
+            document.documentElement.style.setProperty('--brand-accent', b.accent ? safeColor(b.accent, '') : '');
+            document.body.classList.toggle('has-brand-accent', !!b.accent);
+            const bg = b.background ? 'url(' + JSON.stringify(safeUrl(b.background)) + ')' : '';
+            if (document.body.dataset.bg !== bg) { document.body.dataset.bg = bg; document.body.style.backgroundImage = bg ? `linear-gradient(rgba(0,0,0,0.25), rgba(0,0,0,0.25)), ${bg}` : ''; document.body.classList.toggle('has-brand-bg', !!bg); }
+            const sp = document.getElementById('sponsorLine');
+            sp.textContent = b.sponsor ? (data.uiLang === 'en' ? 'Sponsored by ' : 'با حمایت ') + b.sponsor : '';
+            sp.style.display = b.sponsor ? '' : 'none';
+        }
+
+        // Small extras next to a team name: group, captain, best player, budget and badges.
+        function teamExtrasHtml(team, data, badges, divRanks) {
+            const lang = data.numLang || 'fa';
+            const out = [];
+            if (Feat.on(data, 'divisions') && Feat.shown(data, 'divisions') && team.division) {
+                const d = (data.divisions || []).find(x => x.id === team.division);
+                if (d) out.push(`<span class="tx-chip tx-div" title="${esc(L('گروه'))}">${esc(d.name)}${Feat.shown(data, 'ranks') && divRanks[team.id] ? ' #' + formatNumber(divRanks[team.id], lang) : ''}</span>`);
+            }
+            if (Feat.on(data, 'roles') && Feat.shown(data, 'roles')) {
+                const c = Feat.captain(team);
+                if (c) out.push(`<span class="tx-chip" title="${esc(L('کاپیتان'))}">🎖 ${esc(c.name)}</span>`);
+            }
+            if (Feat.on(data, 'individual') && Feat.shown(data, 'individual')) {
+                const m = Feat.mvp(team);
+                if (m) out.push(`<span class="tx-chip" title="${esc(L('بهترین بازیکن'))}">⭐ ${esc(m.member.name)}</span>`);
+            }
+            if (Feat.on(data, 'budget') && Feat.shown(data, 'budget')) out.push(`<span class="tx-chip tx-budget" title="${esc(L('بودجه'))}">💰 ${formatNumber(team.budget || 0, lang)}</span>`);
+            if (Feat.shown(data, 'badges')) (badges[team.id] || []).forEach(b => out.push(`<span class="tx-badge" title="${esc(b.label)}">${b.icon}</span>`));
+            return out.join('');
+        }
+
+        // Award ceremony: from the last place up to the champion, one step per click of the operator.
+        let ceremonyShown = -1;
+        function handleCeremony(data) {
+            const ov = document.getElementById('ceremonyOverlay');
+            const c = data.ceremony;
+            if (!c || !c.active) { ov.style.display = 'none'; ceremonyShown = -1; return; }
+            ov.style.display = 'flex';
+            const lang = data.numLang || 'fa';
+            const sorted = [...(data.teams || [])].sort((a, b) => b.score - a.score);
+            const ranks = Feat.rankMap(sorted);
+            const total = sorted.length;
+            const shown = sorted.slice(Math.max(0, total - c.revealed));
+            ov.querySelector('.ceremony-title').textContent = '🏆 ' + L('مراسم اهدای جوایز');
+            const cur = shown[0];
+            const medal = r => (r <= 3 ? document.getElementById('medal-' + r).innerHTML : `<span class="cer-rank">${formatNumber(r, lang)}</span>`);
+            document.getElementById('ceremonyCurrent').innerHTML = cur
+                ? `<div class="cer-card" style="--team:${safeColor(cur.color, '#3b82f6')}"><div class="cer-medal">${medal(ranks[cur.id])}</div><div class="cer-name">${esc(cur.name)}</div><div class="cer-score">${formatNumber(cur.score, lang)} ${esc(L('امتیاز'))}</div></div>`
+                : `<div class="cer-wait">${esc(data.title || '')}</div>`;
+            document.getElementById('ceremonyList').innerHTML = shown.slice(1).map(t =>
+                `<div class="cer-row"><span class="cer-r">${formatNumber(ranks[t.id], lang)}</span><span class="cer-n">${esc(t.name)}</span><span class="cer-s">${formatNumber(t.score, lang)}</span></div>`).join('');
+            if (c.revealed !== ceremonyShown) {
+                if (ceremonyShown >= 0 && c.revealed > ceremonyShown && cur) {
+                    const card = document.querySelector('#ceremonyCurrent .cer-card');
+                    if (card) card.classList.add('pop');
+                    if (ranks[cur.id] === 1) { triggerConfetti(); setTimeout(triggerConfetti, 900); playSuccessChime(); } else playSound('success');
+                }
+                ceremonyShown = c.revealed;
+            }
+        }
+
+        // Chance card: flips open on every board for a few seconds.
+        let chanceSeen = null;
+        function handleChance(data) {
+            const ch = data.lastChance;
+            if (!ch || ch.id === chanceSeen) return;
+            const first = chanceSeen === null;
+            chanceSeen = ch.id;
+            if (first && Feat.now() - ch.at > 30000) return; // an old card when the board opens
+            if (!Feat.shown(data, 'chanceCards')) return;
+            const lang = data.numLang || 'fa';
+            const ov = document.getElementById('chanceOverlay');
+            const names = (data.teams || []).filter(t => (ch.teamIds || []).includes(t.id)).map(t => t.name);
+            ov.querySelector('.chance-kicker').textContent = '🎴 ' + L('کارت شانس');
+            ov.querySelector('.chance-title').textContent = ch.title;
+            ov.querySelector('.chance-text').textContent = ch.text || '';
+            const eff = [];
+            if (ch.points) eff.push((ch.points > 0 ? '+' : '−') + formatNumber(Math.abs(ch.points), lang) + ' ' + L('امتیاز'));
+            if (ch.budget) eff.push((ch.budget > 0 ? '+' : '−') + formatNumber(Math.abs(ch.budget), lang) + ' ' + L('بودجه'));
+            ov.querySelector('.chance-effect').textContent = eff.join(' · ') + (names.length && names.length < (data.teams || []).length ? ' — ' + names.join('، ') : '');
+            ov.style.display = 'flex';
+            ov.classList.remove('flip'); void ov.offsetWidth; ov.classList.add('flip');
+            playSound('success');
+            clearTimeout(ov._t);
+            ov._t = setTimeout(() => { ov.style.display = 'none'; }, 8000);
+        }
+
+        // Rotating panels (shown for a while every minute when nothing else is on screen; T / B keys open them).
+        function availablePanels(data) {
+            const list = [];
+            if (Feat.shown(data, 'trendChart') && Feat.trendSeries(data).some(s => s.points.length >= 2)) list.push('trend');
+            if (Feat.on(data, 'bracket') && Feat.shown(data, 'bracket') && data.bracket && data.bracket.rounds) list.push('bracket');
+            if (Feat.on(data, 'decisions') && Feat.shown(data, 'decisions') && (data.rounds || []).some(r => r.revealed)) list.push('decisions');
+            return list;
+        }
+        function panelHtml(kind, data) {
+            const lang = data.numLang || 'fa';
+            const name = id => esc(((data.teams || []).find(t => t.id === id) || {}).name || '—');
+            if (kind === 'trend') return [L('نمودار روند امتیاز'), Feat.lineChart(Feat.trendSeries(data), { width: 1000, height: 460, lang })];
+            if (kind === 'bracket') {
+                const b = data.bracket;
+                const cols = b.rounds.map((r, i) => `<div class="br-col"><div class="br-head">${i === b.rounds.length - 1 ? '🏆' : formatNumber(i + 1, lang)}</div>` + r.matches.map(m => `
+                    <div class="br-match">${['a', 'b'].map(k => `<div class="br-team ${m.winner && m.winner === m[k] ? 'win' : (m.winner ? 'lose' : '')}">${m[k] ? name(m[k]) : '—'}</div>`).join('')}</div>`).join('') + '</div>').join('');
+                return [b.title || L('جدول حذفی'), `<div class="bracket">${cols}</div>`];
+            }
+            const r = [...(data.rounds || [])].reverse().find(x => x.revealed);
+            const rows = r.options.map(o => {
+                const teams = Object.entries(r.decisions || {}).filter(([, op]) => op === o.id).map(([tid]) => name(tid));
+                return `<div class="dec-row"><b>${esc(o.label)}</b><span>${teams.length ? teams.join('، ') : '—'}</span></div>`;
+            }).join('');
+            return [L('تصمیم تیم‌ها') + ': ' + r.title, `<p class="dec-q">${esc(r.question || '')}</p>${rows}`];
+        }
+        let panelTimer = null, panelIndex = 0, lastPanelAt = Date.now();
+        function showPanel(kind, ms) {
+            if (!latestState) return;
+            const ov = document.getElementById('panelOverlay');
+            const [title, body] = panelHtml(kind, latestState);
+            ov.querySelector('.panel-title').textContent = title;
+            ov.querySelector('.panel-body').innerHTML = body;
+            ov.style.display = 'flex';
+            clearTimeout(panelTimer);
+            panelTimer = setTimeout(hidePanel, ms || 12000);
+        }
+        function hidePanel() { document.getElementById('panelOverlay').style.display = 'none'; lastPanelAt = Date.now(); }
+        setInterval(() => {
+            if (!latestState || isSplashing || splashQueue.length || document.getElementById('panelOverlay').style.display !== 'none') return;
+            const busy = ['announceOverlay', 'ceremonyOverlay', 'chanceOverlay'].some(id => document.getElementById(id).style.display !== 'none');
+            if (busy || Date.now() - lastPanelAt < 50000) return;
+            const list = availablePanels(latestState);
+            if (!list.length) { lastPanelAt = Date.now(); return; }
+            showPanel(list[panelIndex++ % list.length]);
+        }, 2000);
+        document.addEventListener('keydown', e => {
+            if (!latestState || e.ctrlKey || e.metaKey) return;
+            const k = e.key.toLowerCase();
+            const want = (k === 't' || k === 'ف') ? 'trend' : (k === 'b' || k === 'ذ') ? 'bracket' : (k === 'd' || k === 'ی') ? 'decisions' : null;
+            if (k === 'escape') hidePanel();
+            if (want && availablePanels(latestState).includes(want)) showPanel(want, 30000);
+        });
 
         function renderBoard(data) {
             document.documentElement.dir = data.dir || 'rtl';
@@ -813,6 +1043,11 @@ evtSource.addEventListener('splash', function(e) {
 
             renderStageStrip(data);
             handleAnnouncement(data);
+            renderLiveBar(data);
+            renderTicker(data);
+            applyBrand(data);
+            handleCeremony(data);
+            handleChance(data);
 
             if (!data.teams || data.teams.length === 0) {
                 showBoardMessage('⏳', 'هنوز تیمی برای این مسابقه تعریف نشده است.<br><small>به محض ثبت تیم‌ها، جدول اینجا نمایش داده می‌شود.</small>');
@@ -821,7 +1056,11 @@ evtSource.addEventListener('splash', function(e) {
             hideBoardMessage();
 
             const lang = data.numLang || 'fa';
-            const sortedTeams = data.teams.sort((a, b) => b.score - a.score);
+            // With ranks hidden the teams keep their own order: the board shows scores, not a race.
+            const showRanks = Feat.shown(data, 'ranks');
+            const sortedTeams = showRanks ? data.teams.sort((a, b) => b.score - a.score) : [...data.teams];
+            const badges = Feat.badges(data);
+            const divRanks = Feat.divisionRanks(data);
             // Standard competition ranking: equal scores share a rank (1, 1, 3 …).
             const ranks = {};
             sortedTeams.forEach((t, i) => {
@@ -834,7 +1073,8 @@ evtSource.addEventListener('splash', function(e) {
             const narrow = window.innerWidth < 640;
             const headerHeight = document.getElementById('boardHeader').offsetHeight;
             const stripEl = document.getElementById('stageStrip');
-            const stripHeight = stripEl && stripEl.style.display !== 'none' ? stripEl.offsetHeight + 10 : 0;
+            const stripHeight = [stripEl, document.getElementById('liveBar'), document.getElementById('tickerBar'), document.getElementById('sponsorLine')]
+                .reduce((h, el) => h + (el && el.style.display !== 'none' ? el.offsetHeight + 10 : 0), 0);
             const footerEl = document.querySelector('.asva-footer');
             const footerHeight = footerEl ? footerEl.offsetHeight + 40 : 40;
             const availableHeight = window.innerHeight - headerHeight - stripHeight - footerHeight - 60; // 60px padding
@@ -865,6 +1105,7 @@ evtSource.addEventListener('splash', function(e) {
                             <div class="name-container" style="display: flex; align-items: center; min-width: 0;">
                                 <div class="team-color-indicator" style="border-radius: 50%; flex-shrink: 0;"></div>
                                 <h2 class="team-name" style="margin: 0; min-width: 0;">${esc(team.name)}</h2>
+                                <span class="team-extras"></span>
                             </div>
                             <div class="score-wrap">
                                 <span class="rank-change" aria-hidden="true"></span>
@@ -905,6 +1146,10 @@ evtSource.addEventListener('splash', function(e) {
                 nameEl.title = team.name;
                 nameEl.style.fontSize = nameFont + 'px';
                 nameEl.classList.toggle('team-name-wrap', narrow);
+                const extrasEl = row.querySelector('.team-extras');
+                const extras = teamExtrasHtml(team, data, badges, divRanks);
+                if (extrasEl.dataset.html !== extras) { extrasEl.innerHTML = extras; extrasEl.dataset.html = extras; }
+                extrasEl.style.fontSize = Math.max(11, nameFont * 0.5) + 'px';
 
                 const scoreEl = row.querySelector('.score-val');
                 scoreEl.style.fontSize = scoreFont + 'px';
@@ -922,7 +1167,7 @@ evtSource.addEventListener('splash', function(e) {
                 const rank = ranks[teamKey];
                 const prevRank = previousRanks[teamKey];
                 const arrow = row.querySelector('.rank-change');
-                if (prevRank !== undefined && prevRank !== rank) {
+                if (showRanks && prevRank !== undefined && prevRank !== rank) {
                     const up = rank < prevRank;
                     arrow.textContent = (up ? '▲ ' : '▼ ') + formatNumber(Math.abs(prevRank - rank), lang);
                     arrow.className = 'rank-change show ' + (up ? 'up' : 'down');
@@ -977,6 +1222,7 @@ evtSource.addEventListener('splash', function(e) {
                 }
                 rankEl.style.fontSize = (hasMedal(team) ? medalW : Math.max(12, Math.min(ROW_HEIGHT * 0.35, medalW))) + 'px';
                 rankEl.style.opacity = hasMedal(team) ? '1' : '0.75';
+                rankEl.style.display = showRanks ? 'flex' : 'none';
             });
 
             board.style.height = `${numRows * ROW_HEIGHT}px`;

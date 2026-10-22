@@ -8,6 +8,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { registerScenarios } from './scenarios.js';
+import { registerFeatureScenarios } from './scenarios2.js';
 
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 const hasPhp = spawnSync('php', ['-v']).status === 0;
@@ -27,11 +28,17 @@ function phpPath(method, p) {
         '/superadmin/password': 'superadmin_password', '/api/user/password': 'user_password',
         '/api/users/reset_password': 'users_reset_password', '/api/users': 'users', '/api/stage/reset': 'stage_reset',
         '/api/scores/reset': 'scores_reset', '/superadmin/id_available': 'superadmin_id_available', '/api/board': 'board', '/api/finish': 'finish', '/api/audit': 'audit',
-        '/superadmin/trash': 'superadmin_trash', '/superadmin/backup': 'superadmin_backup', '/superadmin/import': 'superadmin_import'
+        '/superadmin/trash': 'superadmin_trash', '/superadmin/backup': 'superadmin_backup', '/superadmin/import': 'superadmin_import',
+        '/api/manage': 'manage', '/api/advanced': 'advanced', '/api/live': 'live', '/api/appeal': 'appeal', '/api/appeal/resolve': 'appeal_resolve',
+        '/api/chance': 'chance', '/api/budget': 'budget', '/api/rounds': 'rounds', '/api/bracket': 'bracket', '/api/peer': 'peer',
+        '/api/undo': 'undo', '/api/team': 'team', '/api/calibration': 'calibration', '/api/register': 'register',
+        '/api/register/review': 'register_review', '/api/analysis': 'analysis', '/api/league': 'league', '/api/time': 'time',
+        '/superadmin/me': 'superadmin_me', '/superadmin/settings': 'superadmin_settings', '/superadmin/templates': 'superadmin_templates',
+        '/superadmin/organizers': 'superadmin_organizers', '/superadmin/org_password': 'superadmin_org_password', '/superadmin/leagues': 'superadmin_leagues'
     };
     let m;
     if (map[route]) params.set('action', map[route]);
-    else if ((m = route.match(/^\/superadmin\/camps\/([^/]+)\/(lock|archive|delete|duplicate|restore|purge|export)$/))) { params.set('action', `superadmin_camp_${m[2]}`); params.set('id', m[1]); }
+    else if ((m = route.match(/^\/superadmin\/camps\/([^/]+)\/(lock|archive|delete|duplicate|restore|purge|export|client_key)$/))) { params.set('action', `superadmin_camp_${m[2]}`); params.set('id', m[1]); }
     else if ((m = route.match(/^\/superadmin\/camps\/([^/]+)$/))) { params.set('action', 'superadmin_camp'); params.set('id', m[1]); }
     else if (route === '/api' && method === 'POST') params.set('action', 'update_camp');
     return `/api.php?${params.toString()}`;
@@ -79,6 +86,12 @@ if (!hasPhp) {
     });
 
     registerScenarios({ call, raw, pollUrl: id => `/api.php?action=poll&id=${id}`, saPassword: SA_PASSWORD, mediaRe: /^media\.php\?f=[a-f0-9]{32}\.png$/ });
+    registerFeatureScenarios({ call, saPassword: SA_PASSWORD });
+
+    test('server time for live timers', async () => {
+        const r = await call('GET', '/api/time');
+        assert.ok(Math.abs(r.json.now - Date.now()) < 5000);
+    });
 
     test('health check reports the database', async () => {
         const r = await fetch(base + '/api.php?action=health');

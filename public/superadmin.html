@@ -48,6 +48,7 @@
                 hideModal('loginSection');
                 setTimeout(() => { showModal('dashboardSection', 'block'); }, 280);
                 loadCamps();
+                SAF.restore();
             }
         });
 
@@ -80,6 +81,9 @@
     </script>
     <script src="vendor/xlsx-0.18.5.full.min.js"></script>
     <script src="vendor/qrcode-generator-1.4.4.js"></script>
+    <script src="features.js"></script>
+    <script src="advanced.js"></script>
+    <script src="superadmin-features.js"></script>
 </head>
 <body>
     <button onclick="toggleTheme()" class="theme-toggle" title="تغییر پوسته"><i data-lucide="moon"></i></button>
@@ -88,9 +92,11 @@
     <!-- Superadmin Login -->
     <div id="loginSection" class="glass" style="padding: 30px; width: 60%; max-width: 400px; text-align: center;">
         <h2>ورود سوپرادمین</h2>
+        <div id="saUserRow" style="display: none;"><input type="text" id="saUsername" placeholder="نام کاربری برگزارکننده" class="settings-input" dir="ltr" autocomplete="username"></div>
         <input type="password" id="saPassword" placeholder="رمز عبور" class="settings-input" onkeydown="if(event.key === 'Enter') superadminLogin()">
         <button onclick="superadminLogin()" style="padding: 10px 20px; width: 100%;" title="ورود به پنل مدیریت">ورود</button>
         <p id="saErrorMsg" style="color: var(--error-color); display: none;"></p>
+        <button type="button" onclick="SAF.toggleOrgLogin()" style="background: transparent; border: none; box-shadow: none; font-size: 13px; text-decoration: underline; cursor: pointer; color: var(--text-color); opacity: 0.8;">ورود به‌عنوان برگزارکننده</button>
     </div>
 
     <!-- Superadmin Dashboard -->
@@ -105,7 +111,13 @@
                 <i data-lucide="file-spreadsheet"></i> <span class="btn-text">ورود اکسل</span>
             </button>
 
-            <button onclick="openGlobalSettings()" class="main-action-btn" style="background: rgba(255, 255, 255, 0.15); color: var(--text-color); border: 1px solid var(--glass-border);" title="تنظیمات کلی سیستم و سوپرادمین">
+            <button type="button" onclick="SAF.openLeagues()" class="main-action-btn super-only" style="background: rgba(255, 255, 255, 0.15); color: var(--text-color); border: 1px solid var(--glass-border);" title="جدول چند مسابقه (لیگ)">
+                <i data-lucide="trophy"></i> <span class="btn-text">لیگ‌ها</span>
+            </button>
+            <button type="button" onclick="SAF.openOrganizers()" class="main-action-btn super-only" style="background: rgba(255, 255, 255, 0.15); color: var(--text-color); border: 1px solid var(--glass-border);" title="حساب برگزارکننده‌ها">
+                <i data-lucide="building-2"></i> <span class="btn-text">برگزارکننده‌ها</span>
+            </button>
+            <button onclick="openGlobalSettings()" class="main-action-btn super-only" style="background: rgba(255, 255, 255, 0.15); color: var(--text-color); border: 1px solid var(--glass-border);" title="تنظیمات کلی سیستم و سوپرادمین">
                 <i data-lucide="settings"></i> <span class="btn-text">تنظیمات</span>
             </button>
             <button type="button" onclick="openTrash()" class="main-action-btn" style="background: rgba(255, 255, 255, 0.15); color: var(--text-color); border: 1px solid var(--glass-border);" title="مسابقه‌های حذف‌شده (قابل بازگرداندن)">
@@ -115,7 +127,10 @@
                 <i data-lucide="hard-drive-download"></i> <span class="btn-text">پشتیبان‌گیری</span>
             </button>
             <input type="file" id="backupFileInput" accept=".json,application/json" style="display:none" onchange="importBackupFile(this)">
-            <button type="button" id="cpanelPackageBtn" onclick="downloadCpanelPackage()" class="main-action-btn" style="background: rgba(168, 85, 247, 0.18); color: var(--tx-indigo); border: 1px solid rgba(168, 85, 247, 0.5);" title="دانلود بسته آماده برای استقرار روی هاست سی‌پنل">
+            <button type="button" onclick="SAF.changeOrgPassword()" class="main-action-btn org-only" style="display: none; background: rgba(255, 255, 255, 0.15); color: var(--text-color); border: 1px solid var(--glass-border);" title="تغییر رمز عبور من">
+                <i data-lucide="key-round"></i> <span class="btn-text">رمز من</span>
+            </button>
+            <button type="button" id="cpanelPackageBtn" onclick="downloadCpanelPackage()" class="main-action-btn super-only" style="background: rgba(168, 85, 247, 0.18); color: var(--tx-indigo); border: 1px solid rgba(168, 85, 247, 0.5);" title="دانلود بسته آماده برای استقرار روی هاست سی‌پنل">
                 <i data-lucide="archive"></i> <span class="btn-text">بسته cPanel</span>
             </button>
             <button type="button" onclick="showSuperadminHelp()" class="main-action-btn" style="background: rgba(255, 255, 255, 0.15); color: var(--text-color); border: 1px solid var(--glass-border);" title="راهنما">
@@ -144,7 +159,7 @@
     
     <!-- Global Settings Modal -->
     <div id="globalSettingsModal" class="modal-overlay">
-        <div class="glass" style="padding: 30px; width: 90%; max-width: 500px; text-align: right;">
+        <div class="glass" style="padding: 30px; width: 90%; max-width: 760px; max-height: 90vh; overflow-y: auto; text-align: right;">
             <h3 style="margin-top: 0; display: flex; align-items: center; gap: 10px;"><i data-lucide="settings"></i> تنظیمات عمومی سیستم</h3>
             <div style="display: flex; flex-direction: column; gap: 15px; margin-top: 20px;">
                 <div>
@@ -162,6 +177,7 @@
                 </button>
                 <button onclick="closeGlobalSettings()" style="flex: 1; padding: 12px; background: var(--input-bg);" title="انصراف و بستن تنظیمات">لغو</button>
             </div>
+            <div id="safDefaults" style="margin-top: 25px; padding-top: 18px; border-top: 1px solid var(--glass-border);"></div>
             <form onsubmit="event.preventDefault(); changeSuperadminPassword();" style="margin-top: 25px; padding-top: 18px; border-top: 1px solid var(--glass-border); display: flex; flex-direction: column; gap: 10px;">
                 <h4 style="margin: 0; display: flex; align-items: center; gap: 8px;"><i data-lucide="key-round"></i> تغییر رمز سوپرادمین</h4>
                 <input type="password" id="saCurrentPass" class="settings-input" placeholder="رمز فعلی" autocomplete="current-password">
@@ -346,6 +362,7 @@
         <div id="stagesList" class="dynamic-list"></div>
         <button onclick="addStage()" class="icon-btn add-dynamic-btn" style="width: 100%; margin-bottom: 20px; color:var(--success-color);" title="افزودن مرحله جدید">+ افزودن مرحله جدید</button>
 
+        <div id="safFormExtras"></div>
         <button id="saveCampBtn" onclick="createCamp()" style="padding: 15px; width: 100%; font-size: 18px; background: rgba(0, 255, 136, 0.4);" title="ذخیره تنظیمات و ایجاد رویداد">ذخیره و ایجاد لینک</button>
         
         <div id="result" style="margin-top: 20px; color: var(--text-color); font-weight: bold; display: none; text-align: center;">
@@ -683,12 +700,13 @@
             fetch('/superadmin/login', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ password: pass })
+                body: JSON.stringify(SAF.loginBody(pass))
             })
             .then(res => res.json())
             .then(data => {
                 if (data.success) {
                     Auth.set(data.token);
+                    SAF.onLogin(data.role);
                     document.getElementById('saPassword').value = '';
                     hideModal('loginSection');
                     setTimeout(() => { showModal('dashboardSection', 'block'); }, 280);
@@ -862,6 +880,7 @@
                                 <i data-lucide="building-2" style="width: 14px; height: 14px;"></i> 
                                 ${esc(camp.orgName || '-')}
                             </div>
+                            ${SAF.ownerLabel(camp)}
                         </div>
                         ${statusBadge}
                     </div>
@@ -871,6 +890,7 @@
                         <button onclick="openCampLinks('${camp.id}')" title="لینک‌ها و QR"><i data-lucide="qr-code"></i> لینک‌ها و QR</button>
                         <button onclick="duplicateCamp('${camp.id}')" title="ساخت دوره جدید با همین تیم‌ها، مراحل و کاربران"><i data-lucide="copy"></i> تکثیر</button>
                         ${archiveBtn}
+                        ${SAF.cardExtras(camp)}
                         <button onclick="exportCamp('${camp.id}')" title="دانلود فایل پشتیبان همین مسابقه (با امتیازها و تصاویر)"><i data-lucide="download"></i> خروجی</button>
                         <button onclick="deleteCamp('${camp.id}')" class="camp-delete-btn" title="انتقال به سطل زباله"><i data-lucide="trash-2"></i> حذف</button>
                         <a href="operator.html?id=${camp.id}" target="_blank" class="icon-btn camp-wide"><i data-lucide="external-link"></i> پنل اپراتور</a>
@@ -1032,7 +1052,7 @@
             Help.show('پشتیبان‌گیری و بازیابی', `
                 <p>فایل پشتیبان شامل همه مسابقه‌ها (حتی داخل سطل زباله)، امتیازها، کاربران و تصاویر است و در هر دو نسخه (Node و cPanel) قابل بازیابی است.</p>
                 <div class="manage-row">
-                    <button type="button" onclick="fetchBackup('/superadmin/backup', 'sim-camp-backup.json')"><i data-lucide="download"></i> دانلود پشتیبان کامل</button>
+                    ${SAF.isSuper() ? `<button type="button" onclick="fetchBackup('/superadmin/backup', 'sim-camp-backup.json')"><i data-lucide="download"></i> دانلود پشتیبان کامل</button>` : ''}
                     <button type="button" onclick="document.getElementById('backupFileInput').click()"><i data-lucide="upload"></i> بازیابی از فایل پشتیبان</button>
                 </div>
                 <p class="manage-note">بازیابی هیچ مسابقه موجودی را بازنویسی نمی‌کند: اگر لینک یک مسابقه از قبل وجود داشته باشد، با لینک جدید ساخته می‌شود.</p>
@@ -1088,7 +1108,7 @@
             Help.show(`لینک‌های «${camp.title || ''}»`,
                 block('ورود اپراتور و داوران', op, 'این لینک را به اپراتور و داورها بدهید؛ با نام کاربری و رمز خود وارد می‌شوند.') +
                 block('تابلوی زنده', board, 'برای نمایش روی تلویزیون یا پروژکتور؛ نیاز به ورود ندارد.') +
-                block('نتایج و تقدیرنامه (چاپ)', results, 'جدول نتایج و تقدیرنامه‌ها برای چاپ یا ذخیره PDF.'));
+                block('نتایج و تقدیرنامه (چاپ)', results, 'جدول نتایج و تقدیرنامه‌ها برای چاپ یا ذخیره PDF.') + SAF.linksExtra(id));
         }
 
         function downloadCpanelPackage() {
@@ -1165,6 +1185,9 @@
         }
 
         let currentPosTags = ['نظم', 'خلاقیت', 'کار تیمی', 'اخلاق ورزشی'];
+        // Used by the advanced settings section (tag → skill links) and templates.
+        window.getFormTags = () => [...new Set([...currentPosTags, ...currentNegTags])];
+        window.setFormTags = (pos, neg) => { currentPosTags = [...pos]; currentNegTags = [...neg]; renderPosTags(); renderNegTags(); };
         let currentNegTags = ['بی‌نظمی', 'تاخیر', 'نقض قوانین', 'رفتار نامناسب'];
 
         function toggleFieldJudgingSettings() {
@@ -1297,6 +1320,7 @@
     });
                         c.stages.forEach(s => addStage(s.name, s.id, s.unit, s.timeOrder, s.multiplier));
                         if(c.users) c.users.forEach(u => addUser(u.firstName, u.lastName, u.username, '', u.role, u.profilePic, u.id, !!u.hasPassword));
+                        SAF.onCampLoaded(c);
                         FormGuard.reset('setup');
                     }
                 });
@@ -1326,6 +1350,7 @@
                 setLogoMode('url');
                 updatePreview();
                 addTeam(); addStage(); addUser();
+                SAF.onNewCamp();
                 FormGuard.reset('setup');
             }
         }
@@ -1885,6 +1910,7 @@
                 positiveTags: currentPosTags,
                 negativeTags: currentNegTags
             };
+            Object.assign(campData, SAF.extraForSave());
 
             fetch('/setup', {
                 method: 'POST',

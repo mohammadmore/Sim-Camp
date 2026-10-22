@@ -98,6 +98,25 @@ export function registerFeatureScenarios(ctx) {
         assert.ok(!('chanceCards' in p), 'chance cards are a surprise');
     });
 
+    test('features: forms that do not know the new fields keep them', async () => {
+        const admin = (await call('GET', `/superadmin/camps/${campId}`, undefined, sa)).json.camp;
+        // The superadmin form sends teams and stages without members / criteria / schedule.
+        const r = await call('POST', '/setup', {
+            campId, orgName: admin.orgName, title: admin.title, campType: admin.campType,
+            teams: admin.teams.map(t => ({ id: t.id, name: t.name, color: t.color })),
+            stages: admin.stages.map(s => ({ id: s.id, name: s.name, unit: s.unit, multiplier: 1 })),
+            users: admin.users.map(u => ({ id: u.id, username: u.username, role: u.role, firstName: u.firstName }))
+        }, sa);
+        assert.equal(r.json.success, true, r.text);
+        const p = (await poll()).json;
+        assert.equal(p.stages[0].criteria.length, 2);
+        assert.equal(p.stages[0].startAt, '10:30');
+        assert.deepEqual(team(p, 't_a').members.map(m => m.name), ['Ali', 'Sara']);
+        assert.equal(team(p, 't_a').division, 'dv_1');
+        const m = (await call('GET', `/api/manage?id=${campId}`, undefined, op)).json;
+        assert.equal(m.teams.find(t => t.id === 't_a').pin, pins.t_a, 'PINs survive an edit');
+    });
+
     test('features: referees only score the teams assigned to them', async () => {
         assert.equal((await call('POST', `/api/instant?id=${campId}`, { teamId: 't_b', delta: 2 }, ref1)).status, 403);
         assert.equal((await call('POST', `/api/instant?id=${campId}`, { teamId: 't_a', delta: 2 }, ref1)).json.success, true);

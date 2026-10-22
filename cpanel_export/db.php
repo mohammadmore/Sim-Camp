@@ -131,7 +131,8 @@ function ensure_database_schema($conn, $active_driver) {
                 'auditLog' => 'LONGTEXT',
                 'announcement' => 'TEXT',
                 'activeStageId' => 'VARCHAR(64)',
-                'deletedAt' => 'BIGINT NULL'
+                'deletedAt' => 'BIGINT NULL',
+                'extras' => 'LONGTEXT' // feature settings and live state (JSON object)
             ];
             foreach ($columns_to_check as $col => $type) {
                 try {
@@ -190,7 +191,8 @@ function ensure_database_schema($conn, $active_driver) {
                 'auditLog' => 'TEXT',
                 'announcement' => 'TEXT',
                 'activeStageId' => 'TEXT',
-                'deletedAt' => 'INTEGER'
+                'deletedAt' => 'INTEGER',
+                'extras' => 'TEXT' // feature settings and live state (JSON object)
             ];
             foreach ($sqlite_cols as $col => $type) {
                 try {

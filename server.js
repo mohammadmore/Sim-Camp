@@ -305,6 +305,7 @@ function sendSplash(id, entry, log) {
     if (!sseClients.get(id)?.size) return;
     const camp = repo.campOf(entry);
     if (camp.frozen) return; // the standings are hidden at the moment
+    if (log.chance || log.round) return; // a chance card / decision has its own announcement on the board
     const team = camp.teams.find(t => t.id === log.teamId);
     if (!team) return;
     sendToClients(id, `event: splash\ndata: ${JSON.stringify({
@@ -581,10 +582,17 @@ function campTokenFor(camp, username, secret) {
 // ---------------------------------------------------------------------------
 // Input sanitising for setup / settings
 // ---------------------------------------------------------------------------
-function cleanStages(stages) {
+// existing: the stored stages — fields a form leaves out (criteria, schedule) keep their stored value.
+function cleanStages(stages, existing = []) {
     if (!Array.isArray(stages)) throw new HttpError(400, 'فهرست مراحل نامعتبر است.');
-    return stages.map(s => {
-        requireId(s && s.id, 'شناسه مرحله');
+    const prev = new Map((existing || []).map(s => [s.id, s]));
+    return stages.map(raw => {
+        requireId(raw && raw.id, 'شناسه مرحله');
+        const old = prev.get(raw.id) || {};
+        const s = { ...raw };
+        if (!('criteria' in raw) && old.criteria) s.criteria = old.criteria;
+        if (!('startAt' in raw) && old.startAt) s.startAt = old.startAt;
+        if (!('durationMin' in raw) && old.durationMin) s.durationMin = old.durationMin;
         const multiplier = parseFloat(s.multiplier);
         return {
             ...s,
@@ -768,6 +776,12 @@ app.get('/media/:name', route(async (req, res) => {
 // ---------------------------------------------------------------------------
 // Read by every page load; cached briefly (another server instance may change it).
 let systemLogoCache = { value: null, until: 0 };
+// Server clock for live timers (devices' clocks are often off by seconds or minutes).
+app.get('/api/time', (req, res) => {
+    res.setHeader('Cache-Control', 'no-store');
+    res.json({ now: Date.now() });
+});
+
 app.get('/api/settings', route(async (req, res) => {
     if (systemLogoCache.until < Date.now()) {
         let value = await getSetting('systemLogo');
@@ -876,7 +890,7 @@ function verifyClientKey(camp, key) {
 }
 
 // Settings of the optional features accepted from the superadmin form.
-const ADVANCED_FORM_KEYS = ['display', 'features', 'skills', 'tagSkills', 'divisions', 'roles', 'chanceCards', 'rounds', 'brand', 'uiLang', 'calibrationCases', 'registrationOpen', 'scoreCap'];
+const ADVANCED_FORM_KEYS = ['display', 'features', 'skills', 'tagSkills', 'divisions', 'roles', 'chanceCards', 'rounds', 'brand', 'uiLang', 'calibrationCases', 'registrationOpen', 'scoreCap', 'assignments', 'teamsExtra', 'stagesExtra'];
 
 app.post('/setup', route(async (req, res) => {
     const admin = await requireAdmin(req);
@@ -910,6 +924,7 @@ app.post('/setup', route(async (req, res) => {
         await adminMutate(admin, id, { allowLocked: true }, async camp => {
             const changes = {
                 ...base,
+                stages: cleanStages(b.stages || [], camp.stages),
                 teams: ensurePins(mergeTeams(camp.teams, teamDefs)),
                 users: await cleanUsers(b.users, camp.users)
             };
@@ -1086,7 +1101,7 @@ app.post('/api', route(async (req, res) => {
         const user = requireCampUser(req, camp, MANAGER_ROLES);
         const changes = {};
         if (b.teams !== undefined) changes.teams = mergeTeams(camp.teams, cleanTeamDefs(b.teams));
-        if (b.stages !== undefined) changes.stages = cleanStages(b.stages);
+        if (b.stages !== undefined) changes.stages = cleanStages(b.stages, camp.stages);
         if (typeof b.orgName === 'string' && b.orgName) changes.orgName = strOrEmpty(b.orgName, 200);
         if (typeof b.title === 'string') changes.title = strOrEmpty(b.title, 200);
         if (typeof b.logo === 'string') changes.logo = strOrEmpty(b.logo, 2_000_000);

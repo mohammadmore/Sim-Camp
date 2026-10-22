@@ -108,7 +108,7 @@ function pollBoardState() {
         let maxTime = lastSeenLogTime;
         (state.teams || []).forEach(t => {
             (Array.isArray(t.scoreLogs) ? t.scoreLogs : []).forEach(log => {
-                if (!isFirstLoad && log.type === 'instant' && log.timestamp > lastSeenLogTime) {
+                if (!isFirstLoad && log.type === 'instant' && !log.chance && !log.round && !state.frozen && log.timestamp > lastSeenLogTime) {
                     splashQueue.push({
                         teamId: t.id,
                         delta: log.value,
