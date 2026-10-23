@@ -479,7 +479,7 @@ I18N.register('en', {
     "جدول زنده سیمولیشن کمپ": "Simulation Camp live standings",
     "تمام‌صفحه (کلید F)": "Full screen (F key)",
     "مراحل مسابقه": "Competition stages",
-    "توسعه یافته توسط شرکت داده‌پردازان اسوا": "Developed by Dadeh Pardazan Osva",
+    "توسعه یافته توسط شرکت داده‌پردازان اسوا": "Developed by Asva Studio",
     "نتایج نهایی": "Final results",
     "عکس تیم": "Team photo",
     "داور مسابقه": "Competition referee",
