@@ -2515,6 +2515,6 @@ body.ui-idle .lang-picker.lang-fixed { opacity: 0; pointer-events: none; }
 /* Left-to-right pages (English): space between a label and the icon after it */
 [dir="ltr"] button > svg.lucide:last-child:not(:first-child),
 [dir="ltr"] .btn > svg.lucide:last-child:not(:first-child) { margin-left: 6px; margin-right: 0; }
-/* English pages: the English credit already names the company once */
-html[lang="en"] .asva-footer .credit-divider,
-html[lang="en"] .asva-footer .fa-credit { display: none !important; }
+/* English and Arabic pages: the English credit already names the company once */
+html:not([lang="fa"]) .asva-footer .credit-divider,
+html:not([lang="fa"]) .asva-footer .fa-credit { display: none !important; }
