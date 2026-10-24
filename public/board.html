@@ -3,12 +3,136 @@
 <head>
     <link rel="icon" type="image/svg+xml" href="favicon.svg">
     <link rel="icon" type="image/png" href="favicon.png">
+    <link rel="manifest" href="manifest.webmanifest">
+    <link rel="apple-touch-icon" href="apple-touch-icon.png">
+    <meta name="theme-color" content="#312e81">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <link rel="stylesheet" href="style.css?v=11">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="stylesheet" href="style.css?v=14">
+    <style>
+        /* Board page layout. On a TV the whole board fits one screen; on phones and
+           portrait tablets the page scrolls instead of letting rows and the ticker overlap. */
+        body.board-page {
+            margin: 0; padding: 10px; box-sizing: border-box;
+            display: flex; flex-direction: column;
+            min-height: 100vh; min-height: 100dvh;
+            overflow-x: hidden;
+        }
+        @media (min-width: 1024px) and (min-height: 600px) {
+            body.board-page { height: 100vh; height: 100dvh; overflow: hidden; }
+        }
+        body.board-page #board { flex-shrink: 0; }
+
+        /* Header: as tall as the logos / title need (no fixed 15vh block). */
+        #boardHeader {
+            margin: 0 auto 14px auto; display: flex; justify-content: space-between; align-items: center;
+            max-width: 1400px; width: 95%; min-height: 64px; max-height: 15vh; gap: 12px;
+        }
+        #campTitleText {
+            font-size: clamp(16px, 3.5vw, 70px); margin: 0; line-height: 1.25; padding: 0.08em 0.2em;
+            text-shadow: 0 2px 6px rgba(0,0,0,0.18);
+            white-space: nowrap; overflow: hidden; text-overflow: ellipsis; width: 100%; text-align: center;
+        }
+        /* Phones: room for the theme / fullscreen buttons above the title */
+        @media (max-width: 600px) {
+            /* top: theme / fullscreen buttons; bottom: the connection dot stays clear of the footer */
+            body.board-page { padding-top: 58px; padding-bottom: calc(52px + env(safe-area-inset-bottom, 0px)); }
+            #boardHeader { margin-top: 0 !important; min-height: 0; }
+        }
+
+        /* Team rows: crisp text outline instead of a blurred shadow that gets cut into a box */
+        body.board-page .team-name, body.board-page .score-val {
+            text-shadow: 0 1px 2px rgba(0,0,0,0.65), 0 0 1px rgba(0,0,0,0.9) !important;
+        }
+        /* Persian digits sit high in their line box: centre them optically */
+        body.board-page .score-val { line-height: 1; padding-top: 0.12em; }
+        body.board-page .name-container { flex: 1 1 auto; }
+        body.board-page .team-name { flex: 0 1 auto; padding: 0.06em 0.12em; }
+        body.board-page .team-name-wrap { line-height: 1.2; }
+        /* Extras fill only the space the name leaves; chips that don't fit wrap onto a
+           hidden second line, so a chip is either shown whole or not at all. */
+        body.board-page .team-extras {
+            flex: 1 1 0; display: flex; flex-wrap: wrap; align-items: center; align-content: flex-start;
+            height: calc(1.45em + 2px); overflow: hidden; gap: 2em 0.45em;
+        }
+        body.board-page .tx-chip { line-height: 1.45; padding: 0 0.6em; white-space: nowrap; }
+        body.board-page .tx-badge { line-height: 1.45; }
+        body.board-page .tx-rank {
+            display: inline-flex; align-items: center; justify-content: center; min-width: 1.35em; height: 1.35em;
+            margin-inline-start: 0.35em; border-radius: 999px; background: rgba(0,0,0,0.28); color: #fff; font-size: 0.85em;
+        }
+
+        /* Info chips: the frozen notice in the same pill style as the others */
+        body.board-page .live-frozen small { font-weight: 600; opacity: 0.85; }
+
+        /* Empty / not found message as a card */
+        body.board-page #boardMessage {
+            max-width: 560px; width: calc(100% - 32px); margin: 6vh auto 0 auto; box-sizing: border-box;
+            padding: 36px 28px; border-radius: var(--radius-lg, 20px); opacity: 1;
+            background: var(--glass-bg); border: 1px solid var(--glass-border); box-shadow: var(--glass-shadow);
+            backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+            font-size: clamp(18px, 1.6vw, 26px); font-weight: 700; line-height: 1.8;
+        }
+        body.board-page #boardMessage small { display: block; margin-top: 6px; font-weight: 500; font-size: 0.75em; opacity: 0.8; }
+        body.board-page #boardMessage .empty-icon { font-size: 64px; }
+
+        /* Rotating panels: solid card, so the table behind doesn't show through */
+        body.board-page .panel-overlay { background: rgba(2, 6, 23, 0.7); backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px); }
+        body.board-page .panel-card { background: rgba(255, 255, 255, 0.97); max-height: 90vh; max-height: 90dvh; box-sizing: border-box; }
+        [data-theme="dark"] body.board-page .panel-card { background: rgba(15, 23, 42, 0.97); }
+        body.board-page .panel-body { overflow-x: auto; }
+
+        /* Knockout bracket */
+        body.board-page .bracket { justify-content: safe center; gap: clamp(16px, 3vw, 48px); padding: 4px 2px 8px; }
+        body.board-page .br-col { flex: 0 1 300px; min-width: 200px; }
+        body.board-page .br-head {
+            align-self: center; padding: 4px 16px; border-radius: 999px; opacity: 1;
+            background: rgba(79, 70, 229, 0.12); border: 1px solid rgba(79, 70, 229, 0.3); font-size: clamp(14px, 1.3vw, 22px);
+        }
+        body.board-page .br-col.br-final .br-head { background: #facc15; border-color: #eab308; color: #422006; }
+        body.board-page .br-match { box-shadow: 0 4px 14px rgba(0,0,0,0.08); }
+        body.board-page .br-team { display: flex; align-items: center; gap: 10px; border-inline-start: 6px solid var(--team, transparent); }
+        body.board-page .br-team.tbd { opacity: 0.55; font-weight: 500; }
+        body.board-page .br-team.win { background: rgba(22, 163, 74, 0.22); }
+        body.board-page .br-team.win::after { content: '✓'; margin-inline-start: auto; color: #15803d; font-weight: 900; }
+        [data-theme="dark"] body.board-page .br-team.win::after { color: #4ade80; }
+        @media (max-width: 640px) {
+            body.board-page .panel-overlay { padding: 12px; }
+            body.board-page .panel-card { width: 100%; padding: 16px 14px; border-radius: 18px; }
+            /* Rounds stacked top-to-bottom: nothing is cut off on a phone */
+            body.board-page .bracket { flex-direction: column; gap: 18px; }
+            body.board-page .br-col { flex: none; min-width: 0; gap: 10px; }
+        }
+
+        /* Award ceremony: the teams already revealed */
+        body.board-page .ceremony-list { gap: 8px; max-height: 32vh; max-height: 32dvh; }
+        body.board-page .cer-row {
+            gap: 14px; padding: 8px 16px; border-radius: 14px; font-size: clamp(16px, 1.8vw, 28px);
+            background: rgba(255,255,255,0.08); border-inline-start: 6px solid var(--team, rgba(255,255,255,0.3));
+        }
+        body.board-page .cer-r {
+            display: inline-flex; align-items: center; justify-content: center; min-width: 1.8em; height: 1.8em;
+            border-radius: 50%; background: rgba(255,255,255,0.14); font-size: 0.85em;
+        }
+        body.board-page .cer-n { font-weight: 800; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        body.board-page .cer-s { font-weight: 800; white-space: nowrap; }
+        body.board-page .cer-s small { font-weight: 500; opacity: 0.7; font-size: 0.7em; margin-inline-start: 4px; }
+        body.board-page .ceremony-overlay { height: 100vh; height: 100dvh; }
+        body.board-page .cer-card { max-width: 92vw; box-sizing: border-box; }
+        body.board-page .cer-name { overflow-wrap: anywhere; }
+
+        /* Chance card effects as pills (signs stay next to their number) */
+        body.board-page .chance-effect { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; }
+        body.board-page .ch-pill { padding: 2px 14px; border-radius: 999px; background: rgba(180, 83, 9, 0.12); }
+        body.board-page .ch-teams { flex-basis: 100%; font-size: 0.7em; font-weight: 700; color: #78350f; }
+    </style>
     <title>جدول زنده سیمولیشن کمپ</title>
+    <script src="i18n.js" data-scope="public"></script>
     <script src="vendor/lucide-1.61.0.min.js"></script>
     <script src="common.js"></script>
+    <script src="features.js"></script>
     <script src="vendor/canvas-confetti-1.9.4.js"></script>
     <script>
         const savedTheme = localStorage.getItem('theme') || 'light';
@@ -30,21 +154,29 @@
         document.addEventListener('DOMContentLoaded', () => { updateThemeIcon(); fetch('/api/settings').then(r=>r.json()).then(d=>{ if(d.systemLogo) { const el = document.getElementById('boardSystemLogo'); if(el) { el.src = d.systemLogo; el.style.display = 'block'; } } }); });
     </script>
 </head>
-<body style="overflow: hidden; height: 100vh; padding: 10px; box-sizing: border-box; margin: 0; display: flex; flex-direction: column;">
+<body class="board-page">
     <div id="bgLogo" style="position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 80vmin; height: 80vmin; z-index: -1; pointer-events: none; display: none;"></div>
     <button onclick="toggleTheme()" class="theme-toggle board-theme-toggle" title="تغییر پوسته"><i data-lucide="moon"></i></button>
+    <div class="board-controls">
+        <button type="button" id="fullscreenBtn" class="board-ctrl-btn" onclick="toggleFullscreen()" title="تمام‌صفحه (کلید F)"><i data-lucide="maximize"></i></button>
+    </div>
 
-    <div class="header-container" id="boardHeader" style="margin: 0 auto 20px auto; display: flex; justify-content: space-between; align-items: center; max-width: 1400px; width: 95%; height: 15vh;">
+    <div class="header-container" id="boardHeader" >
         <div class="logo-container">
             <img id="boardSystemLogo" style="display:none; object-fit: contain;" />
         </div>
         <div class="title-container">
-            <h1 id="campTitleText" style="font-size: clamp(16px, 3.5vw, 70px); margin: 0; text-shadow: 0 4px 10px rgba(0,0,0,0.3); line-height: 1.1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; width: 100%; text-align: center;"></h1>
+            <h1 id="campTitleText"></h1>
         </div>
         <div class="logo-container">
             <img id="orgLogo" style="display:none; object-fit: contain;" />
+            <img id="clientLogo" class="client-logo" alt="" style="display:none; object-fit: contain;" />
         </div>
     </div>
+
+    <div id="stageStrip" class="stage-strip" style="display: none;" aria-label="مراحل مسابقه"></div>
+    <div id="liveBar" class="live-bar" style="display: none;" aria-live="polite"></div>
+    <div id="boardMessage" class="empty-state" style="display: none;"></div>
 
     <!-- FLIP Animation Container -->
     <div id="board" class="board-container" style="max-width: 1400px; width: 95%;">
@@ -80,8 +212,39 @@
     </div>
 
     <div class="asva-spacer" style="flex-grow: 1; flex-shrink: 0; min-height: 20px;"></div>
+    <div id="tickerBar" class="ticker-bar" style="display: none;" aria-live="polite"><span class="ticker-icon">📣</span><div class="ticker-track"><span id="tickerText"></span></div></div>
+    <div id="sponsorLine" class="sponsor-line" style="display: none;"></div>
     <div class="asva-footer"><span class="en-credit">Powered by Asva Studio</span><span class="credit-divider"> | </span><span class="fa-credit">توسعه یافته توسط شرکت داده‌پردازان اسوا</span></div>
     
+    <!-- Award ceremony: ranks revealed one by one, from the last place to the champion -->
+    <div id="ceremonyOverlay" class="ceremony-overlay" style="display: none;" aria-live="assertive">
+        <div class="ceremony-title"></div>
+        <div id="ceremonyCurrent" class="ceremony-current"></div>
+        <div id="ceremonyList" class="ceremony-list"></div>
+    </div>
+
+    <!-- Chance card -->
+    <div id="chanceOverlay" class="chance-overlay" style="display: none;" aria-live="assertive">
+        <div class="chance-card"><div class="chance-inner">
+            <div class="chance-back">🎴</div>
+            <div class="chance-front"><div class="chance-kicker"></div><div class="chance-title"></div><div class="chance-text"></div><div class="chance-effect"></div></div>
+        </div></div>
+    </div>
+
+    <!-- Rotating panels: score trend, knockout bracket, team decisions -->
+    <div id="panelOverlay" class="panel-overlay" style="display: none;">
+        <div class="panel-card glass"><h2 class="panel-title"></h2><div class="panel-body"></div></div>
+    </div>
+
+    <!-- Final results announcement -->
+    <div id="announceOverlay" class="announce-overlay" style="display: none;" aria-live="assertive">
+        <div id="announceCountdown" class="announce-countdown"></div>
+        <div id="announcePodium" class="announce-podium" style="display: none;">
+            <div class="announce-title">🏆 <span id="announceTitleText">نتایج نهایی</span></div>
+            <div id="announceSteps" class="podium-steps"></div>
+        </div>
+    </div>
+
     <!-- Splash Screen overlay -->
     <div class="splash-overlay">
         <!-- Emergency Siren Lights & Hazard Strobe (Activated on negative score) -->
@@ -145,7 +308,7 @@
         const board = document.getElementById('board');
         
         let previousScores = {};
-        let medalAssignments = { 1: null, 2: null, 3: null };
+        let previousRanks = {};
         
         // State and Splash Management
         let latestState = null;
@@ -169,14 +332,58 @@
             window.requestAnimationFrame(step);
         }
 
-        if (!campId) {
-            board.innerHTML = "<h3 style='color: var(--error-color);'>خطا: شناسه مسابقه نامعتبر است.</h3>";
+        function showBoardMessage(icon, html) {
+            const m = document.getElementById('boardMessage');
+            m.innerHTML = `<span class="empty-icon">${icon}</span>${html}`;
+            m.style.display = 'block';
+            board.style.display = 'none';
+        }
+        function hideBoardMessage() {
+            document.getElementById('boardMessage').style.display = 'none';
+            board.style.display = '';
+        }
+
+        // Fullscreen + keep the screen awake while the board is shown on a TV
+        let wakeLock = null;
+        async function requestWakeLock() {
+            try { if ('wakeLock' in navigator && !wakeLock) { wakeLock = await navigator.wakeLock.request('screen'); wakeLock.addEventListener('release', () => { wakeLock = null; }); } } catch (e) { /* not allowed */ }
+        }
+        document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') requestWakeLock(); });
+        ['click', 'touchstart', 'keydown'].forEach(evt => window.addEventListener(evt, requestWakeLock, { once: true }));
+        function toggleFullscreen() {
+            if (!document.fullscreenElement) {
+                (document.documentElement.requestFullscreen ? document.documentElement.requestFullscreen() : Promise.reject()).catch(() => {});
+            } else if (document.exitFullscreen) {
+                document.exitFullscreen();
+            }
+            requestWakeLock();
+        }
+        document.addEventListener('fullscreenchange', () => {
+            const b = document.getElementById('fullscreenBtn');
+            if (b) { b.innerHTML = document.fullscreenElement ? '<i data-lucide="minimize"></i>' : '<i data-lucide="maximize"></i>'; refreshIcons(); }
+            setTimeout(() => window.dispatchEvent(new Event('resize')), 200);
+        });
+        document.addEventListener('keydown', e => { if ((e.key === 'f' || e.key === 'F' || e.key === 'ب') && !e.ctrlKey && !e.metaKey) toggleFullscreen(); });
+
+        ConnectionStatus.mount({ staleAfter: 40000 });
+
+        if (!campId || !/^[A-Za-z0-9_-]{1,64}$/.test(campId)) {
+            ConnectionStatus.show(false);
+            showBoardMessage('🔗', 'لینک تابلو نامعتبر است.<br><small>لینک صحیح را از اپراتور مسابقه دریافت کنید.</small>');
         } else {
+        fetch('/api?action=info&id=' + campId).then(r => r.json()).then(d => {
+            if (!d.success) {
+                if (typeof evtSource !== 'undefined') evtSource.close();
+                ConnectionStatus.show(false);
+                showBoardMessage('🔍', 'مسابقه‌ای با این لینک پیدا نشد.<br><small>ممکن است حذف شده باشد یا لینک اشتباه باشد.</small>');
+            }
+        }).catch(() => {});
 
         const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
         const unlockAudio = () => { if (audioCtx && audioCtx.state === 'suspended') audioCtx.resume(); };
         ['click', 'touchstart', 'keydown'].forEach(evt => window.addEventListener(evt, unlockAudio, { once: true }));
         function playSound(type) {
+            if (!Feat.shown(latestState, 'sound')) return;
             if (audioCtx.state === 'suspended') audioCtx.resume();
             const osc = audioCtx.createOscillator();
             const gainNode = audioCtx.createGain();
@@ -202,25 +409,39 @@
             }
         }
 
+        // Hide the cursor and the on-screen controls while nobody touches the board.
         let mouseTimer;
-        document.addEventListener('mousemove', () => {
+        function wakeUi() {
             document.body.style.cursor = 'default';
+            document.body.classList.remove('ui-idle');
             clearTimeout(mouseTimer);
             mouseTimer = setTimeout(() => {
                 document.body.style.cursor = 'none';
+                document.body.classList.add('ui-idle');
             }, 3000);
-        });
+        }
+        ['mousemove', 'touchstart', 'keydown'].forEach(evt => document.addEventListener(evt, wakeUi, { passive: true }));
+        wakeUi();
 
 
 // Replaced Heavy Polling with Lightweight SSE
 const evtSource = new EventSource('/api?action=stream&id=' + campId);
 evtSource.onmessage = function(e) {
     if (e.data === ':') return;
+    ConnectionStatus.ok();
     latestState = JSON.parse(e.data);
     if (splashQueue.length === 0 && !isSplashing) {
         renderBoard(latestState);
     }
 };
+evtSource.onopen = function() { ConnectionStatus.ok(); };
+evtSource.addEventListener('ping', function() { ConnectionStatus.ok(); });
+evtSource.onerror = function() { ConnectionStatus.fail(); };
+evtSource.addEventListener('deleted', function() {
+    evtSource.close();
+    ConnectionStatus.show(false);
+    showBoardMessage('🗑️', 'این مسابقه حذف شده است.');
+});
 
 evtSource.addEventListener('splash', function(e) {
     const data = JSON.parse(e.data);
@@ -249,6 +470,7 @@ evtSource.addEventListener('splash', function(e) {
         let activeAlarmInterval = null;
 
         function startSirenAlarm() {
+            if (!Feat.shown(latestState, 'sound')) return;
             try {
                 if (audioCtx.state === 'suspended') audioCtx.resume();
                 stopSirenAlarm();
@@ -298,6 +520,7 @@ evtSource.addEventListener('splash', function(e) {
         }
 
         function playSuccessChime() {
+            if (!Feat.shown(latestState, 'sound')) return;
             try {
                 if (audioCtx.state === 'suspended') audioCtx.resume();
                 const notes = [523.25, 659.25, 783.99, 1046.5]; // C5, E5, G5, C6
@@ -321,6 +544,7 @@ evtSource.addEventListener('splash', function(e) {
         }
 
         function triggerConfetti() {
+            if (!Feat.shown(latestState, 'confetti')) return;
             try {
                 if (typeof confetti === 'function') {
                     confetti({
@@ -406,6 +630,13 @@ evtSource.addEventListener('splash', function(e) {
         }
 
         async function runSplashQueue() {
+            // Score animation switched off for this camp: the table simply updates.
+            if (!Feat.shown(latestState, 'splash')) {
+                splashQueue.length = 0;
+                isSplashing = false;
+                if (latestState) renderBoard(latestState);
+                return;
+            }
             isSplashing = true; 
             const popup = document.querySelector('.splash-popup');
             const sirenOverlay = document.getElementById('sirenOverlay');
@@ -438,8 +669,11 @@ evtSource.addEventListener('splash', function(e) {
                 // Determine photo: happy image for +, sad image for -, fallback to default team image
                 const targetTeam = (latestState?.teams || []).find(t => t.id === sp.teamId);
                 let teamPhoto = '';
+                const mood = Feat.shown(latestState, 'moodImages');
 
-                if (isPositive) {
+                if (!mood) {
+                    teamPhoto = sp.image || targetTeam?.image || '';
+                } else if (isPositive) {
                     if (sp.happyImage || targetTeam?.happyImage) {
                         teamPhoto = sp.happyImage || targetTeam?.happyImage;
                     } else if (sp.image || targetTeam?.image) {
@@ -616,8 +850,293 @@ evtSource.addEventListener('splash', function(e) {
             if (latestState) renderBoard(latestState);
         }
 
+        // Stage progress: closed (tiered) stages and the stage that is running now.
+        function renderStageStrip(data) {
+            const strip = document.getElementById('stageStrip');
+            const stages = Array.isArray(data.stages) ? data.stages : [];
+            if (!stages.length) { strip.style.display = 'none'; return; }
+            const closed = data.closedStages || {};
+            const active = data.activeStageId;
+            const activeStage = stages.find(st => st.id === active);
+            const chips = stages.map((st, i) => {
+                const cls = st.id === active ? 'active' : (closed[st.id] ? 'done' : '');
+                const mark = st.id === active ? '▶' : (closed[st.id] ? '✓' : formatNumber(i + 1, data.numLang || 'fa'));
+                return `<span class="stage-chip ${cls}"><span class="stage-chip-mark">${mark}</span>${esc(st.name)}</span>`;
+            }).join('');
+            const label = activeStage ? `<span class="stage-now">${esc(L('مرحله در حال اجرا'))}: <b>${esc(activeStage.name)}</b></span>` : '';
+            const html = label + `<div class="stage-chips">${chips}</div>`;
+            if (strip.dataset.html !== html) { strip.innerHTML = html; strip.dataset.html = html; }
+            strip.style.display = '';
+        }
+
+        // Final results: short countdown, then a podium (ties share a step).
+        let announcedAt = null;
+        let countdownTimer = null;
+        function handleAnnouncement(data) {
+            const ov = document.getElementById('announceOverlay');
+            const a = data.announcement;
+            if (!a || !a.active) {
+                ov.style.display = 'none';
+                announcedAt = null;
+                clearInterval(countdownTimer);
+                return;
+            }
+            if (announcedAt === a.at) { renderPodium(data); return; }
+            announcedAt = a.at;
+            ov.style.display = 'flex';
+            const cd = document.getElementById('announceCountdown');
+            const podium = document.getElementById('announcePodium');
+            const reveal = () => {
+                cd.style.display = 'none';
+                podium.style.display = 'flex';
+                renderPodium(data);
+                if (typeof confetti === 'function' && Feat.shown(data, 'confetti')) {
+                    confetti({ particleCount: 220, spread: 120, origin: { y: 0.6 } });
+                    setTimeout(() => confetti({ particleCount: 150, spread: 160, origin: { y: 0.4 } }), 700);
+                }
+                try { playSound('success'); } catch (e) { /* audio locked */ }
+            };
+            clearInterval(countdownTimer);
+            // Boards opened later skip the countdown and show the podium straight away.
+            if (Date.now() - a.at > 15000) { reveal(); return; }
+            let n = 5;
+            podium.style.display = 'none';
+            cd.style.display = 'flex';
+            cd.textContent = formatNumber(n, data.numLang || 'fa');
+            countdownTimer = setInterval(() => {
+                n--;
+                if (n <= 0) { clearInterval(countdownTimer); reveal(); return; }
+                cd.textContent = formatNumber(n, data.numLang || 'fa');
+                cd.classList.remove('pulse'); void cd.offsetWidth; cd.classList.add('pulse');
+            }, 1000);
+        }
+
+        function renderPodium(data) {
+            const lang = data.numLang || 'fa';
+            const teams = [...(data.teams || [])].sort((a, b) => b.score - a.score);
+            const groups = [];
+            teams.forEach((t, i) => {
+                const rank = (i > 0 && t.score === teams[i - 1].score) ? groups[groups.length - 1].rank : i + 1;
+                if (rank > 3) return;
+                if (groups.length && groups[groups.length - 1].rank === rank) groups[groups.length - 1].teams.push(t);
+                else groups.push({ rank, teams: [t] });
+            });
+            const order = [groups[1], groups[0], groups[2]].filter(Boolean); // 2nd, 1st, 3rd
+            const html = order.map(g => `
+                <div class="podium-step podium-rank-${g.rank}">
+                    <div class="podium-medal">${document.getElementById('medal-' + g.rank).innerHTML}</div>
+                    ${g.teams.map(t => `<div class="podium-team" style="border-color: ${safeColor(t.color, '#fff')}">${esc(t.name)}</div>`).join('')}
+                    <div class="podium-score">${formatNumber(g.teams[0].score, lang)} ${esc(L('امتیاز'))}</div>
+                    <div class="podium-block">${formatNumber(g.rank, lang)}</div>
+                </div>`).join('');
+            document.getElementById('announceTitleText').textContent = L('نتایج نهایی');
+            const steps = document.getElementById('announceSteps');
+            if (steps.dataset.html !== html) { steps.innerHTML = html; steps.dataset.html = html; }
+        }
+
+
+        // ---------------------------------------------------------------------------
+        // Optional elements (each can be hidden per camp from the operator's advanced settings)
+        // ---------------------------------------------------------------------------
+        const L = s => Feat.t(s, latestState && latestState.uiLang);
+        Feat.syncClock();
+        setInterval(Feat.syncClock, 5 * 60000);
+
+        // Info bar: stage timer, next stage of the schedule, hidden table, appeal under review.
+        function renderLiveBar(data) {
+            const bar = document.getElementById('liveBar');
+            const lang = data.numLang || 'fa';
+            const parts = [];
+            if (data.timer && Feat.shown(data, 'timer')) {
+                const ms = Feat.timerRemaining(data.timer);
+                parts.push(`<span class="live-timer ${ms < 60000 ? 'urgent' : ''} ${data.timer.running ? '' : 'paused'}">⏱ ${data.timer.label ? `<small>${esc(data.timer.label)}</small>` : ''}<b>${Feat.fmtClock(ms, lang)}</b>${data.timer.running ? '' : ' ⏸'}</span>`);
+            }
+            if (Feat.shown(data, 'schedule')) {
+                const nowMin = new Date().getHours() * 60 + new Date().getMinutes();
+                const next = (data.stages || []).filter(st => st.startAt && st.id !== data.activeStageId)
+                    .map(st => ({ st, m: parseInt(st.startAt, 10) * 60 + parseInt(st.startAt.split(':')[1], 10) }))
+                    .filter(x => x.m >= nowMin).sort((a, b) => a.m - b.m)[0];
+                if (next) parts.push(`<span class="live-next">${esc(L('مرحله بعد'))}: <b>${esc(next.st.name)}</b> <span dir="ltr">${formatNumber(next.st.startAt, lang)}</span></span>`);
+            }
+            // Frozen: the table stays on the scores of that moment; new points are not shown yet.
+            if (data.frozen) parts.push(`<span class="live-frozen">🙈 ${esc(L('امتیازهای جدید فعلاً نمایش داده نمی‌شود'))}</span>`);
+            if (Feat.shown(data, 'varBanner') && (data.varOpen || []).length) {
+                const names = data.varOpen.map(a => ((data.teams || []).find(t => t.id === a.teamId) || {}).name).filter(Boolean);
+                parts.push(`<span class="live-var">⚖️ ${esc(L('بررسی اعتراض'))}: <b>${esc([...new Set(names)].join('، '))}</b></span>`);
+            }
+            const html = parts.join('');
+            if (bar.dataset.html !== html) { bar.innerHTML = html; bar.dataset.html = html; }
+            bar.style.display = parts.length ? '' : 'none';
+        }
+        setInterval(() => { if (latestState && latestState.timer) renderLiveBar(latestState); }, 500);
+
+        function renderTicker(data) {
+            const bar = document.getElementById('tickerBar');
+            const on = data.ticker && data.ticker.text && Feat.shown(data, 'ticker');
+            bar.style.display = on ? '' : 'none';
+            const el = document.getElementById('tickerText');
+            if (on && el.textContent !== data.ticker.text) {
+                el.textContent = data.ticker.text;
+                el.style.animationDuration = Math.max(12, data.ticker.text.length * 0.28) + 's';
+            }
+        }
+
+        // Client organisation branding: second logo, accent colour, background picture, sponsor line.
+        function applyBrand(data) {
+            const b = (Feat.shown(data, 'brand') && data.brand) || {};
+            const logo = document.getElementById('clientLogo');
+            if (b.clientLogo) { if (logo.getAttribute('src') !== b.clientLogo) logo.src = b.clientLogo; logo.style.display = 'block'; } else logo.style.display = 'none';
+            document.documentElement.style.setProperty('--brand-accent', b.accent ? safeColor(b.accent, '') : '');
+            document.body.classList.toggle('has-brand-accent', !!b.accent);
+            const bg = b.background ? 'url(' + JSON.stringify(safeUrl(b.background)) + ')' : '';
+            if (document.body.dataset.bg !== bg) { document.body.dataset.bg = bg; document.body.style.backgroundImage = bg ? `linear-gradient(rgba(0,0,0,0.25), rgba(0,0,0,0.25)), ${bg}` : ''; document.body.classList.toggle('has-brand-bg', !!bg); }
+            const sp = document.getElementById('sponsorLine');
+            sp.innerHTML = b.sponsor ? `با حمایت <span translate="no">${esc(b.sponsor)}</span>` : '';
+            sp.style.display = b.sponsor ? '' : 'none';
+        }
+
+        // Small extras next to a team name: group, captain, best player, budget and badges.
+        function teamExtrasHtml(team, data, badges, divRanks) {
+            const lang = data.numLang || 'fa';
+            const out = [];
+            if (Feat.on(data, 'divisions') && Feat.shown(data, 'divisions') && team.division) {
+                const d = (data.divisions || []).find(x => x.id === team.division);
+                if (d) out.push(`<span class="tx-chip tx-div" title="${esc(L('گروه'))}">${esc(d.name)}${Feat.shown(data, 'ranks') && divRanks[team.id] ? `<span class="tx-rank">${formatNumber(divRanks[team.id], lang)}</span>` : ''}</span>`);
+            }
+            if (Feat.on(data, 'roles') && Feat.shown(data, 'roles')) {
+                const c = Feat.captain(team);
+                if (c) out.push(`<span class="tx-chip" title="${esc(L('کاپیتان'))}">🎖 ${esc(c.name)}</span>`);
+            }
+            if (Feat.on(data, 'individual') && Feat.shown(data, 'individual')) {
+                const m = Feat.mvp(team);
+                if (m) out.push(`<span class="tx-chip" title="${esc(L('بهترین بازیکن'))}">⭐ ${esc(m.member.name)}</span>`);
+            }
+            if (Feat.on(data, 'budget') && Feat.shown(data, 'budget')) out.push(`<span class="tx-chip tx-budget" title="${esc(L('بودجه'))}">💰 ${formatNumber(team.budget || 0, lang)}</span>`);
+            if (Feat.shown(data, 'badges')) (badges[team.id] || []).forEach(b => out.push(`<span class="tx-badge" title="${esc(b.label)}">${b.icon}</span>`));
+            return out.join('');
+        }
+
+        // Award ceremony: from the last place up to the champion, one step per click of the operator.
+        let ceremonyShown = -1;
+        function handleCeremony(data) {
+            const ov = document.getElementById('ceremonyOverlay');
+            const c = data.ceremony;
+            if (!c || !c.active) { ov.style.display = 'none'; ceremonyShown = -1; return; }
+            ov.style.display = 'flex';
+            const lang = data.numLang || 'fa';
+            const sorted = [...(data.teams || [])].sort((a, b) => b.score - a.score);
+            const ranks = Feat.rankMap(sorted);
+            const total = sorted.length;
+            const shown = sorted.slice(Math.max(0, total - c.revealed));
+            ov.querySelector('.ceremony-title').textContent = '🏆 ' + L('مراسم اهدای جوایز');
+            const cur = shown[0];
+            const medal = r => (r <= 3 ? document.getElementById('medal-' + r).innerHTML : `<span class="cer-rank">${formatNumber(r, lang)}</span>`);
+            document.getElementById('ceremonyCurrent').innerHTML = cur
+                ? `<div class="cer-card" style="--team:${safeColor(cur.color, '#3b82f6')}"><div class="cer-medal">${medal(ranks[cur.id])}</div><div class="cer-name">${esc(cur.name)}</div><div class="cer-score">${formatNumber(cur.score, lang)} ${esc(L('امتیاز'))}</div></div>`
+                : `<div class="cer-wait">${esc(data.title || '')}</div>`;
+            document.getElementById('ceremonyList').innerHTML = shown.slice(1).map(t =>
+                `<div class="cer-row" style="--team:${safeColor(t.color, '#3b82f6')}"><span class="cer-r">${formatNumber(ranks[t.id], lang)}</span><span class="cer-n">${esc(t.name)}</span><span class="cer-s">${formatNumber(t.score, lang)}<small>${esc(L('امتیاز'))}</small></span></div>`).join('');
+            if (c.revealed !== ceremonyShown) {
+                if (ceremonyShown >= 0 && c.revealed > ceremonyShown && cur) {
+                    const card = document.querySelector('#ceremonyCurrent .cer-card');
+                    if (card) card.classList.add('pop');
+                    if (ranks[cur.id] === 1) { triggerConfetti(); setTimeout(triggerConfetti, 900); playSuccessChime(); } else playSound('success');
+                }
+                ceremonyShown = c.revealed;
+            }
+        }
+
+        // Chance card: flips open on every board for a few seconds.
+        let chanceSeen = null;
+        function handleChance(data) {
+            const ch = data.lastChance;
+            if (!ch || ch.id === chanceSeen) return;
+            const first = chanceSeen === null;
+            chanceSeen = ch.id;
+            if (first && Feat.now() - ch.at > 30000) return; // an old card when the board opens
+            if (!Feat.shown(data, 'chanceCards')) return;
+            const lang = data.numLang || 'fa';
+            const ov = document.getElementById('chanceOverlay');
+            const names = (data.teams || []).filter(t => (ch.teamIds || []).includes(t.id)).map(t => t.name);
+            ov.querySelector('.chance-kicker').textContent = '🎴 ' + L('کارت شانس');
+            ov.querySelector('.chance-title').textContent = ch.title;
+            ov.querySelector('.chance-text').textContent = ch.text || '';
+            const eff = [];
+            const pill = (n, label) => `<span class="ch-pill"><bdi dir="ltr">${n > 0 ? '+' : '−'}${formatNumber(Math.abs(n), lang)}</bdi> ${esc(L(label))}</span>`;
+            if (ch.points) eff.push(pill(ch.points, 'امتیاز'));
+            if (ch.budget) eff.push(pill(ch.budget, 'بودجه'));
+            if (names.length && names.length < (data.teams || []).length) eff.push(`<span class="ch-teams">${esc(names.join('، '))}</span>`);
+            ov.querySelector('.chance-effect').innerHTML = eff.join('');
+            ov.style.display = 'flex';
+            ov.classList.remove('flip'); void ov.offsetWidth; ov.classList.add('flip');
+            playSound('success');
+            clearTimeout(ov._t);
+            ov._t = setTimeout(() => { ov.style.display = 'none'; }, 8000);
+        }
+
+        // Rotating panels (shown for a while every minute when nothing else is on screen; T / B keys open them).
+        function availablePanels(data) {
+            const list = [];
+            if (Feat.shown(data, 'trendChart') && Feat.trendSeries(data).some(s => s.points.length >= 2)) list.push('trend');
+            if (Feat.on(data, 'bracket') && Feat.shown(data, 'bracket') && data.bracket && data.bracket.rounds) list.push('bracket');
+            if (Feat.on(data, 'decisions') && Feat.shown(data, 'decisions') && (data.rounds || []).some(r => r.revealed)) list.push('decisions');
+            return list;
+        }
+        function panelHtml(kind, data) {
+            const lang = data.numLang || 'fa';
+            const name = id => esc(((data.teams || []).find(t => t.id === id) || {}).name || '—');
+            if (kind === 'trend') return [L('نمودار روند امتیاز'), Feat.lineChart(Feat.trendSeries(data), { width: 1000, height: 460, lang })];
+            if (kind === 'bracket') {
+                const b = data.bracket;
+                const color = id => safeColor(((data.teams || []).find(t => t.id === id) || {}).color, 'transparent');
+                const cols = b.rounds.map((r, i) => {
+                    const final = i === b.rounds.length - 1;
+                    const head = final ? '🏆 ' + esc(L('فینال')) : esc(L('دور')) + ' ' + formatNumber(i + 1, lang);
+                    return `<div class="br-col${final ? ' br-final' : ''}"><div class="br-head">${head}</div>` + r.matches.map(m => `
+                    <div class="br-match">${['a', 'b'].map(k => m[k]
+                        ? `<div class="br-team ${m.winner && m.winner === m[k] ? 'win' : (m.winner ? 'lose' : '')}" style="--team:${color(m[k])}">${name(m[k])}</div>`
+                        : '<div class="br-team tbd">—</div>').join('')}</div>`).join('') + '</div>';
+                }).join('');
+                return [b.title || L('جدول حذفی'), `<div class="bracket">${cols}</div>`];
+            }
+            const r = [...(data.rounds || [])].reverse().find(x => x.revealed);
+            const rows = r.options.map(o => {
+                const teams = Object.entries(r.decisions || {}).filter(([, op]) => op === o.id).map(([tid]) => name(tid));
+                return `<div class="dec-row"><b>${esc(o.label)}</b><span>${teams.length ? teams.join('، ') : '—'}</span></div>`;
+            }).join('');
+            return [L('تصمیم تیم‌ها') + ': ' + r.title, `<p class="dec-q">${esc(r.question || '')}</p>${rows}`];
+        }
+        let panelTimer = null, panelIndex = 0, lastPanelAt = Date.now();
+        function showPanel(kind, ms) {
+            if (!latestState) return;
+            const ov = document.getElementById('panelOverlay');
+            const [title, body] = panelHtml(kind, latestState);
+            ov.querySelector('.panel-title').textContent = title;
+            ov.querySelector('.panel-body').innerHTML = body;
+            ov.style.display = 'flex';
+            clearTimeout(panelTimer);
+            panelTimer = setTimeout(hidePanel, ms || 12000);
+        }
+        function hidePanel() { document.getElementById('panelOverlay').style.display = 'none'; lastPanelAt = Date.now(); }
+        setInterval(() => {
+            if (!latestState || isSplashing || splashQueue.length || document.getElementById('panelOverlay').style.display !== 'none') return;
+            const busy = ['announceOverlay', 'ceremonyOverlay', 'chanceOverlay'].some(id => document.getElementById(id).style.display !== 'none');
+            if (busy || Date.now() - lastPanelAt < 50000) return;
+            const list = availablePanels(latestState);
+            if (!list.length) { lastPanelAt = Date.now(); return; }
+            showPanel(list[panelIndex++ % list.length]);
+        }, 2000);
+        document.addEventListener('keydown', e => {
+            if (!latestState || e.ctrlKey || e.metaKey) return;
+            const k = e.key.toLowerCase();
+            const want = (k === 't' || k === 'ف') ? 'trend' : (k === 'b' || k === 'ذ') ? 'bracket' : (k === 'd' || k === 'ی') ? 'decisions' : null;
+            if (k === 'escape') hidePanel();
+            if (want && availablePanels(latestState).includes(want)) showPanel(want, 30000);
+        });
+
         function renderBoard(data) {
-            document.documentElement.dir = data.dir || 'rtl';
+            I18N.campLang(data.uiLang, data);
+            document.documentElement.dir = I18N.pageDir(data.dir);
             // Update Header
             if (data.title || data.orgName) {
                 const org = data.orgName ? data.orgName + ' - ' : '';
@@ -651,21 +1170,60 @@ evtSource.addEventListener('splash', function(e) {
                 }
             }
 
-            if (!data.teams || data.teams.length === 0) return;
-            
-            const sortedTeams = data.teams.sort((a, b) => b.score - a.score);
-            
+            renderStageStrip(data);
+            handleAnnouncement(data);
+            renderLiveBar(data);
+            renderTicker(data);
+            applyBrand(data);
+            handleCeremony(data);
+            handleChance(data);
+
+            if (!data.teams || data.teams.length === 0) {
+                showBoardMessage('⏳', 'هنوز تیمی برای این مسابقه تعریف نشده است.<br><small>به محض ثبت تیم‌ها، جدول اینجا نمایش داده می‌شود.</small>');
+                return;
+            }
+            hideBoardMessage();
+
+            const lang = data.numLang || 'fa';
+            // With ranks hidden the teams keep their own order: the board shows scores, not a race.
+            const showRanks = Feat.shown(data, 'ranks');
+            const sortedTeams = showRanks ? data.teams.sort((a, b) => b.score - a.score) : [...data.teams];
+            const badges = Feat.badges(data);
+            const divRanks = Feat.divisionRanks(data);
+            // Standard competition ranking: equal scores share a rank (1, 1, 3 …).
+            const ranks = {};
+            sortedTeams.forEach((t, i) => {
+                ranks[t.id] = (i > 0 && t.score === sortedTeams[i - 1].score) ? ranks[sortedTeams[i - 1].id] : i + 1;
+            });
+            // Medals only once a team actually has points.
+            const hasMedal = t => ranks[t.id] <= 3 && t.score > 0;
+
             // Dynamic Sizing
+            const narrow = window.innerWidth < 640;
             const headerHeight = document.getElementById('boardHeader').offsetHeight;
+            const stripEl = document.getElementById('stageStrip');
+            const stripHeight = [stripEl, document.getElementById('liveBar'), document.getElementById('tickerBar'), document.getElementById('sponsorLine')]
+                .reduce((h, el) => h + (el && el.style.display !== 'none' ? el.offsetHeight + 10 : 0), 0);
             const footerEl = document.querySelector('.asva-footer');
             const footerHeight = footerEl ? footerEl.offsetHeight + 40 : 40;
-            const availableHeight = window.innerHeight - headerHeight - footerHeight - 60; // 60px padding
+            const availableHeight = window.innerHeight - headerHeight - stripHeight - footerHeight - 60; // 60px padding
             const numTeams = sortedTeams.length;
-            const useTwoColumns = numTeams > 12;
+            const useTwoColumns = numTeams > 12 && !narrow;
             const numRows = useTwoColumns ? Math.ceil(numTeams / 2) : numTeams;
             // Calculate best row height
-            let ROW_HEIGHT = Math.max(30, Math.min(200, Math.floor(availableHeight / numRows))); 
+            // Phones scroll, so rows keep room for a two-line name.
+            let ROW_HEIGHT = Math.max(narrow ? 64 : 30, Math.min(200, Math.floor(availableHeight / numRows)));
             const innerHeight = Math.max(10, ROW_HEIGHT - (ROW_HEIGHT > 40 ? 10 : 4)); // margin bottom
+            const rowWidth = useTwoColumns ? board.clientWidth / 2 : board.clientWidth;
+            const padV = Math.max(2, innerHeight * 0.1);
+            // On phones, sizes follow the width so long names stay readable.
+            let nameFont = Math.max(14, Math.min(ROW_HEIGHT * 0.35, rowWidth / (narrow ? 16 : 22)));
+            // A long name may wrap onto a second line only when two lines fit inside the row.
+            if (narrow) nameFont = Math.max(14, Math.min(nameFont, (innerHeight - 2 * padV) / 2.5));
+            const nameWrap = (innerHeight - 2 * padV) >= nameFont * 2.45;
+            const scoreFont = Math.max(16, Math.min(ROW_HEIGHT * 0.45, rowWidth / 9));
+            const paddingStart = narrow ? Math.max(30, Math.min(ROW_HEIGHT * 0.55, 44)) : Math.max(30, Math.min(96, ROW_HEIGHT * (useTwoColumns ? 0.5 : 0.8)));
+            const medalW = Math.max(18, Math.min(ROW_HEIGHT * 0.5, paddingStart - 6));
 
             sortedTeams.forEach((team, index) => {
                 const teamKey = team.id;
@@ -677,58 +1235,81 @@ evtSource.addEventListener('splash', function(e) {
                     row.className = 'board-row';
                     row.innerHTML = `
                         <div class="team-row" style="position: relative; border-inline-start: 12px solid ${safeColor(team.color, '#fff')};">
-                            <div class="rank-number" style="position: absolute; display: flex; justify-content: center; align-items: center; opacity: 0; transition: opacity 0.5s; font-weight: 800; color: var(--text-color);"></div>
+                            <div class="rank-number" style="position: absolute; display: flex; justify-content: center; align-items: center; transition: opacity 0.5s; font-weight: 800; color: var(--text-color);"></div>
                             <div class="name-container" style="display: flex; align-items: center; min-width: 0;">
                                 <div class="team-color-indicator" style="border-radius: 50%; flex-shrink: 0;"></div>
-                                <h2 class="team-name" style="margin: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0;">${esc(team.name)}</h2>
+                                <h2 class="team-name" style="margin: 0; min-width: 0;">${esc(team.name)}</h2>
+                                <span class="team-extras"></span>
                             </div>
-                            <h2 class="score-val" dir="ltr" style="margin: 0; text-shadow: 0 2px 5px rgba(0,0,0,0.3); font-variant-numeric: tabular-nums;">${formatNumber(team.score, data.numLang || 'fa')}</h2>
+                            <div class="score-wrap">
+                                <span class="rank-change" aria-hidden="true"></span>
+                                <h2 class="score-val" dir="ltr" style="margin: 0; font-variant-numeric: tabular-nums;">${formatNumber(team.score, lang)}</h2>
+                            </div>
                         </div>
                     `;
                     board.appendChild(row);
                 }
-                refreshIcons();
                 
                 // Update content and dynamic styling
                 const tr = row.querySelector('.team-row');
                 tr.style.height = innerHeight + 'px';
-                tr.style.padding = Math.max(2, innerHeight * 0.1) + 'px ' + Math.max(5, innerHeight * 0.2) + 'px';
-                tr.style.borderInlineStartColor = team.color;
+                tr.style.padding = padV + 'px ' + Math.max(5, Math.min(innerHeight * 0.2, 28)) + 'px';
+                tr.style.borderInlineStartColor = safeColor(team.color, '#fff');
                 // Add 30% tint of team color to the background
-                tr.style.backgroundColor = `${hexToRgba(team.color, 0.3)}`;
+                tr.style.backgroundColor = `${hexToRgba(safeColor(team.color, '#ffffff'), 0.45)}`;
 
                 const indicator = row.querySelector('.team-color-indicator');
-                indicator.style.background = team.color;
+                indicator.style.background = safeColor(team.color, '#fff');
                 indicator.style.boxShadow = `0 0 10px ${safeColor(team.color, '#fff')}`;
                 
                 // Scale indicator
-                const indicatorSize = Math.max(12, ROW_HEIGHT * 0.25);
+                const indicatorSize = Math.max(10, Math.min(ROW_HEIGHT * 0.25, narrow ? 14 : 999));
                 indicator.style.width = indicatorSize + 'px';
                 indicator.style.height = indicatorSize + 'px';
                 
                 // Adjust border width
-                tr.style.borderInlineStartWidth = Math.max(4, ROW_HEIGHT * 0.1) + 'px';
+                const borderW = Math.max(4, Math.min(ROW_HEIGHT * 0.1, narrow ? 6 : 999));
+                tr.style.borderInlineStartWidth = borderW + 'px';
                 
                 const nameContainer = tr.querySelector('.name-container');
-                const paddingStart = Math.max(30, ROW_HEIGHT * (useTwoColumns ? 0.5 : 0.8));
                 nameContainer.style.paddingInlineStart = paddingStart + 'px';
-                nameContainer.style.gap = Math.max(5, ROW_HEIGHT * 0.15) + 'px';
+                nameContainer.style.gap = Math.max(5, Math.min(ROW_HEIGHT * 0.15, narrow ? 8 : 999)) + 'px';
                 
                 const nameEl = row.querySelector('.team-name');
                 nameEl.innerText = team.name;
-                nameEl.style.fontSize = Math.max(14, ROW_HEIGHT * 0.35) + 'px';
+                nameEl.title = team.name;
+                nameEl.style.fontSize = nameFont + 'px';
+                nameEl.classList.toggle('team-name-wrap', nameWrap);
+                const extrasEl = row.querySelector('.team-extras');
+                const extras = teamExtrasHtml(team, data, badges, divRanks);
+                if (extrasEl.dataset.html !== extras) { extrasEl.innerHTML = extras; extrasEl.dataset.html = extras; }
+                extrasEl.style.fontSize = Math.max(narrow ? 12 : 13, Math.min(nameFont * 0.55, 24)) + 'px';
 
                 const scoreEl = row.querySelector('.score-val');
-                scoreEl.style.fontSize = Math.max(16, ROW_HEIGHT * 0.45) + 'px';
+                scoreEl.style.fontSize = scoreFont + 'px';
                 
                 // Analog Score Update
                 const oldScore = previousScores[teamKey];
                 if (oldScore !== undefined && oldScore !== team.score) {
-                    animateValue(scoreEl, oldScore, team.score, 1000, data.numLang || 'fa');
+                    animateValue(scoreEl, oldScore, team.score, 1000, lang);
                 } else if (oldScore === undefined) {
-                    scoreEl.innerText = formatNumber(team.score, data.numLang || 'fa');
+                    scoreEl.innerText = formatNumber(team.score, lang);
                 }
                 previousScores[teamKey] = team.score;
+
+                // Rank change arrow (shown for a few seconds after a team moves)
+                const rank = ranks[teamKey];
+                const prevRank = previousRanks[teamKey];
+                const arrow = row.querySelector('.rank-change');
+                if (showRanks && prevRank !== undefined && prevRank !== rank) {
+                    const up = rank < prevRank;
+                    arrow.textContent = (up ? '▲ ' : '▼ ') + formatNumber(Math.abs(prevRank - rank), lang);
+                    arrow.className = 'rank-change show ' + (up ? 'up' : 'down');
+                    arrow.style.fontSize = Math.max(12, scoreFont * 0.38) + 'px';
+                    clearTimeout(arrow._t);
+                    arrow._t = setTimeout(() => { arrow.className = 'rank-change'; }, 8000);
+                }
+                previousRanks[teamKey] = rank;
 
                 // FLIP Animation & Layout Logic
                 if (useTwoColumns) {
@@ -754,99 +1335,32 @@ evtSource.addEventListener('splash', function(e) {
                     row.style.top = `${index * ROW_HEIGHT}px`;
                 }
 
-                // Rank Number Logic (for 4th place onwards)
+                // Rank slot: a medal for ranks 1-3 (shared on ties), otherwise the rank number.
                 const rankEl = row.querySelector('.rank-number');
-                const borderW = Math.max(4, ROW_HEIGHT * 0.1);
-                const medalW = Math.max(18, ROW_HEIGHT * 0.5);
-                const rightPos = borderW + (paddingStart - medalW) / 2;
-                
-                if (index >= 3) {
-                    rankEl.innerText = formatNumber(index + 1, data.numLang || 'fa');
-                    rankEl.style.fontSize = Math.max(12, ROW_HEIGHT * 0.35) + 'px';
-                    rankEl.style.width = medalW + 'px';
-                    rankEl.style.height = medalW + 'px';
-                    rankEl.style.insetInlineStart = rightPos + 'px';
-                    rankEl.style.top = '50%';
-                    rankEl.style.transform = 'translateY(-50%)';
-                    rankEl.style.opacity = '0.7';
-                } else {
-                    rankEl.style.opacity = '0';
+                rankEl.style.width = medalW + 'px';
+                rankEl.style.height = medalW + 'px';
+                rankEl.style.insetInlineStart = (borderW + (paddingStart - medalW) / 2) + 'px';
+                rankEl.style.top = '50%';
+                rankEl.style.transform = 'translateY(-50%)';
+                const medalKey = hasMedal(team) ? 'medal-' + rank : 'rank-' + rank;
+                if (rankEl.dataset.key !== medalKey) {
+                    rankEl.dataset.key = medalKey;
+                    if (hasMedal(team)) {
+                        rankEl.innerHTML = document.getElementById('medal-' + rank).innerHTML;
+                        rankEl.setAttribute('aria-label', 'رتبه ' + rank);
+                        rankEl.classList.add('has-medal');
+                    } else {
+                        rankEl.textContent = formatNumber(rank, lang);
+                        rankEl.classList.remove('has-medal');
+                    }
                 }
+                rankEl.style.fontSize = (hasMedal(team) ? medalW : Math.max(12, Math.min(ROW_HEIGHT * 0.35, medalW))) + 'px';
+                rankEl.style.opacity = hasMedal(team) ? '1' : '0.75';
+                rankEl.style.display = showRanks ? 'flex' : 'none';
             });
 
             board.style.height = `${numRows * ROW_HEIGHT}px`;
             
-            // --- Medal Logic ---
-            const newMedals = { 1: sortedTeams[0]?.id, 2: sortedTeams[1]?.id, 3: sortedTeams[2]?.id };
-            
-            for (let rank = 1; rank <= 3; rank++) {
-                let medalEl = document.getElementById('medal-' + rank);
-                let currentOwner = medalAssignments[rank];
-                let newOwner = newMedals[rank];
-                
-                if (!newOwner) {
-                    medalEl.style.display = 'none';
-                    continue;
-                }
-                medalEl.style.display = 'block';
-
-                // Size of medal
-                medalEl.style.fontSize = Math.max(18, ROW_HEIGHT * 0.5) + 'px';
-
-                function positionMedalAtTeam(teamId) {
-                    const tIndex = sortedTeams.findIndex(t => t.id === teamId);
-                    if(tIndex !== -1) {
-                        let topPos = tIndex * ROW_HEIGHT;
-                        let inlineStartOffset = '0px';
-                        
-                        if (useTwoColumns) {
-                            const rowIdx = Math.floor(tIndex / 2);
-                            const colIdx = tIndex % 2;
-                            topPos = rowIdx * ROW_HEIGHT;
-                            
-                            const isLastOdd = (tIndex === numTeams - 1) && (numTeams % 2 !== 0);
-                            if (isLastOdd) {
-                                inlineStartOffset = 'calc(25% + 5px)';
-                            } else {
-                                if (colIdx === 0) {
-                                    inlineStartOffset = '0px';
-                                } else {
-                                    inlineStartOffset = 'calc(50% + 10px)';
-                                }
-                            }
-                        }
-                        
-                        medalEl.style.top = (topPos + (ROW_HEIGHT/2) - (parseInt(medalEl.style.fontSize)/2)) + 'px';
-                        const borderW = Math.max(4, ROW_HEIGHT * 0.1);
-                        const paddingStart = Math.max(30, ROW_HEIGHT * (useTwoColumns ? 0.5 : 0.8));
-                        const medalW = parseInt(medalEl.style.fontSize);
-                        const rightPos = borderW + (paddingStart - medalW) / 2;
-                        
-                        if (inlineStartOffset !== '0px') {
-                            medalEl.style.insetInlineStart = `calc(${inlineStartOffset} + ${rightPos}px)`;
-                        } else {
-                            medalEl.style.insetInlineStart = rightPos + 'px';
-                        }
-                    }
-                }
-
-                if (!currentOwner) {
-                    medalAssignments[rank] = newOwner;
-                    positionMedalAtTeam(newOwner);
-                } else if (currentOwner !== newOwner) {
-                    // It changed! Instantly move it with the CURRENT owner (so it slides down with them)
-                    positionMedalAtTeam(currentOwner);
-                    // Playfully jump to the NEW owner after 1 second
-                    setTimeout(() => {
-                        medalAssignments[rank] = newOwner;
-                        positionMedalAtTeam(newOwner);
-                    }, 1000);
-                } else {
-                    // Stayed same
-                    positionMedalAtTeam(currentOwner);
-                }
-            }
-
             // Cleanup deleted teams
             const existingIds = new Set(sortedTeams.map(t => 'team-' + t.id));
             Array.from(board.children).forEach(child => {

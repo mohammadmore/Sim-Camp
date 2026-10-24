@@ -3,10 +3,17 @@
 <head>
     <link rel="icon" type="image/svg+xml" href="favicon.svg">
     <link rel="icon" type="image/png" href="favicon.png">
+    <link rel="manifest" href="manifest.webmanifest">
+    <link rel="apple-touch-icon" href="apple-touch-icon.png">
+    <meta name="theme-color" content="#312e81">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <link rel="stylesheet" href="style.css?v=2">
-    <title>پنل اپراتور</title>    <script src="vendor/lucide-1.61.0.min.js"></script>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="stylesheet" href="style.css?v=14">
+    <title>پنل اپراتور</title>    <script src="i18n.js" data-scope="panel"></script>
+    <script src="vendor/lucide-1.61.0.min.js"></script>
+    <script>window.SIMCAMP_PHP = true;</script>
     <script src="common.js"></script>
     <script>
     function renderFjValueWheel() {
@@ -281,7 +288,7 @@
         align-items: center;
         padding: 12px 20px 16px 20px;
         background: rgba(255, 255, 255, 0.35);
-        backdrop-filter: blur(14px);
+        backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
         -webkit-backdrop-filter: blur(14px);
         border-top: 1px solid rgba(0, 0, 0, 0.08);
         flex-shrink: 0;
@@ -324,7 +331,9 @@
         display: flex;
         flex-direction: column;
         align-items: center;
-        justify-content: center;
+        /* auto margins on the first/last child centre the content, but unlike
+           justify-content: center they never push the top out of reach when it scrolls */
+        justify-content: flex-start;
         width: 100%;
         max-width: 1300px;
         margin: 0 auto;
@@ -444,7 +453,7 @@
         background: rgba(0, 0, 0, 0.65);
         padding: 4px 12px;
         border-radius: 20px;
-        backdrop-filter: blur(8px);
+        backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
         -webkit-backdrop-filter: blur(8px);
         display: inline-flex;
         align-items: center;
@@ -519,7 +528,7 @@
         padding: 5px;
         border-radius: 16px;
         border: 1px solid rgba(0, 0, 0, 0.08);
-        backdrop-filter: blur(8px);
+        backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
     }
     [data-theme="dark"] .fj-sign-toggle-bar {
         background: rgba(255, 255, 255, 0.06);
@@ -619,6 +628,7 @@
         #fjSubmitBtn {
             max-width: 520px !important;
         }
+    }
     /* Tiered Stage & DNF (-) Styles */
     .dnf-minus-btn {
         background: rgba(239, 68, 68, 0.15) !important;
@@ -666,6 +676,160 @@
         color: #ef4444;
         border: 1px solid rgba(239, 68, 68, 0.4);
     }
+    /* ======================================================================
+       Referee screen and operator panel: phone layout, contrast, safe scrolling
+       ====================================================================== */
+    /* Selected team: centred while it fits, scrolls from the top when it doesn't */
+    .fj-selected-view > :first-child { margin-top: auto; }
+    .fj-selected-view > :last-child { margin-bottom: auto; }
+    @media (min-width: 860px) and (min-height: 480px) {
+        .fj-selected-view { align-items: flex-start !important; overflow-y: auto !important; }
+        .fj-selected-view > * { margin-top: auto !important; margin-bottom: auto !important; }
+    }
+    /* Value wheel and the +/- choice side by side (where the second wheel used to be) */
+    .fj-scoring-area { display: grid; grid-template-columns: 1fr 1fr; column-gap: 16px; justify-items: center; }
+    .fj-scoring-area > * { grid-column: 1 / -1; }
+    .fj-scoring-area > .fj-presets-wrapper { grid-row: 1; }
+    .fj-scoring-area > .fj-wheels-wrapper { grid-row: 2; grid-column: 1; justify-self: end; width: auto; margin-bottom: 16px !important; }
+    .fj-scoring-area > .fj-sign-toggle-bar {
+        grid-row: 2; grid-column: 2; justify-self: start; flex-direction: column; align-items: stretch; align-self: stretch;
+        width: 130px; box-sizing: border-box; margin: 0 0 16px 0;
+    }
+    .fj-scoring-area > .fj-sign-toggle-bar .fj-sign-toggle-btn { flex-direction: column; gap: 4px; font-size: 16px; }
+    .fj-scoring-area > .fj-tags-section { grid-row: 3; }
+    .fj-scoring-area > .fj-extras-area { grid-row: 4; }
+    .fj-scoring-area > .fj-submit-row { grid-row: 5; }
+    .fj-wheels-wrapper .wheel-container { width: 150px; }
+    /* Team names break between words, not inside them */
+    .fj-team-circle .fj-orb-text { word-break: normal; overflow-wrap: break-word; }
+    /* The back button only takes room when it can be used */
+    #fjBackBtn[style*="opacity: 0"] { display: none; }
+    #fjBackBtn { border-radius: 12px; font-size: 15px; }
+    #fjBackBtn:focus-visible { outline-width: 2px; }
+    #fjMainTitle { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    /* The page's own theme button / language menu would show through the referee screen */
+    body:has(#fieldJudgingModal[style*="flex"]) > .theme-toggle,
+    body:has(#fieldJudgingModal[style*="flex"]) .lang-picker.lang-fixed { visibility: hidden; }
+    /* «ثبت» with the note / photo button next to it */
+    .fj-submit-row { display: flex; gap: 10px; align-items: stretch; width: 100%; max-width: 400px; }
+    .fj-submit-row #fjSubmitBtn { flex: 1 1 auto; min-width: 0; }
+    .fj-note-btn {
+        flex: 0 0 auto; padding: 8px 12px; border-radius: 15px; cursor: pointer; white-space: nowrap;
+        font-family: inherit; font-size: 14px; font-weight: 700; line-height: 1.4;
+        background: var(--input-bg); color: var(--text-color); border: 1px solid var(--glass-border);
+    }
+    @media (min-width: 860px) and (min-height: 480px) { .fj-submit-row { max-width: 100%; } }
+    @media (min-width: 600px) and (max-width: 859px) { .fj-submit-row { max-width: 520px; } }
+    /* Scoreboard button: solid in the light theme (white on pale blue was unreadable) */
+    :root:not([data-theme="dark"]) .fj-scoreboard-btn,
+    :root:not([data-theme="dark"]) .fj-scoreboard-btn:hover {
+        background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%); border-color: #1d4ed8; color: #fff;
+    }
+    /* Unit chip inside the blue stage badge: white, whatever the theme */
+    .fj-stage-active-badge .stage-unit-chip { color: #fff !important; background: rgba(255, 255, 255, 0.2); border-color: rgba(255, 255, 255, 0.45); }
+    /* Tool dialogs (notes, budget, timer…): opaque enough to read over busy screens */
+    #opToolModal .modal-content { background: rgba(255, 255, 255, 0.97); }
+    [data-theme="dark"] #opToolModal .modal-content { background: rgba(17, 24, 39, 0.97); }
+    #opToolModal .manage-section { background: var(--surface-2); border-color: var(--line); }
+    #opToolModal .adv-label { display: block; margin: 12px 0 6px; }
+    #opToolModal .file-pick { background: var(--surface-2); border-color: var(--line); }
+    #opToolModal input:not([type="checkbox"]):not([type="radio"]):not([type="file"]), #opToolModal select, #opToolModal textarea {
+        background: var(--surface); border: 1px solid var(--line); color: var(--text-color);
+    }
+
+    /* Field-judging button in the operator header: solid purple (pale tint was unreadable in light theme) */
+    :root:not([data-theme="dark"]) #btnFieldJudging { background: #7c3aed !important; color: #fff !important; border-color: #7c3aed !important; }
+    .stage-input::placeholder { font-size: 13px; opacity: 0.6; }
+
+    /* Settings: the save button stays in reach at the bottom of the long form */
+    .op-sticky-save { position: sticky; bottom: 0; z-index: 3; margin: 14px -30px -30px; padding: 12px 30px 16px; background: var(--surface); border-top: 1px solid var(--line); box-shadow: 0 -6px 16px rgba(0, 0, 0, 0.08); }
+
+    /* Login card: comfortable width on phones */
+    #loginSection { width: min(400px, 92%) !important; box-sizing: border-box; }
+
+    /* Management dialog: anchored to the top, so switching tabs doesn't make it jump */
+    #manageModal { align-items: flex-start; }
+    #manageModal .manage-content { margin-top: max(16px, 4dvh); }
+
+    /* Operator board rows: team colour tints are pale in the light theme, so names and scores are dark there */
+    :root:not([data-theme="dark"]) #boardContainer .team-name-op,
+    :root:not([data-theme="dark"]) #boardContainer .score-val { color: #0f172a !important; text-shadow: none !important; }
+    #boardContainer .team-stages-summary { white-space: nowrap; }
+
+    @media (max-width: 600px) {
+        /* Referee header: one row (title + small buttons), the tab switcher below */
+        .fj-header { padding: 8px 12px; gap: 6px 8px; }
+        .fj-header > :first-child { order: 1; flex: 1 1 0; min-width: 0; }
+        .fj-header > :first-child > div { min-width: 0; }
+        #fjMainTitle { font-size: 18px !important; }
+        #fjBackBtn { padding: 6px 12px !important; font-size: 14px; }
+        #fjRefereeInfo { order: 2; }
+        #fjRefereeInfo > div { padding: 2px !important; gap: 0 !important; }
+        #fjRefereeInfo > div > div:last-child { display: none !important; }
+        .fj-header > :last-child { order: 3; gap: 6px !important; }
+        .fj-header > :last-child > .icon-btn { width: 36px !important; height: 36px !important; }
+        #fjLogoutBtn { width: 36px; height: 36px; padding: 0 !important; justify-content: center; }
+        #fjLogoutBtn span { display: none; }
+        .fj-tab-switcher-wrapper { order: 4; flex: 1 1 100%; }
+        .fj-segment-btn { padding: 7px 14px; }
+        /* while a team is open the back button returns to the grid; the switcher only costs room */
+        #fieldJudgingModal:has(#fjSelectedTeamView[style*="flex"]) .fj-tab-switcher-wrapper { display: none; }
+        #fjLockBanner { margin: 8px 12px 0 12px !important; }
+
+        /* Selected team: compact banner and controls so «ثبت» is on the first screen */
+        .fj-selected-view { padding: 10px 14px 16px; gap: 10px; }
+        .fj-team-banner-card { aspect-ratio: auto; height: min(30vh, 190px); margin-bottom: 0; border-radius: 16px; }
+        .fj-team-banner-card.no-photo { height: 76px; }
+        .fj-team-banner-card.no-photo .fj-team-banner-placeholder { display: none !important; }
+        .fj-team-banner-card.no-photo .fj-team-banner-gradient-scrim { background: linear-gradient(135deg, rgba(15, 23, 42, 0.92), rgba(30, 41, 59, 0.8)); }
+        .fj-team-banner-info-bar { padding: 8px 12px; }
+        .fj-mini-orb { width: 52px; height: 52px; }
+        .fj-orb-score-text { font-size: 21px; }
+        .fj-team-banner-title { font-size: 18px; }
+        .fj-scoring-area > .fj-wheels-wrapper { margin-bottom: 12px !important; }
+        .fj-scoring-area > .fj-sign-toggle-bar { margin-bottom: 12px; }
+        .fj-tags-section { margin-bottom: 10px; }
+        .fj-extras-area { margin: 0 0 10px 0; }
+        #fjSubmitBtn { padding: 14px !important; font-size: 20px !important; }
+        /* Tool dialogs: team pickers on their own line, short fields share one */
+        #opToolModal .manage-row > select { flex: 1 1 100%; min-width: 0; }
+        #opToolModal .manage-row > input[type="text"] { flex: 1 1 120px; min-width: 0; }
+        #opToolModal .modal-content { padding: 24px 18px; width: 94%; }
+        /* Settings stage rows: name + ▲▼× on one line, unit and multiplier below */
+        .op-stage-row .stage-name-input { order: 1; flex: 1 1 0 !important; min-width: 0 !important; }
+        .op-stage-row .op-row-actions { order: 2; }
+        .op-stage-row .stage-unit-select { order: 3; flex: 1 1 0 !important; min-width: 0 !important; }
+        .op-stage-row > div:not(.op-row-actions) { order: 4; }
+        .op-row-actions .icon-btn { min-width: 36px; min-height: 36px; }
+        /* Stage judging: less padding around the bars */
+        .fj-stages-judging-container { padding: 12px 12px 32px; gap: 12px; }
+        .fj-stage-selector-bar, .fj-stage-info-banner { padding: 8px 12px; gap: 8px; }
+        .fj-stage-team-card { padding: 12px; gap: 10px; }
+
+        /* Operator panel: header and control desk take less room, the team list comes sooner */
+        .op-header-container { margin-bottom: 14px !important; gap: 10px !important; }
+        .op-header-container > div:last-child { gap: 6px !important; }
+        .op-header-container > div:last-child > .icon-btn,
+        .op-header-container > div:last-child > .snapshot-btn-group { height: 38px !important; font-size: 13px !important; }
+        .op-header-container > div:last-child > .icon-btn:not(.help-btn) { padding: 0 10px !important; }
+        #orgTitle { white-space: normal !important; font-size: 20px !important; line-height: 1.5 !important; }
+        /* JS shows the strip with an inline display:flex; two scrolling rows instead of eight */
+        .op-control-strip:not([style*="none"]) { display: grid !important; }
+        .op-control-strip {
+            grid-auto-flow: column; grid-template-rows: auto auto; grid-auto-columns: max-content;
+            justify-content: start; overflow-x: auto; -webkit-overflow-scrolling: touch; scrollbar-width: none;
+            padding: 8px 10px; margin-bottom: 12px; gap: 6px;
+        }
+        .op-control-strip::-webkit-scrollbar { display: none; }
+        .op-control-strip .ctl-title { grid-row: 1 / span 2; align-self: center; writing-mode: vertical-rl; margin: 0; font-size: 12px; }
+        .op-control-strip .ctl-btn { min-height: 36px; white-space: nowrap; }
+        #stagesButtons { gap: 8px !important; }
+        #stagesButtons > button { flex: 1 1 100%; justify-content: center; padding: 6px 12px !important; font-size: 14px; }
+        #operatorSection > .glass:not(.op-control-strip) { padding: 14px !important; margin-bottom: 16px !important; }
+        #boardContainer .team-name-op { white-space: normal !important; overflow-wrap: anywhere; font-size: 16px !important; }
+        #boardContainer .team-row > div:nth-child(1) { width: 70% !important; }
+        #boardContainer .team-row > div:nth-child(3) { width: 30% !important; gap: 8px !important; }
+    }
     </style>
 
     <script src="vendor/html2canvas-1.4.1.min.js"></script>
@@ -683,7 +847,7 @@
         <h3 id="loginCampTitle" style="margin: 0 0 20px 0; font-size: 16px; opacity: 0.8; font-weight: normal;"></h3>
         <input type="text" id="opUsername" placeholder="نام کاربری" class="settings-input" onkeydown="if(event.key === 'Enter') login()">
         <input type="password" id="opPassword" placeholder="رمز عبور" class="settings-input" onkeydown="if(event.key === 'Enter') login()">
-        <button onclick="login()" style="padding: 10px 20px; width: 100%;" title="ورود به پنل اپراتور">ورود</button>
+        <button onclick="login()" class="btn-primary" style="padding: 12px 20px; width: 100%; font-size: 16px;" title="ورود به پنل اپراتور">ورود</button>
         <p id="errorMsg" style="color: var(--error-color); display: none; margin-top: 15px;"></p>
     </div>
 
@@ -709,13 +873,17 @@
                 
                 <button id="btnFieldJudging" onclick="openFieldJudging()" class="icon-btn" style="border-radius: 8px; font-size: 14px; padding: 0 16px; height: 42px; box-sizing: border-box; background: var(--purple-bg, #9333ea20); color: var(--purple-color, #c084fc); border-color: var(--purple-color, #c084fc); display: none;" title="داوری سریع میدانی">داوری میدانی <i data-lucide="smartphone" style="width: 16px; height: 16px; margin-right: 6px;"></i></button>
                 <button onclick="openSettings()" id="btnSettings" class="icon-btn" style="border-radius: 8px; font-size: 14px; padding: 0 16px; height: 42px; box-sizing: border-box;" title="تنظیمات رویداد و امتیازها">تنظیمات <i data-lucide="settings" style="width: 16px; height: 16px; margin-right: 6px;"></i></button>
+                <button onclick="openManageModal()" id="btnManage" class="icon-btn" style="border-radius: 8px; font-size: 14px; padding: 0 16px; height: 42px; box-sizing: border-box; display: flex; align-items: center; gap: 6px;" title="مرحله جاری، اعلام نتایج، کاربران، تاریخچه تغییرات و بازنشانی"><i data-lucide="sliders-horizontal"></i> مدیریت مسابقه</button>
+                <button onclick="showOperatorHelp()" class="icon-btn help-btn" title="راهنمای پنل" aria-label="راهنما">؟</button>
                 <button onclick="logout()" class="icon-btn logout-btn" style="background: var(--danger-bg); color: var(--danger-color); border-color: var(--error-color); border-radius: 8px; font-size: 14px; padding: 0 16px; height: 42px; box-sizing: border-box;" title="خروج از حساب کاربری">خروج <i data-lucide="log-out" style="width: 16px; height: 16px; margin-right: 6px;"></i></button>
             </div>
         </div>
 
         <div id="lockWarning" style="display: none; background: rgba(255, 76, 76, 0.2); border: 1px solid var(--error-color); color: var(--error-color); padding: 15px; border-radius: 10px; text-align: center; margin-bottom: 20px; font-weight: bold;">
-            <i data-lucide="lock"></i> این مسابقه توسط سوپرادمین قفل شده است و امکان تغییر امتیاز یا تنظیمات وجود ندارد.
+            <i data-lucide="lock"></i> این مسابقه به پایان رسیده یا توسط سوپرادمین قفل شده است و امکان تغییر امتیاز یا تنظیمات وجود ندارد. (باز کردن قفل فقط از پنل سوپرادمین)
         </div>
+
+        <div id="opControlStrip" class="op-control-strip glass" style="display: none;" aria-label="میز کنترل"></div>
 
         <div class="glass" style="padding: 20px; margin-bottom: 30px; text-align: center;">
             <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px; margin-bottom: 14px;">
@@ -723,7 +891,7 @@
                     <i data-lucide="layers" style="width: 20px; height: 20px; color: var(--blue-color);"></i>
                     <span>امتیازدهی گروهی (مراحل)</span>
                 </h3>
-                <button type="button" onclick="openJudgesBreakdownModal()" class="icon-btn" style="background: linear-gradient(135deg, rgba(37, 99, 235, 0.25), rgba(79, 70, 229, 0.25)); border: 1px solid rgba(79, 70, 229, 0.45); color: #fff; padding: 8px 16px; border-radius: 12px; font-weight: 700; cursor: pointer; display: inline-flex; align-items: center; gap: 8px; font-size: 13px;" title="مشاهده جدول تفکیک امتیازات تمام داوران">
+                <button type="button" onclick="openJudgesBreakdownModal()" class="icon-btn" style="background: linear-gradient(135deg, rgba(37, 99, 235, 0.25), rgba(79, 70, 229, 0.25)); border: 1px solid rgba(79, 70, 229, 0.45); color: var(--tx-indigo); padding: 8px 16px; border-radius: 12px; font-weight: 700; cursor: pointer; display: inline-flex; align-items: center; gap: 8px; font-size: 13px;" title="مشاهده جدول تفکیک امتیازات تمام داوران">
                     <i data-lucide="table" style="width: 16px; height: 16px;"></i>
                     <span>جدول تفکیک داوران (تمام مراحل)</span>
                 </button>
@@ -736,14 +904,14 @@
     </div>
 
     <!-- Modal Score Entry with Judges Breakdown & Stage Ranking Mode -->
-    <div id="scoreModal" class="modal-overlay">
+    <div id="scoreModal" class="modal-overlay" data-guard="score">
         <div class="modal-content glass" style="max-width: 680px; width: 95%; max-height: 88vh; display: flex; flex-direction: column;">
             <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 8px;">
                 <div>
                     <h2 id="scoreStageTitle" style="margin: 0 0 4px 0; font-size: 20px;">ثبت امتیاز گروهی</h2>
                     <div id="scoreStageSubtitle" style="font-size: 13px; opacity: 0.85;">نمایش سهم ثبت‌شده هر داور به تفکیک نام و مجموع کل امتیاز داوران</div>
                 </div>
-                <span class="close-btn" style="position: static; font-size: 24px; line-height: 1;" onclick="document.getElementById('scoreModal').style.display='none'">&times;</span>
+                <button type="button" class="close-btn" style="position: static; font-size: 24px; line-height: 1;" onclick="closeGuardedModal('scoreModal', 'score')">&times;</button>
             </div>
 
             <!-- Stage Criteria & Unit Info Bar -->
@@ -771,7 +939,7 @@
 
             <input type="hidden" id="currentStageId">
             <div id="scoreTeamsList" style="margin-bottom: 16px; display: flex; flex-direction: column; gap: 12px; overflow-y: auto; flex-grow: 1; padding: 4px;"></div>
-            <button onclick="saveScores()" style="padding: 14px; width: 100%; background: linear-gradient(135deg, rgba(0, 255, 136, 0.4), rgba(0, 200, 100, 0.5)); border: 1px solid rgba(0, 255, 136, 0.6); border-radius: 10px; color: #fff; font-size: 17px; font-weight: bold; cursor: pointer;" title="ثبت امتیازهای وارد شده در جدول">ثبت و بروزرسانی جدول</button>
+            <button onclick="saveScores()" style="padding: 14px; width: 100%; background: linear-gradient(135deg, #10b981, #059669); border: 1px solid #059669; border-radius: 10px; color: #fff; text-shadow: none; font-size: 17px; font-weight: bold; cursor: pointer;" title="ثبت امتیازهای وارد شده در جدول">ثبت و بروزرسانی جدول</button>
         </div>
     </div>
 
@@ -790,7 +958,7 @@
                 </div>
                 <div style="display: flex; align-items: center; gap: 8px;">
                     <button type="button" onclick="exportJudgesBreakdownToCsv()" class="icon-btn" style="padding: 6px 14px; font-size: 13px; border-radius: 8px; display: inline-flex; align-items: center; gap: 6px; cursor: pointer;" title="خروجی اکسل CSV"><i data-lucide="download" style="width: 14px; height: 14px;"></i> خروجی اکسل</button>
-                    <span class="close-btn" style="position: static; font-size: 24px; line-height: 1;" onclick="closeJudgesBreakdownModal()">&times;</span>
+                    <button type="button" class="close-btn" style="position: static; font-size: 24px; line-height: 1;" onclick="closeJudgesBreakdownModal()">&times;</button>
                 </div>
             </div>
 
@@ -827,9 +995,9 @@
     </div>
 
     <!-- Modal Logs -->
-    <div id="logsModal" class="modal-overlay">
+    <div id="logsModal" class="modal-overlay" data-guard="logs">
         <div class="modal-content glass" style="max-width: 600px;">
-            <span class="close-btn" onclick="document.getElementById('logsModal').style.display='none'">&times;</span>
+            <button type="button" class="close-btn" onclick="closeGuardedModal('logsModal', 'logs')">&times;</button>
             <h2 id="logsTeamName">تاریخچه امتیازات</h2>
             <div id="logsList" style="max-height: 400px; overflow-y: auto; margin-bottom: 20px; padding-left: 10px; display: flex; flex-direction: column; gap: 10px;"></div>
             <button onclick="saveLogs()" style="padding: 15px; width: 100%; background: rgba(0, 255, 136, 0.4); font-size: 18px;" title="ذخیره تغییرات تاریخچه امتیازها">ذخیره تغییرات</button>
@@ -837,9 +1005,9 @@
     </div>
 
     <!-- Modal Settings -->
-    <div id="settingsModal" class="modal-overlay">
+    <div id="settingsModal" class="modal-overlay" data-guard="settings">
         <div class="modal-content glass">
-            <span class="close-btn" onclick="closeSettings()">&times;</span>
+            <button type="button" class="close-btn" onclick="closeSettings()">&times;</button>
             <h2>تنظیمات مسابقه</h2>
             
             <label>نام سازمان:</label>
@@ -923,7 +1091,7 @@
                 <div id="editNegTagsList" class="tags-chips-list"></div>
             </div>
 
-            <button onclick="saveSettings()" style="padding: 15px; width: 100%; font-size: 18px; background: rgba(0, 255, 136, 0.4);" title="ذخیره تغییرات تنظیمات">ذخیره تغییرات</button>
+            <div class="op-sticky-save"><button onclick="saveSettings()" style="padding: 15px; width: 100%; font-size: 18px; background: linear-gradient(135deg, #10b981, #059669); color: #fff; border: 1px solid #059669; text-shadow: none;" title="ذخیره تغییرات تنظیمات">ذخیره تغییرات</button></div>
         </div>
     </div>
 
@@ -942,6 +1110,11 @@
         let campId = urlParams.get('id');
         if (!campId && pathParts[pathParts.length - 1] && pathParts[pathParts.length - 1] !== 'operator.html' && pathParts[pathParts.length - 1] !== 'operator') campId = pathParts[pathParts.length - 1];
         if (campId && !/^[A-Za-z0-9_-]{1,64}$/.test(campId)) campId = null;
+        // The installed app opens operator.html without an id: go back to the last camp used here.
+        try {
+            if (campId) localStorage.setItem('last_camp_id', campId);
+            else if (localStorage.getItem('last_camp_id')) { window.location.replace('operator.html?id=' + encodeURIComponent(localStorage.getItem('last_camp_id'))); }
+        } catch (e) { /* storage unavailable */ }
         window.AUTH_STORAGE_KEY = 'camp_token_' + campId;
         // Older versions kept the password itself in the browser; remove it.
         try { sessionStorage.removeItem('camp_auth_' + campId); } catch (e) {}
@@ -988,6 +1161,8 @@
         let currentTieredPointsLadder = [500, 400, 300, 200, 100];
         let currentClosedStages = {};
         let currentStageTieredResults = {};
+        let currentActiveStageId = null;
+        let currentAnnouncement = null;
         let fjSelectedTag = null;
         
         // Local state for instant score signs (+ or -)
@@ -1037,15 +1212,28 @@
             return override ? [override] : entries;
         }
 
+        let lastPollEtag = null, unchangedPolls = 0;
         setInterval(() => {
             if (!currentUser || document.hidden) return; // nothing to refresh before login / in a background tab
             fetch(`api.php?action=poll&id=${campId}`)
-            .then(res => res.ok ? res.json() : Promise.reject())
+            .then(res => {
+                if (!res.ok) return Promise.reject();
+                // Same version as last time (the server answered "304 Not Modified"): nothing to redraw
+                // (a full redraw still happens every few polls, in case the screen changed locally).
+                const etag = res.headers.get('ETag');
+                if (etag && etag === lastPollEtag && ++unchangedPolls < 5) return null;
+                lastPollEtag = etag;
+                unchangedPolls = 0;
+                return res.json();
+            })
             .then(data => {
+            ConnectionStatus.ok();
+            if (!data) return;
             isLocked = data.locked;
             currentTeams = data.teams;
             currentNumLang = data.numLang || 'fa';
             currentDir = data.dir || 'rtl';
+            I18N.campLang(data.uiLang, data);
             if (data.fieldJudgingMode) currentFieldJudgingMode = data.fieldJudgingMode;
             if (data.fieldJudgingValues) currentFieldJudgingValues = data.fieldJudgingValues;
             if (data.positiveTags) currentPositiveTags = data.positiveTags;
@@ -1054,8 +1242,11 @@
             if (data.tieredPointsLadder) currentTieredPointsLadder = data.tieredPointsLadder;
             if (data.closedStages) currentClosedStages = data.closedStages;
             if (data.stageTieredResults) currentStageTieredResults = data.stageTieredResults;
+            currentActiveStageId = data.activeStageId || null;
+            currentAnnouncement = data.announcement || null;
             if (data.stages) currentStages = data.stages;
             ensureLogsFormat(currentTeams);
+            if (window.OPF) OPF.onData(data);
             
             if (fjSelectedTeamId) {
                 const sel = currentTeams.find(t => t.id === fjSelectedTeamId);
@@ -1077,7 +1268,7 @@
                 renderPreviewBoard();
                 renderStagesButtons();
             }
-        }).catch(e=>{}); }, 2000);
+        }).catch(e => { ConnectionStatus.fail(); }); }, 2000);
 
         // Color Picker Logic
         let colorTarget = null;
@@ -1152,6 +1343,12 @@
                 if (data.success) {
                     try {
                         if (data.token) Auth.set(data.token);
+                        if (!window._connMounted) {
+                            window._connMounted = true;
+                            ConnectionStatus.mount();
+                            ConnectionStatus.ok();
+                            OfflineQueue.init('offline_queue_' + campId + '_' + (data.user && data.user.username));
+                        }
                         const pEl = document.getElementById('opPassword');
                         if (pEl) pEl.value = '';
                         currentUser = data.user;
@@ -1172,6 +1369,9 @@
                         currentTieredPointsLadder = (data.tieredPointsLadder && Array.isArray(data.tieredPointsLadder)) ? data.tieredPointsLadder : [500, 400, 300, 200, 100];
                         currentClosedStages = data.closedStages || {};
                         currentStageTieredResults = data.stageTieredResults || {};
+                        currentActiveStageId = data.activeStageId || null;
+                        currentAnnouncement = data.announcement || null;
+                        if (window.OPF) OPF.onData(data);
                         
                         const topOrg = document.getElementById('topOrgLogo');
                         if (topOrg) {
@@ -1189,9 +1389,11 @@
                         if (currentUser && currentUser.role === 'referee') {
                             document.getElementById('operatorSection').style.display = 'none';
                             openFieldJudging();
+                            Help.once('referee', 'راهنمای داوری', REFEREE_HELP);
                         } else {
                             document.getElementById('operatorSection').style.display = 'block';
                             renderDashboard();
+                            Help.once('operator', 'راهنمای پنل اپراتور', OPERATOR_HELP);
                         }
                     } catch (e) {
                         console.error("Login initialization error:", e);
@@ -1246,6 +1448,8 @@
             if (currentUser && currentUser.role === 'referee') {
                 const btnSet = document.getElementById('btnSettings');
                 if (btnSet) btnSet.style.display = 'none';
+                const btnMan = document.getElementById('btnManage');
+                if (btnMan) btnMan.style.display = 'none';
             }
         }
 
@@ -1435,13 +1639,13 @@
                     if (isClosed) {
                         tieredBadge = `<span style="font-size: 11px; margin-right: 6px; background: rgba(16, 185, 129, 0.25); border: 1px solid rgba(16, 185, 129, 0.45); color: var(--success-color); padding: 2px 7px; border-radius: 6px;">🔒 محاسبه شده</span>`;
                     } else {
-                        tieredBadge = `<span style="font-size: 11px; margin-right: 6px; background: rgba(245, 158, 11, 0.25); border: 1px solid rgba(245, 158, 11, 0.45); color: #f59e0b; padding: 2px 7px; border-radius: 6px;">⏳ در حال برگزاری</span>`;
+                        tieredBadge = `<span style="font-size: 11px; margin-right: 6px; background: rgba(245, 158, 11, 0.25); border: 1px solid rgba(245, 158, 11, 0.45); color: var(--tx-amber); padding: 2px 7px; border-radius: 6px;">⏳ در حال برگزاری</span>`;
                     }
                 }
 
                 let multBadge = '';
                 if (stage.multiplier && stage.multiplier !== 1) {
-                    multBadge = `<span style="font-size: 11px; margin-right: 5px; background: rgba(99, 102, 241, 0.25); border: 1px solid rgba(99, 102, 241, 0.45); color: #a5b4fc; padding: 2px 7px; border-radius: 6px; font-weight: 800;" title="ضریب این مرحله ${stage.multiplier} است">ضریب ${stage.multiplier}</span>`;
+                    multBadge = `<span style="font-size: 11px; margin-right: 5px; background: rgba(99, 102, 241, 0.25); border: 1px solid rgba(99, 102, 241, 0.45); color: var(--tx-indigo); padding: 2px 7px; border-radius: 6px; font-weight: 800;" title="ضریب این مرحله ${fmtNum(stage.multiplier, currentNumLang)} است">ضریب ${fmtNum(stage.multiplier, currentNumLang)}</span>`;
                 }
 
                 btn.innerHTML = `<span style="font-size: 14px; margin-left: 6px;">${criteria.unit === 'time' ? (criteria.timeOrder === 'asc' ? '⚡' : '⏳') : '🎯'}</span> <span>${esc(stage.name)}</span> <span style="font-size: 11px; opacity: 0.85; margin-right: 6px; background: rgba(255,255,255,0.12); padding: 2px 7px; border-radius: 6px;">${criteria.badgeText}</span>${multBadge}${tieredBadge}`;
@@ -1480,13 +1684,12 @@
             const delta = signs[teamId] === '-' ? -val : val;
             const typed = inp.value;
             inp.value = '';
+            const clientLogId = newClientLogId();
+            const team = currentTeams.find(t => t.id === teamId);
             
-            fetch(`api.php?action=instant&id=${campId}`, {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({teamId, delta})
-            }).then(jsonOrThrow).then(res => {
-                if(res.logId) startUndoTimer(teamId, res.logId);
+            OfflineQueue.send(`api.php?action=instant&id=${campId}`, { teamId, delta, clientLogId }, `${fmtNum(delta, currentNumLang)} برای ${team ? team.name : ''}`).then(res => {
+                startUndoTimer(teamId, clientLogId);
+                if (res.queued) window.showToast('اینترنت قطع است؛ امتیاز در صف ارسال قرار گرفت و خودکار ارسال می‌شود.', 'error');
             }).catch(e => {
                 if (!inp.value) inp.value = typed;
                 window.showToast('امتیاز ثبت نشد: ' + e.message, 'error');
@@ -1563,7 +1766,7 @@
             
             btn.onclick = () => undoInstant(teamId, logId);
             
-            let timeLeft = 5;
+            let timeLeft = 8;
             timerSpan.innerText = timeLeft;
             
             if(undoTimers[teamId]) clearInterval(undoTimers[teamId]);
@@ -1586,6 +1789,7 @@
             if(uc) uc.style.display = 'none';
             if(ic) ic.style.display = 'flex';
             
+            if (OfflineQueue.cancel(logId)) { window.showToast('امتیاز از صف ارسال حذف شد.', 'success'); return; }
             fetch(`api.php?action=undo_instant&id=${campId}`, {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
@@ -1594,7 +1798,7 @@
         }
         
         function exportCSV() {
-            let csv = '\uFEFFشناسه,نام تیم,امتیاز مراحل,امتیاز لحظه‌ای,امتیاز کل\n';
+            let csv = '\uFEFF' + I18N.t('شناسه,نام تیم,امتیاز مراحل,امتیاز لحظه‌ای,امتیاز کل') + '\n';
             currentTeams.forEach(t => {
                 let sSum = 0; for(let s in t.stageScores) sSum += scoreNum(t.stageScores[s]);
                 let lSum = (t.scoreLogs||[]).reduce((a,b) => a + (b.type!=='cancelled'?scoreNum(b.value):0), 0);
@@ -1657,19 +1861,19 @@
                             </div>
                             
                             <div class="input-actions-container" id="ic-${team.id}" style="display: flex; align-items: center; justify-content: center; gap: 8px; width: 40%;">
-                                <input type="number" id="inp-${team.id}" class="stage-input" style="width: 60px; height: 35px; font-size: 18px; color: ${signColor}; padding: 0 5px; text-align: center;" value="" inputmode="numeric" onkeydown="handleInstantInputKey(event, '${team.id}')" oninput="this.value = this.value.replace(/[^0-9]/g, '')">
+                                <input type="number" id="inp-${team.id}" class="stage-input" placeholder="امتیاز" aria-label="امتیاز لحظه‌ای" style="width: 60px; height: 35px; font-size: 18px; color: ${signColor}; padding: 0 5px; text-align: center;" value="" inputmode="numeric" onkeydown="handleInstantInputKey(event, '${team.id}')" oninput="this.value = this.value.replace(/[^0-9]/g, '')">
                                 <button class="instant-btn" id="tgl-${team.id}" title="تغییر بین امتیاز مثبت و منفی" onclick="toggleSign('${team.id}')" style="background: ${signBg}; color: ${signColor}; width: 35px; height: 35px; border-radius: 5px; font-weight: bold; font-size: 20px;">${signs[team.id]}</button>
                                 <button class="instant-btn" onclick="applyInstant('${team.id}')" title="ثبت امتیاز لحظه‌ای برای این تیم" style="background: rgba(255,255,255,0.1); width: 45px; height: 35px; border-radius: 5px; border: 1px solid var(--glass-border);">ثبت</button>
                             </div>
                             <div class="undo-container" id="uc-${team.id}" style="display: none; align-items: center; justify-content: center; width: 40%;">
                                 <button onclick="undoInstant('${team.id}', '')" title="لغو آخرین تغییر امتیاز لحظه‌ای" id="undo-btn-${team.id}" style="background: var(--danger-bg); color: var(--danger-color); height: 35px; border-radius: 5px; border: 1px solid var(--danger-color); padding: 0 15px; font-weight: bold; cursor: pointer; display: flex; align-items: center; gap: 5px;">
                                     <i data-lucide="x-circle" style="width: 18px;"></i>
-                                    لغو (<span id="undo-timer-${team.id}">5</span>)
+                                    لغو (<span id="undo-timer-${team.id}">8</span>)
                                 </button>
                             </div>
 
                             <div style="display: flex; align-items: center; justify-content: flex-end; gap: 15px; width: 30%;">
-                                <h3 class="score-val" dir="ltr" style="margin: 0; font-size: 26px;">${team.score}</h3>
+                                <h3 class="score-val" dir="ltr" style="margin: 0; font-size: 26px;">${fmtNum(team.score, currentNumLang)}</h3>
                                 <button class="icon-btn log-btn" onclick="openLogsModal('${team.id}')" title="تاریخچه امتیازات" style="padding: 5px 10px; font-size: 18px;"><i data-lucide="history"></i></button>
                             </div>
                         </div>
@@ -1682,14 +1886,14 @@
                 row.querySelector('.team-row').style.backgroundColor = `${hexToRgba(team.color, 0.3)}`;
                 row.querySelector('.team-color-indicator').style.background = team.color;
                 row.querySelector('h3').innerText = team.name;
-                row.querySelector('.score-val').innerText = team.score;
+                row.querySelector('.score-val').innerText = fmtNum(team.score, currentNumLang);
                 const sSumEl = row.querySelector('.team-stages-summary');
                 if (sSumEl) {
                     let curStageSum = 0;
                     if (team.stageScores) {
                         for (let s in team.stageScores) curStageSum += scoreNum(team.stageScores[s]);
                     }
-                    sSumEl.innerHTML = `<i data-lucide="layers" style="width: 12px; height: 12px;"></i> مراحل: <strong>${curStageSum}</strong> (مجموع داوران)`;
+                    sSumEl.innerHTML = `<i data-lucide="layers" style="width: 12px; height: 12px;"></i> مراحل: <strong>${fmtNum(curStageSum, currentNumLang)}</strong> (مجموع داوران)`;
                 }
                 
                 const btns = row.querySelectorAll('.instant-btn');
@@ -1745,6 +1949,7 @@
             
             logsModalOriginal = {};
             allLogs.forEach(l => { logsModalOriginal[l.id] = l.value; });
+            FormGuard.reset('logs');
 
             if (allLogs.length === 0) {
                 list.innerHTML = '<p style="text-align:center; opacity:0.7;">هیچ امتیازی ثبت نشده است.</p>';
@@ -1753,7 +1958,7 @@
                 sortedLogs.forEach(log => {
                     let title = log.type === 'stage' ? 'مرحله: ' + (currentStages.find(s => s.id === log.stageId)?.name || 'نامشخص') + ' (مجموع داوران)' : 'امتیاز لحظه‌ای (دستی)';
                     let tagBadge = log.tag ? `<span class="log-tag-badge"><i data-lucide="tag" style="width: 11px; height: 11px;"></i> ${esc(log.tag)}</span>` : '';
-                    let dateStr = log.timestamp === 0 ? 'ثبت گروهی' : new Date(log.timestamp).toLocaleTimeString('fa-IR');
+                    let dateStr = log.timestamp === 0 ? 'ثبت گروهی' : new Date(log.timestamp).toLocaleTimeString(I18N.locale);
                     let userStr = '';
                     if (log.user) {
                         const logPic = log.user.profilePic || log.user.photo || log.user.avatar || log.user.image;
@@ -1784,7 +1989,7 @@
                         editUI = `
                             <div style="display: flex; align-items: center; gap: 10px;">
                                 <input type="number" class="log-val-input" value="${esc(log.value)}" style="width: 70px; height: 35px; font-size: 16px; padding: 0 5px; text-align: center; border-radius: 5px; border: 1px solid var(--glass-border); background: var(--input-bg); color: var(--text-color);">
-                                <button onclick="this.parentElement.parentElement.remove()" style="background: var(--danger-bg); color: var(--danger-color); padding: 5px 10px; border-radius: 5px; border:none; cursor:pointer; font-size: 16px;" title="حذف"><svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"></path><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"></path><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"></path><line x1="10" y1="11" x2="10" y2="17"></line><line x1="14" y1="11" x2="14" y2="17"></line></svg></button>
+                                <button onclick="confirmRemoveItem(this, 'log')" style="background: var(--danger-bg); color: var(--danger-color); padding: 5px 10px; border-radius: 5px; border:none; cursor:pointer; font-size: 16px;" title="حذف"><svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"></path><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"></path><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"></path><line x1="10" y1="11" x2="10" y2="17"></line><line x1="14" y1="11" x2="14" y2="17"></line></svg></button>
                             </div>
                         `;
                     } else {
@@ -1849,6 +2054,7 @@
             .then(res => {
                 if (res.teams) { currentTeams = res.teams; ensureLogsFormat(currentTeams); }
                 renderPreviewBoard();
+                FormGuard.reset('logs');
                 document.getElementById('logsModal').style.display = 'none';
             })
             .catch(e => window.showToast('ذخیره تغییرات انجام نشد: ' + e.message, 'error'));
@@ -1893,12 +2099,14 @@
 
             renderScoreModalTeams(stageId);
             document.getElementById('scoreModal').style.display = 'flex';
+            FormGuard.reset('score');
         }
 
         function toggleModalTeamDnf(teamId) {
             const input = document.getElementById(`score_${teamId}`);
             const btn = document.getElementById(`dnf_btn_${teamId}`);
             if (!input) return;
+            FormGuard.touch('score');
             const isCurrentlyDnf = input.value === '-' || input.dataset.dnf === 'true';
             if (isCurrentlyDnf) {
                 input.value = '0';
@@ -2025,7 +2233,7 @@
                             return `
                             <div style="display: flex; justify-content: space-between; align-items: center; padding: 7px 12px; background: rgba(255,255,255,0.06); border-radius: 8px; margin-top: 5px; font-size: 13px;">
                                 <div style="display: flex; align-items: center; gap: 8px;">
-                                    <span style="font-weight: 800; min-width: 60px; color: ${r.rank === 1 ? '#fbbf24' : (r.rank === 2 ? '#e2e8f0' : (r.rank === 3 ? '#d97706' : 'var(--text-color)'))};">
+                                    <span style="font-weight: 800; min-width: 60px; color: ${r.rank === 1 ? 'var(--tx-gold)' : (r.rank === 2 ? 'var(--tx-silver)' : (r.rank === 3 ? 'var(--tx-bronze)' : 'var(--text-color)'))};">
                                         ${r.isDnf || r.rank === '-' ? '🚫 عدم اتمام (-)' : `رتبه ${r.rank}`}
                                     </span>
                                     <span style="display: inline-block; width: 12px; height: 12px; border-radius: 50%; background: ${safeColor(r.teamColor, '#fff')};"></span>
@@ -2052,8 +2260,8 @@
                             </div>
                             <div style="margin-top: 8px; font-size: 12px; opacity: 0.9; display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
                                 <span>جدول پایه: ${ladder.join('، ')}</span>
-                                <span style="background: rgba(99, 102, 241, 0.25); border: 1px solid rgba(99, 102, 241, 0.4); color: #c7d2fe; padding: 2px 8px; border-radius: 6px; font-weight: 800;">ضریب مرحله: ×${activeMultiplier}</span>
-                                <span style="color: #34d399; font-weight: 700;">امتیازات اعمال شده: ${effectiveLadder.join('، ')} امتیاز</span>
+                                <span style="background: rgba(99, 102, 241, 0.25); border: 1px solid rgba(99, 102, 241, 0.4); color: var(--tx-indigo); padding: 2px 8px; border-radius: 6px; font-weight: 800;">ضریب مرحله: ×${activeMultiplier}</span>
+                                <span style="color: var(--tx-green); font-weight: 700;">امتیازات اعمال شده: ${effectiveLadder.join('، ')} امتیاز</span>
                             </div>
                             ${resRowsHtml ? `<div style="margin-top: 10px; max-height: 190px; overflow-y: auto;">${resRowsHtml}</div>` : ''}
                         </div>
@@ -2064,23 +2272,23 @@
                             <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px; margin-bottom: 8px;">
                                 <div style="display: flex; align-items: center; gap: 8px;">
                                     <span style="background: #f59e0b; color: #fff; padding: 3px 9px; border-radius: 6px; font-size: 12px; font-weight: 800;">⏳ در حال برگزاری</span>
-                                    <strong style="color: #93c5fd; font-size: 14px;">مسابقه در حالت امتیازات پلکانی است</strong>
+                                    <strong style="color: var(--tx-blue); font-size: 14px;">مسابقه در حالت امتیازات پلکانی است</strong>
                                 </div>
                                 <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
                                     <div style="display: inline-flex; align-items: center; gap: 5px; background: rgba(99, 102, 241, 0.2); border: 1px solid rgba(99, 102, 241, 0.4); padding: 3px 8px; border-radius: 6px;" title="امکان تعریف یا ویرایش ضریب این مرحله">
-                                        <span style="font-size: 12px; color: #c7d2fe; font-weight: 700;">ضریب مرحله:</span>
+                                        <span style="font-size: 12px; color: var(--tx-indigo); font-weight: 700;">ضریب مرحله:</span>
                                         <input type="number" id="modalStageMultiplierInput" step="0.5" min="0.1" value="${stageMultiplier}" style="width: 55px; margin: 0; padding: 2px 4px; text-align: center; font-size: 13px; font-weight: 800; border-radius: 5px; border: 1px solid rgba(255,255,255,0.25); background: rgba(0,0,0,0.35); color: #fff;" oninput="updateModalTieredPreview('${stage.id}')">
                                     </div>
                                     <span style="font-size: 12px; opacity: 0.85; background: rgba(255,255,255,0.08); padding: 3px 8px; border-radius: 6px;">جدول پایه: ${ladder.join('، ')}</span>
                                 </div>
                             </div>
-                            <div id="modalTieredMultiplierPreview" style="background: rgba(99, 102, 241, 0.12); border: 1px dashed rgba(99, 102, 241, 0.4); padding: 8px 12px; border-radius: 8px; font-size: 12px; color: #e0e7ff; margin-bottom: 10px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 6px;">
+                            <div id="modalTieredMultiplierPreview" style="background: rgba(99, 102, 241, 0.12); border: 1px dashed rgba(99, 102, 241, 0.4); padding: 8px 12px; border-radius: 8px; font-size: 12px; color: var(--tx-indigo); margin-bottom: 10px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 6px;">
                                 <span>🎯 امتیازات نهایی پلکانی (با ضریب <b id="previewMultVal">${stageMultiplier}</b>):</span>
-                                <strong id="previewScaledLadder" style="color: #38bdf8; font-size: 13px; letter-spacing: 0.5px;">${scaledLadder.join('، ')} امتیاز</strong>
+                                <strong id="previewScaledLadder" style="color: var(--tx-sky); font-size: 13px; letter-spacing: 0.5px;">${scaledLadder.join('، ')} امتیاز</strong>
                             </div>
                             <div style="font-size: 12px; opacity: 0.85; line-height: 1.5; margin-bottom: 12px;">
                                 امتیاز دادن داوران در این تب تغییری در جدول اصلی ایجاد نمی‌کند تا زمانی که پس از تکمیل نهایی، دکمه بستن مرحله و محاسبه امتیازات را فشار دهید.
-                                ${isTime ? '<br><span style="color: #fbbf24;">⚡ در آیتم‌های زمانی ثبت زمان توسط یکی از داوران کافی است. در صورت عدم اتمام مرحله، دکمه «-» را فعال کنید تا امتیاز آن تیم ۰ محاسبه شود.</span>' : ''}
+                                ${isTime ? '<br><span style="color: var(--tx-gold);">⚡ در آیتم‌های زمانی ثبت زمان توسط یکی از داوران کافی است. در صورت عدم اتمام مرحله، دکمه «-» را فعال کنید تا امتیاز آن تیم ۰ محاسبه شود.</span>' : ''}
                             </div>
                             <button type="button" id="btnCloseTieredStage" onclick="closeTieredStage('${stage.id}', false)" style="width: 100%; padding: 12px 18px; background: linear-gradient(135deg, #2563eb, #1d4ed8); border: none; border-radius: 10px; color: #fff; font-size: 15px; font-weight: 800; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 8px; box-shadow: 0 4px 14px rgba(37,99,235,0.35);">
                                 <i data-lucide="calculator" style="width: 17px; height: 17px;"></i>
@@ -2150,14 +2358,14 @@
                         judgesListHtml += `
                             <div style="display: flex; align-items: center; justify-content: space-between; background: rgba(37,99,235,0.12); border: 1px solid rgba(37,99,235,0.3); border-radius: 8px; padding: 6px 12px; margin-top: 4px;">
                                 <span style="font-size: 12px; font-weight: 700; color: var(--text-color);"><i data-lucide="timer" style="width: 14px; height: 14px; vertical-align: middle;"></i> زمان ملاک مرحله (قانون ۱ - اولین داور):</span>
-                                <span style="font-size: 15px; font-weight: 800; color: #93c5fd;">${chosenTime} ${criteria.unitLabel}</span>
+                                <span style="font-size: 15px; font-weight: 800; color: var(--tx-blue);">${chosenTime} ${criteria.unitLabel}</span>
                             </div>
                         `;
                     } else {
                         judgesListHtml += `
                             <div style="display: flex; align-items: center; justify-content: space-between; background: rgba(37,99,235,0.12); border: 1px solid rgba(37,99,235,0.3); border-radius: 8px; padding: 6px 12px; margin-top: 4px;">
                                 <span style="font-size: 12px; font-weight: 700; color: var(--text-color);"><i data-lucide="calculator" style="width: 14px; height: 14px; vertical-align: middle;"></i> مجموع سهم همه داوران:</span>
-                                <span style="font-size: 15px; font-weight: 800; color: #93c5fd;">${judgesSum} ${criteria.unitLabel}</span>
+                                <span style="font-size: 15px; font-weight: 800; color: var(--tx-blue);">${judgesSum} ${criteria.unitLabel}</span>
                             </div>
                         `;
                     }
@@ -2244,13 +2452,14 @@
                 if (!input) return;
                 const rawVal = input.value.trim();
                 const isDnf = rawVal === '-' || rawVal.toLowerCase() === 'dnf' || input.dataset.dnf === 'true';
-                const val = isDnf ? '-' : (parseFloat(rawVal) || 0);
+                const val = isDnf ? '-' : (parseScoreInput(rawVal) || 0);
                 const orig = input.dataset.orig;
                 const origIsDnf = orig === '-';
                 const changed = isDnf ? !origIsDnf : (origIsDnf || (parseFloat(orig) || 0) !== val);
                 if (changed) scores[team.id] = val;
             });
             if (Object.keys(scores).length === 0) {
+                FormGuard.reset('score');
                 document.getElementById('scoreModal').style.display = 'none';
                 return;
             }
@@ -2263,6 +2472,7 @@
             .then(res => {
                 if (res.teams) { currentTeams = res.teams; ensureLogsFormat(currentTeams); }
                 renderPreviewBoard();
+                FormGuard.reset('score');
                 document.getElementById('scoreModal').style.display = 'none';
             })
             .catch(e => window.showToast('ذخیره نمرات انجام نشد: ' + e.message, 'error'));
@@ -2431,6 +2641,7 @@
             document.body.style.overflow = 'hidden';
             const sModal = document.getElementById('settingsModal');
             sModal.style.display = 'flex';
+            FormGuard.reset('settings');
             const sContent = sModal.querySelector('.modal-content');
             if (sContent) sContent.scrollTop = 0;
         }
@@ -2440,7 +2651,14 @@
             const sec = document.getElementById('editTieredSection');
             if (sec) sec.style.display = (type === 'tiered') ? 'block' : 'none';
         }
-        function closeSettings() {
+        function closeGuardedModal(id, guard) {
+            if (!FormGuard.confirmDiscard(guard)) return;
+            document.getElementById(id).style.display = 'none';
+        }
+
+        function closeSettings(force) {
+            if (!force && !FormGuard.confirmDiscard('settings')) return;
+            FormGuard.reset('settings');
             document.body.style.overflow = '';
             document.getElementById('settingsModal').style.display = 'none';
         }
@@ -2456,7 +2674,7 @@
             item.className = 'dynamic-item';
             item.dataset.id = id;
             item.innerHTML = `
-                <div style="display: flex; gap: 8px; align-items: center; width: 100%; flex-wrap: wrap;">
+                <div class="op-stage-row" style="display: flex; gap: 8px; align-items: center; width: 100%; flex-wrap: wrap;">
                     <input type="text" class="stage-name-input" placeholder="نام مرحله" value="${esc(name)}" style="flex: 2; min-width: 140px;">
                     <select class="stage-unit-select settings-input" style="flex: 1.5; min-width: 180px; margin: 0; padding: 6px 10px; font-size: 13px;" title="واحد سنجش مرحله">
                         <option value="points" ${unitVal === 'points' ? 'selected' : ''}>🎯 امتیاز (بیشترین = برتر)</option>
@@ -2467,10 +2685,10 @@
                         <span style="font-size: 12px; opacity: 0.85; white-space: nowrap;">ضریب:</span>
                         <input type="number" step="0.5" min="0.1" class="stage-multiplier-input" placeholder="۱" value="${multVal}" style="width: 55px; margin: 0; padding: 4px; text-align: center; font-size: 13px; font-weight: 800; border-radius: 6px;">
                     </div>
-                    <div style="display: flex; gap: 4px; align-items: center;">
+                    <div class="op-row-actions" style="display: flex; gap: 4px; align-items: center;">
                         <button type="button" onclick="moveItemUp(this)" class="icon-btn" title="انتقال به بالا">▲</button>
                         <button type="button" onclick="moveItemDown(this)" class="icon-btn" title="انتقال به پایین">▼</button>
-                        <button type="button" onclick="this.closest('.dynamic-item').remove()" class="icon-btn remove-btn" title="حذف">×</button>
+                        <button type="button" onclick="confirmRemoveItem(this, 'stage')" class="icon-btn remove-btn" title="حذف مرحله">×</button>
                     </div>
                 </div>
             `;
@@ -2491,7 +2709,7 @@
                     <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
                         <div class="t-img-thumb" style="width: 56px; height: 31px; aspect-ratio: 16/9; border-radius: 6px; overflow: hidden; border: 1px solid var(--glass-border); flex-shrink: 0; background: var(--input-bg); display: flex; align-items: center; justify-content: center; position: relative;" title="پیش‌نمایش عکس اصلی ۱۶:۹">
                             ${image ? `<img src="${esc(safeUrl(image))}" style="width: 100%; height: 100%; object-fit: cover;" onerror="this.style.display='none'">` : `<i data-lucide="image" style="width: 14px; height: 14px; opacity: 0.5;"></i>`}
-                            <span style="position: absolute; bottom: 1px; right: 2px; font-size: 7px; font-weight: bold; background: rgba(0,0,0,0.65); color: #fff; padding: 0 2px; border-radius: 2px; pointer-events: none;">16:9</span>
+                            
                         </div>
                         <input type="text" class="t-image" placeholder="عکس اصلی ۱۶:۹ (پیش‌فرض)" value="${esc(image)}" style="flex: 1; min-width: 120px; margin: 0;" oninput="updateTeamImgThumb(this)">
                         <button type="button" class="icon-btn" onclick="triggerCustomPhotoInput(this)" title="آپلود عکس از فایل (نسبت ۱۶:۹)" style="padding: 5px 9px; font-size: 11px; display: inline-flex; align-items: center; gap: 3px; white-space: nowrap;"><i data-lucide="upload" style="width: 12px; height: 12px;"></i> آپلود</button>
@@ -2529,7 +2747,7 @@
                 <div style="display: flex; flex-direction: column; gap: 4px; align-self: stretch; justify-content: center;">
                     <button onclick="moveItemUp(this.parentElement)" class="icon-btn" title="انتقال به بالا">▲</button>
                     <button onclick="moveItemDown(this.parentElement)" class="icon-btn" title="انتقال به پایین">▼</button>
-                    <button onclick="this.parentElement.remove()" class="icon-btn remove-btn" title="حذف">×</button>
+                    <button onclick="confirmRemoveItem(this, 'team')" class="icon-btn remove-btn" title="حذف تیم">×</button>
                 </div>
             `;
             list.appendChild(item);
@@ -2589,7 +2807,7 @@
                 } else if (isSad) {
                     thumb.innerHTML = `<span style="font-size: 11px;">😔</span>`;
                 } else {
-                    thumb.innerHTML = `<i data-lucide="image" style="width: 14px; height: 14px; opacity: 0.5;"></i><span style="position: absolute; bottom: 1px; right: 2px; font-size: 7px; font-weight: bold; background: rgba(0,0,0,0.65); color: #fff; padding: 0 2px; border-radius: 2px; pointer-events: none;">16:9</span>`;
+                    thumb.innerHTML = `<i data-lucide="image" style="width: 14px; height: 14px; opacity: 0.5;"></i>`;
                 }
                 if (clearBtn) clearBtn.style.display = 'none';
                 if (typeof refreshIcons === 'function') refreshIcons();
@@ -2644,9 +2862,9 @@
             const url = input.value.trim();
             if (thumb) {
                 if (url) {
-                    thumb.innerHTML = `<img src="${esc(safeUrl(url))}" style="width: 100%; height: 100%; object-fit: cover;" onerror="this.style.display='none'"><span style="position: absolute; bottom: 1px; right: 2px; font-size: 8px; font-weight: bold; background: rgba(0,0,0,0.65); color: #fff; padding: 0 3px; border-radius: 2px; pointer-events: none;">16:9</span>`;
+                    thumb.innerHTML = `<img src="${esc(safeUrl(url))}" style="width: 100%; height: 100%; object-fit: cover;" onerror="this.style.display='none'">`;
                 } else {
-                    thumb.innerHTML = `<i data-lucide="image" style="width: 16px; height: 16px; opacity: 0.5;"></i><span style="position: absolute; bottom: 1px; right: 2px; font-size: 8px; font-weight: bold; background: rgba(0,0,0,0.65); color: #fff; padding: 0 3px; border-radius: 2px; pointer-events: none;">16:9</span>`;
+                    thumb.innerHTML = `<i data-lucide="image" style="width: 16px; height: 16px; opacity: 0.5;"></i>`;
                     if(typeof refreshIcons === 'function') refreshIcons();
                 }
             }
@@ -2840,7 +3058,7 @@
 
             updateHeaderUI();
             syncData().then(() => {
-                closeSettings();
+                closeSettings(true);
                 renderPreviewBoard();
                 renderStagesButtons();
                 window.showToast("تغییرات با موفقیت ذخیره شد.", "success");
@@ -2901,6 +3119,291 @@
         document.addEventListener("DOMContentLoaded", refreshIcons);
     </script>
     
+
+    <script>
+    // -----------------------------------------------------------------------
+    // Camp management: board control, results announcement, passwords,
+    // audit log, resets, printing and help.
+    // -----------------------------------------------------------------------
+    const ROLE_LABELS = { operator: 'اپراتور', head_referee: 'سرداور', referee: 'داور' };
+    const AUDIT_LABELS = {
+        settings: 'تغییر تنظیمات مسابقه', stage_scores: 'اصلاح دستی نمره مرحله', team_logs: 'ویرایش تاریخچه امتیاز تیم',
+        judge_score_delete: 'حذف نمره داور', stage_close: 'بستن مرحله پلکانی', stage_reopen: 'بازگشایی مرحله پلکانی',
+        stage_reset: 'بازنشانی مرحله', scores_reset: 'بازنشانی همه امتیازها', password_reset: 'تغییر رمز کاربر',
+        password_change: 'تغییر رمز شخصی', board: 'کنترل تابلو', finish: 'پایان مسابقه',
+        advanced: 'تنظیمات پیشرفته', freeze: 'مخفی کردن جدول', unfreeze: 'نمایش دوباره جدول', ceremony: 'شروع مراسم جوایز',
+        appeal: 'رسیدگی به اعتراض', chance: 'کارت شانس', budget: 'تغییر بودجه', round: 'دور تصمیم‌گیری', bracket: 'جدول حذفی',
+        peer: 'رأی هم‌تیمی‌ها', undo: 'برگرداندن تغییر', register_approve: 'تأیید ثبت‌نام تیم'
+    };
+
+    function isManager() { return currentUser && (currentUser.role === 'operator' || currentUser.role === 'head_referee'); }
+
+    function apiPost(url, body) {
+        return fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body || {}) }).then(jsonOrThrow);
+    }
+
+    function ensureManageModal() {
+        let m = document.getElementById('manageModal');
+        if (m) return m;
+        m = document.createElement('div');
+        m.id = 'manageModal';
+        m.className = 'modal-overlay';
+        m.style.zIndex = '10300';
+        m.innerHTML = `
+            <div class="modal-content glass manage-content">
+                <button type="button" class="close-btn" title="بستن" onclick="document.getElementById('manageModal').style.display='none'">&times;</button>
+                <h2 style="margin-top: 0;">مدیریت مسابقه</h2>
+                <div class="manage-tabs" role="tablist">
+                    <button type="button" role="tab" data-tab="board" class="active">تابلو و نتایج</button>
+                    <button type="button" role="tab" data-tab="users">کاربران و رمزها</button>
+                    <button type="button" role="tab" data-tab="audit">تاریخچه تغییرات</button>
+                    <button type="button" role="tab" data-tab="reset">بازنشانی</button>
+                    <button type="button" role="tab" data-tab="advanced">تنظیمات پیشرفته</button>
+                </div>
+                <div class="manage-pane" data-pane="board"></div>
+                <div class="manage-pane" data-pane="users" hidden></div>
+                <div class="manage-pane" data-pane="audit" hidden></div>
+                <div class="manage-pane" data-pane="reset" hidden></div>
+                <div class="manage-pane" data-pane="advanced" hidden></div>
+            </div>`;
+        m.querySelectorAll('.manage-tabs button').forEach(b => b.onclick = () => showManageTab(b.dataset.tab));
+        document.body.appendChild(m);
+        return m;
+    }
+
+    function showManageTab(tab) {
+        const m = ensureManageModal();
+        m.querySelectorAll('.manage-tabs button').forEach(b => { b.classList.toggle('active', b.dataset.tab === tab); b.setAttribute('aria-selected', b.dataset.tab === tab); });
+        m.querySelectorAll('.manage-pane').forEach(p => { p.hidden = p.dataset.pane !== tab; });
+        ({ board: renderManageBoard, users: renderManageUsers, audit: renderManageAudit, reset: renderManageReset,
+           advanced: () => OPF.renderAdvancedTab(document.querySelector('#manageModal [data-pane="advanced"]')) })[tab]();
+    }
+
+    function openManageModal() {
+        if (!isManager()) return showFloatingError('این بخش فقط برای اپراتور و سرداور است.');
+        ensureManageModal().style.display = 'flex';
+        showManageTab('board');
+    }
+
+    function renderManageBoard() {
+        const pane = document.querySelector('#manageModal [data-pane="board"]');
+        const boardUrl = appUrl('board.html?id=' + campId);
+        const resultsUrl = appUrl('results.html?id=' + campId);
+        const options = ['<option value="">— هیچ مرحله‌ای —</option>'].concat(currentStages.map(st =>
+            `<option value="${esc(st.id)}" ${st.id === currentActiveStageId ? 'selected' : ''}>${esc(st.name)}</option>`)).join('');
+        const announcing = currentAnnouncement && currentAnnouncement.active;
+        pane.innerHTML = `
+            <section class="manage-section">
+                <h3>مرحله در حال اجرا</h3>
+                <p class="manage-note">روی تابلوی زنده بالای جدول نمایش داده می‌شود.</p>
+                <div class="manage-row">
+                    <select id="activeStageSelect" aria-label="مرحله در حال اجرا">${options}</select>
+                    <button type="button" class="manage-primary" onclick="saveActiveStage()">نمایش روی تابلو</button>
+                </div>
+            </section>
+            <section class="manage-section">
+                <h3>اعلام نتایج</h3>
+                <p class="manage-note">شمارش معکوس و سکوی قهرمانی روی همه تابلوها نمایش داده می‌شود.</p>
+                <div class="manage-row">
+                    ${announcing
+                        ? `<button type="button" onclick="setAnnouncement('hide')">بازگشت تابلو به جدول</button>`
+                        : `<button type="button" class="manage-primary" onclick="setAnnouncement('show')">🏆 نمایش نتایج روی تابلو</button>`}
+                    ${isLocked ? '<span class="manage-badge">مسابقه قفل است</span>' : `<button type="button" class="manage-danger" onclick="finishCompetition()">🏁 پایان مسابقه و اعلام نتایج</button>`}
+                </div>
+            </section>
+            <section class="manage-section">
+                <h3>لینک‌ها و چاپ</h3>
+                <div class="manage-links">
+                    <div class="manage-qr">${qrSvg(boardUrl, 4)}<span>تابلوی زنده</span></div>
+                    <div class="manage-row" style="flex-direction: column; align-items: stretch;">
+                        <button type="button" onclick="copyText(${jsArg(boardUrl)})">کپی لینک تابلو</button>
+                        <button type="button" onclick="copyText(${jsArg(appUrl('operator.html?id=' + campId))})">کپی لینک ورود داوران</button>
+                        <a class="manage-link-btn" href="${esc(resultsUrl)}" target="_blank" rel="noopener">🖨️ چاپ / PDF نتایج و تقدیرنامه‌ها</a>
+                    </div>
+                </div>
+            </section>`;
+    }
+
+    function saveActiveStage() {
+        const v = document.getElementById('activeStageSelect').value || null;
+        apiPost(`/api/board?id=${campId}`, { activeStageId: v }).then(() => {
+            currentActiveStageId = v;
+            showToast(v ? 'مرحله جاری روی تابلو نمایش داده می‌شود.' : 'نمایش مرحله جاری حذف شد.', 'success');
+        }).catch(e => showToast(e.message, 'error'));
+    }
+
+    function setAnnouncement(mode) {
+        apiPost(`/api/board?id=${campId}`, { announcement: mode }).then(() => {
+            currentAnnouncement = mode === 'show' ? { active: true, at: Date.now() } : null;
+            showToast(mode === 'show' ? 'نتایج روی تابلو اعلام شد.' : 'تابلو به جدول بازگشت.', 'success');
+            renderManageBoard();
+        }).catch(e => showToast(e.message, 'error'));
+    }
+
+    function finishCompetition() {
+        if (!confirm('مسابقه پایان یابد؟\n\n• ثبت و تغییر امتیاز برای همه قفل می‌شود\n• نتایج نهایی روی تابلو اعلام می‌شود\n• باز کردن دوباره قفل فقط از پنل سوپرادمین ممکن است')) return;
+        apiPost(`/api/finish?id=${campId}`, { announce: true }).then(() => {
+            isLocked = true;
+            currentAnnouncement = { active: true, at: Date.now() };
+            showToast('مسابقه به پایان رسید و نتایج اعلام شد.', 'success');
+            renderManageBoard();
+        }).catch(e => showToast(e.message, 'error'));
+    }
+
+    function renderManageUsers() {
+        const pane = document.querySelector('#manageModal [data-pane="users"]');
+        pane.innerHTML = '<p class="manage-note">در حال بارگذاری…</p>';
+        fetch(`api.php?action=users&id=${campId}`).then(jsonOrThrow).then(data => {
+            const rows = data.users.map(u => `
+                <div class="manage-user">
+                    <div><b>${esc(displayUserName(u))}</b> <span class="manage-badge">${ROLE_LABELS[u.role] || u.role}</span><div class="manage-note" dir="ltr" style="text-align: right;">${esc(u.username)}</div></div>
+                    ${u.canReset ? `<button type="button" onclick="resetUserPassword(${jsArg(u.username)}, ${jsArg(displayUserName(u))})">تغییر رمز</button>` : '<span class="manage-note">—</span>'}
+                </div>`).join('');
+            pane.innerHTML = `
+                <p class="manage-note">${currentUser.role === 'operator' ? 'اپراتور می‌تواند رمز سرداوران و داوران را تغییر دهد.' : 'سرداور می‌تواند رمز داوران را تغییر دهد.'} برای افزودن یا حذف کاربر به سوپرادمین مراجعه کنید.</p>
+                ${rows || '<p class="manage-note">کاربری تعریف نشده است.</p>'}
+                <section class="manage-section"><h3>رمز عبور خودم</h3><button type="button" onclick="changeMyPassword()">تغییر رمز عبور من</button></section>`;
+        }).catch(e => { pane.innerHTML = `<p class="manage-note">${esc(e.message)}</p>`; });
+    }
+
+    function displayUserName(u) {
+        const full = `${u.firstName || ''} ${u.lastName || ''}`.trim();
+        return full || u.username;
+    }
+
+    function askNewPassword(label) {
+        const p1 = prompt(`رمز عبور جدید ${label} (حداقل ۶ کاراکتر):`);
+        if (p1 === null) return null;
+        if (p1.length < 6) { showToast('رمز عبور باید حداقل ۶ کاراکتر باشد.', 'error'); return null; }
+        const p2 = prompt('تکرار رمز عبور جدید:');
+        if (p2 === null) return null;
+        if (p1 !== p2) { showToast('تکرار رمز عبور مطابقت ندارد.', 'error'); return null; }
+        return p1;
+    }
+
+    function resetUserPassword(username, name) {
+        const pw = askNewPassword('برای «' + name + '»');
+        if (!pw) return;
+        apiPost(`/api/users/reset_password?id=${campId}`, { username, newPassword: pw })
+            .then(() => showToast(`رمز «${name}» تغییر کرد. نشست‌های فعلی او بسته شد.`, 'success'))
+            .catch(e => showToast(e.message, 'error'));
+    }
+
+    function changeMyPassword() {
+        const current = prompt('رمز عبور فعلی شما:');
+        if (current === null) return;
+        const pw = askNewPassword('شما');
+        if (!pw) return;
+        apiPost('/api/user/password', { campId, currentPassword: current, newPassword: pw }).then(res => {
+            if (res.token) Auth.set(res.token);
+            showToast('رمز عبور شما تغییر کرد.', 'success');
+        }).catch(e => showToast(e.message, 'error'));
+    }
+
+    function auditText(e) {
+        const d = e.details || {};
+        const parts = [];
+        if (d.stage) parts.push('مرحله «' + d.stage + '»');
+        if (d.team) parts.push('تیم «' + d.team + '»');
+        if (d.judge) parts.push('داور: ' + d.judge);
+        if (Array.isArray(d.teams) && d.teams.length) parts.push('تیم‌ها: ' + d.teams.join('، '));
+        if (Array.isArray(d.changed) && d.changed.length) parts.push(d.changed.map(c => `${c.team}: ${c.value}`).join('، '));
+        if (d.scoreBefore !== undefined) parts.push(`امتیاز ${fmtNum(d.scoreBefore, currentNumLang)} ← ${fmtNum(d.scoreAfter, currentNumLang)}`);
+        if (d.target) parts.push('کاربر: ' + d.target);
+        if (Array.isArray(d.addedTeams) && d.addedTeams.length) parts.push('تیم جدید: ' + d.addedTeams.join('، '));
+        if (Array.isArray(d.removedTeams) && d.removedTeams.length) parts.push('تیم حذف‌شده: ' + d.removedTeams.join('، '));
+        if (d.activeStage !== undefined) parts.push(d.activeStage ? 'مرحله جاری: ' + d.activeStage : 'حذف مرحله جاری');
+        if (d.announcement) parts.push(d.announcement === 'show' ? 'نمایش نتایج' : 'پنهان کردن نتایج');
+        if (d.multiplier) parts.push('ضریب ' + fmtNum(d.multiplier, currentNumLang));
+        if (d.card) parts.push('کارت «' + d.card + '»');
+        if (d.round) parts.push('دور «' + d.round + '»');
+        if (d.amount !== undefined) parts.push('مبلغ ' + fmtNum(d.amount, currentNumLang));
+        if (d.status) parts.push({ accepted: 'پذیرفته شد', rejected: 'رد شد', open: 'باز' }[d.status] || d.status);
+        if (d.of) parts.push('«' + (AUDIT_LABELS[d.of] || d.of) + '»');
+        return parts.join('؛ ');
+    }
+
+    function renderManageAudit() {
+        const pane = document.querySelector('#manageModal [data-pane="audit"]');
+        pane.innerHTML = '<p class="manage-note">در حال بارگذاری…</p>';
+        fetch(`api.php?action=audit&id=${campId}`).then(jsonOrThrow).then(data => {
+            if (!data.entries.length) { pane.innerHTML = '<p class="manage-note">هنوز تغییری ثبت نشده است. (امتیازهای لحظه‌ای در «تاریخچه امتیازات» هر تیم دیده می‌شوند.)</p>'; return; }
+            pane.innerHTML = `<div class="audit-list">${data.entries.map(e => `
+                <div class="audit-item">
+                    <div class="audit-head"><b>${esc(AUDIT_LABELS[e.action] || e.action)}</b><span class="manage-note">${esc(new Date(e.ts).toLocaleString(I18N.locale))}</span></div>
+                    <div class="manage-note">توسط ${esc(e.by.name)} (${ROLE_LABELS[e.by.role] || ''})</div>
+                    ${auditText(e) ? `<div class="audit-details">${esc(auditText(e))}</div>` : ''}
+                    ${e.undone ? '<div class="manage-note">↶ برگردانده شد</div>' : (e.canUndo ? `<button type="button" class="audit-undo" onclick="OPF.undo(${jsArg(e.id)}, ${jsArg(AUDIT_LABELS[e.action] || e.action)})">↶ برگرداندن این تغییر</button>` : '')}
+                </div>`).join('')}</div>`;
+        }).catch(e => { pane.innerHTML = `<p class="manage-note">${esc(e.message)}</p>`; });
+    }
+
+    function renderManageReset() {
+        const pane = document.querySelector('#manageModal [data-pane="reset"]');
+        const opts = currentStages.map(st => `<option value="${esc(st.id)}">${esc(st.name)}</option>`).join('');
+        pane.innerHTML = `
+            <section class="manage-section">
+                <h3>بازنشانی یک مرحله</h3>
+                <p class="manage-note">همه نمرات داوران و امتیاز این مرحله پاک و مرحله (در صورت بسته بودن) باز می‌شود. امتیازهای لحظه‌ای حفظ می‌شوند.</p>
+                <div class="manage-row"><select id="resetStageSelect" aria-label="مرحله">${opts}</select><button type="button" class="manage-danger" onclick="resetStage()">بازنشانی مرحله</button></div>
+            </section>
+            ${currentUser.role === 'operator' ? `
+            <section class="manage-section">
+                <h3>شروع دوباره کل مسابقه</h3>
+                <p class="manage-note">همه امتیازها، نمرات داوران و مراحل بسته‌شده پاک می‌شوند. تیم‌ها، مراحل و کاربران باقی می‌مانند. این کار قابل بازگشت نیست.</p>
+                <button type="button" class="manage-danger" onclick="resetAllScores()">بازنشانی همه امتیازها</button>
+            </section>` : ''}`;
+    }
+
+    function resetStage() {
+        const sel = document.getElementById('resetStageSelect');
+        if (!sel.value) return;
+        const name = sel.options[sel.selectedIndex].text;
+        if (!confirm(`همه نمرات مرحله «${name}» پاک شود؟ این کار قابل بازگشت نیست.`)) return;
+        apiPost(`/api/stage/reset?id=${campId}`, { stageId: sel.value }).then(res => {
+            if (res.teams) { currentTeams = res.teams; ensureLogsFormat(currentTeams); renderPreviewBoard(); renderStagesButtons(); }
+            showToast(`مرحله «${name}» بازنشانی شد.`, 'success');
+        }).catch(e => showToast(e.message, 'error'));
+    }
+
+    function resetAllScores() {
+        const word = prompt('برای پاک کردن همه امتیازها، کلمه «بازنشانی» را تایپ کنید:');
+        if (word === null) return;
+        if (!I18N.typed(word, 'بازنشانی')) return showToast('عبارت تأیید درست وارد نشد؛ کاری انجام نشد.', 'error');
+        apiPost(`/api/scores/reset?id=${campId}`, { confirm: 'RESET' }).then(res => {
+            if (res.teams) { currentTeams = res.teams; ensureLogsFormat(currentTeams); }
+            currentClosedStages = {}; currentStageTieredResults = {};
+            renderPreviewBoard(); renderStagesButtons();
+            showToast('همه امتیازها پاک شد.', 'success');
+        }).catch(e => showToast(e.message, 'error'));
+    }
+
+    const OPERATOR_HELP = `
+        <ul>
+            <li><b>امتیاز لحظه‌ای:</b> عدد را در کادر هر تیم بنویسید، با دکمه <b>+/-</b> علامت را انتخاب کنید و «ثبت» را بزنید. تا ۸ ثانیه دکمه «لغو» فعال است.</li>
+            <li><b>مراحل:</b> با زدن نام هر مرحله، نمرات داوران را ببینید و در صورت نیاز اصلاح کنید. در مسابقه پلکانی، پس از پایان مرحله «بستن مرحله» را بزنید تا امتیاز رتبه‌ها محاسبه شود.</li>
+            <li><b>تاریخچه:</b> دکمه ساعت کنار هر تیم همه امتیازهای آن تیم را نشان می‌دهد و قابل ویرایش است.</li>
+            <li><b>مدیریت مسابقه:</b> مرحله جاری روی تابلو، اعلام نتایج، پایان مسابقه، تغییر رمز داوران، تاریخچه تغییرات و بازنشانی.</li>
+            <li><b>میز کنترل:</b> تایمر مرحله، نوار خبری تابلو، پیام به داورها، ثبت لحظه کلیدی، وضعیت داورها، جدول مخفی و مراسم اهدای جوایز. امکاناتی مثل بودجه، کارت شانس یا جدول حذفی وقتی روشن شوند همین‌جا اضافه می‌شوند.</li>
+            <li><b>تنظیمات پیشرفته</b> (مدیریت مسابقه): روشن/خاموش کردن هر المان تابلو و امکانات اختیاری، بازیکن‌ها و پست‌ها، تقسیم داورها، معیارهای داوری، کارت‌ها، دورهای تصمیم، برند و تقدیرنامه. هر تغییر از «تاریخچه تغییرات» قابل برگرداندن است.</li>
+            <li><b>اینترنت قطع شد؟</b> امتیازها در صف می‌مانند و پس از وصل شدن خودکار ارسال می‌شوند. وضعیت اتصال پایین صفحه نمایش داده می‌شود.</li>
+        </ul>
+        <p><b>نقش‌ها:</b> اپراتور همه امکانات را دارد؛ سرداور به‌جز بازنشانی کامل همه را؛ داور فقط امتیاز و نمره ثبت می‌کند.</p>`;
+    const REFEREE_HELP = `
+        <ul>
+            <li><b>داوری میدانی:</b> تیم را انتخاب کنید، علامت و مقدار امتیاز (و در صورت نیاز برچسب) را انتخاب و «ثبت» را بزنید. تا ۸ ثانیه می‌توانید «لغو» کنید.</li>
+            <li><b>داوری مراحل:</b> مرحله را انتخاب و نمره یا زمان هر تیم را ثبت کنید. زمان را به ثانیه (۸۳٫۵) یا دقیقه:ثانیه (۱:۲۳٫۵) بنویسید یا از کرنومتر استفاده کنید. دکمه «-» یعنی تیم مرحله را تمام نکرده است.</li>
+            <li><b>اینترنت قطع شد؟</b> ثبت‌ها در صف می‌مانند و خودکار ارسال می‌شوند.</li>
+            <li>برای تغییر رمز یا عکس، روی عکس پروفایل خود بزنید.</li>
+            <li>برای افزودن یادداشت یا عکس به یک امتیاز، دکمه «📝 یادداشت/عکس» را بزنید (یا «ثبت» را چند لحظه نگه دارید).</li>
+        </ul>`;
+    function showOperatorHelp() { Help.show('راهنمای پنل اپراتور', OPERATOR_HELP); }
+    function showRefereeHelp() { Help.show('راهنمای داوری', REFEREE_HELP); }
+    </script>
+    <script src="vendor/qrcode-generator-1.4.4.js"></script>
+    <script src="features.js"></script>
+    <script src="advanced.js"></script>
+    <script src="operator-features.js"></script>
     <script src="tooltip.js"></script>
 <script src="validateRealTime.js?v=5"></script>
 
@@ -2937,6 +3440,7 @@
             </div>
 
             <div style="display: flex; align-items: center; gap: 8px;">
+                <button onclick="showRefereeHelp()" class="icon-btn help-btn" title="راهنمای داوری" aria-label="راهنما" style="width: 40px; height: 40px;">؟</button>
                 <button onclick="toggleTheme()" class="icon-btn theme-toggle-fj" style="width: 40px; height: 40px; border-radius: 50%; font-size: 18px; display: flex; align-items: center; justify-content: center; padding: 0;" title="تغییر پوسته"><i data-lucide="moon"></i></button>
                 <button id="fjLogoutBtn" onclick="logout()" class="icon-btn" style="display: none; padding: 6px 14px; font-size: 13px; border-radius: 20px; color: var(--danger-color); border: 1px solid rgba(255, 76, 76, 0.4); background: rgba(255, 76, 76, 0.15); align-items: center; gap: 5px; cursor: pointer;" title="خروج از حساب"><i data-lucide="log-out" style="width: 14px; height: 14px;"></i> <span>خروج</span></button>
                 <button id="fjCloseBtn" onclick="closeFieldJudging()" class="icon-btn remove-btn" style="width: 40px; height: 40px; border-radius: 50%; font-size: 20px; display: flex; align-items: center; justify-content: center; padding: 0;" title="بستن">×</button>
@@ -2947,6 +3451,8 @@
             <i data-lucide="lock" style="width: 16px; height: 16px;"></i>
             <span>مسابقه در وضعیت قفل قرار دارد. ثبت یا تغییر امتیاز جدید غیرفعال است (حالت مشاهده).</span>
         </div>
+
+        <div id="fjInfoStrip" class="fj-info-strip" style="display: none;" aria-live="polite"></div>
 
         <div class="fj-teams-grid" id="fjTeamsContainer">
             <!-- Glass Orbs injected here -->
@@ -2960,7 +3466,7 @@
                     <img id="fjTeamBannerImg" src="" alt="عکس تیم" class="fj-team-banner-img" onerror="this.style.display='none'; document.getElementById('fjTeamBannerPlaceholder').style.display='flex';">
                     <div id="fjTeamBannerPlaceholder" class="fj-team-banner-placeholder" style="display: none;">
                         <i data-lucide="users" style="width: 44px; height: 44px; opacity: 0.65;"></i>
-                        <span style="font-size: 13px; opacity: 0.85; margin-top: 6px; font-weight: 500;">عکس ۱۶:۹ تیم ثبت نشده است</span>
+                        <span style="font-size: 13px; opacity: 0.85; margin-top: 6px; font-weight: 500;">عکس تیم ثبت نشده است</span>
                     </div>
                     <div class="fj-team-banner-gradient-scrim"></div>
                 </div>
@@ -2997,14 +3503,6 @@
                         <div style="height: 70px;"></div>
                         <!-- populated by JS -->
                     </div>
-                    <!-- Sign Wheel -->
-                    <div id="fjSignWheel" class="wheel-container" title="برای تغییر علامت کلیک کنید یا بچرخانید">
-                        <div class="wheel-highlight"></div>
-                        <div style="height: 70px;"></div>
-                        <div class="wheel-item" data-val="+" onclick="selectFjSign('+')">+</div>
-                        <div class="wheel-item" data-val="-" onclick="selectFjSign('-')">-</div>
-                        <div style="height: 70px;"></div>
-                    </div>
                 </div>
 
                 <!-- Tags Section -->
@@ -3015,10 +3513,15 @@
                     </div>
                 </div>
 
-                <!-- Big Submit Button -->
+                <div id="fjExtrasArea" class="fj-extras-area"></div>
+
+                <!-- Big Submit Button (+ note / photo, same dialog as a long press) -->
+                <div class="fj-submit-row">
                 <button id="fjSubmitBtn" onclick="submitFjScore()" style="width: 100%; max-width: 400px; padding: 18px; box-sizing: border-box; font-size: 22px; border-radius: 15px; border: none; font-weight: bold; cursor: pointer; display: flex; justify-content: center; align-items: center; gap: 12px; transition: all 0.2s;">
                     ثبت <span id="fjPreviewValue" dir="ltr" style="font-size: 26px;">+5</span>
                 </button>
+                <button type="button" id="fjNoteBtn" class="fj-note-btn" onclick="OPF.openNote()" style="display: none;" title="یادداشت یا عکس برای این امتیاز">📝 یادداشت/عکس</button>
+                </div>
             </div>
         </div>
 
@@ -3075,7 +3578,7 @@
     <!-- Quick Modal for Field Judging & Tag Config (Operator & Head Referee) -->
     <div id="fjTagConfigModal" class="modal-overlay" style="z-index: 10500;">
         <div class="modal-content glass" style="max-width: 480px; padding: 25px;">
-            <span class="close-btn" onclick="closeFjTagConfigModal()">&times;</span>
+            <button type="button" class="close-btn" onclick="closeFjTagConfigModal()">&times;</button>
             <h3 style="margin-top: 0; display: flex; align-items: center; gap: 8px;"><i data-lucide="tag"></i> تنظیمات برچسب‌ها و داوری میدانی</h3>
             
             <label style="margin-top: 10px;">حالت داوری میدانی:</label>
@@ -3150,6 +3653,7 @@
                 <button type="button" onclick="removeUserProfilePic()" class="icon-btn remove-btn" style="flex: 1; padding: 12px; border-radius: 10px; justify-content: center; cursor: pointer;" title="حذف عکس">حذف</button>
                 <button type="button" onclick="closeProfilePicModal()" class="icon-btn" style="flex: 1; padding: 12px; border-radius: 10px; justify-content: center; cursor: pointer;">انصراف</button>
             </div>
+            <button type="button" onclick="closeProfilePicModal(); changeMyPassword();" class="icon-btn" style="width: 100%; margin-top: 10px; padding: 12px; border-radius: 10px; justify-content: center; display: flex; gap: 6px; align-items: center;"><i data-lucide="key-round"></i> تغییر رمز عبور من</button>
         </div>
     </div>
     
@@ -3432,7 +3936,7 @@
         
         if (isMobile) {
             // Mobile phones: Maintain the existing ergonomic layout that user confirmed is good
-            const isPortrait = containerHeight > containerWidth;
+            const isPortrait = window.innerHeight >= window.innerWidth;
             let cols = 3;
             let maxSize = 145;
             let fontSize = "clamp(17px, 3.8vw, 24px)";
@@ -3509,7 +4013,8 @@
         const container = document.getElementById("fjTeamsContainer");
         if (!container) return;
         container.innerHTML = "";
-        const count = currentTeams.length;
+        const fjTeams = window.OPF ? OPF.visibleTeams(currentTeams) : currentTeams;
+        const count = fjTeams.length;
         if (count === 0) {
             container.innerHTML = "<div style=\"color: var(--text-color); opacity: 0.7; font-size: 16px; margin: auto; grid-column: 1 / -1;\">هیچ تیمی برای داوری تعریف نشده است.</div>";
             return;
@@ -3535,7 +4040,7 @@
             container.style.setProperty("--fj-gap", layout.gap);
         }
 
-        currentTeams.forEach(team => {
+        fjTeams.forEach(team => {
             const circle = document.createElement("div");
             circle.className = "fj-team-circle";
             circle.dataset.id = team.id;
@@ -3785,15 +4290,18 @@
             return;
         }
 
-        if (!currentJudgingStageId || !currentStages.some(s => s.id === currentJudgingStageId)) {
-            currentJudgingStageId = currentStages[0].id;
+        // Referees split between stages / teams only see their own share.
+        const myStages = window.OPF ? OPF.visibleStages(currentStages) : currentStages;
+        const myTeams = window.OPF ? OPF.visibleTeams(currentTeams) : currentTeams;
+        if (!currentJudgingStageId || !myStages.some(s => s.id === currentJudgingStageId)) {
+            currentJudgingStageId = (myStages[0] || currentStages[0]).id;
         }
 
-        const currentStage = currentStages.find(s => s.id === currentJudgingStageId) || currentStages[0];
+        const currentStage = myStages.find(s => s.id === currentJudgingStageId) || myStages[0] || currentStages[0];
         const criteria = getStageCriteria(currentStage);
 
         if (badgeEl) {
-            const multBadge = criteria.multiplier !== 1 ? `<span style="margin-right: 6px; font-size: 11px; background: rgba(99, 102, 241, 0.25); border: 1px solid rgba(99, 102, 241, 0.45); color: #a5b4fc; padding: 2px 8px; border-radius: 6px; font-weight: 800;">ضریب: ×${criteria.multiplier}</span>` : '';
+            const multBadge = criteria.multiplier !== 1 ? `<span style="margin-right: 6px; font-size: 11px; background: rgba(99, 102, 241, 0.25); border: 1px solid rgba(99, 102, 241, 0.45); color: var(--tx-indigo); padding: 2px 8px; border-radius: 6px; font-weight: 800;">ضریب: ×${fmtNum(criteria.multiplier, currentNumLang)}</span>` : '';
             badgeEl.innerHTML = `
                 <span>${currentStage.name}</span>
                 <span class="stage-unit-chip ${criteria.unit === 'time' ? (criteria.timeOrder === 'asc' ? 'time-speed' : 'time-endurance') : 'points'}" style="margin-right: 6px; font-size: 11px;">
@@ -3805,11 +4313,11 @@
         }
 
         // Render Stage Selector Pills
-        pillsContainer.innerHTML = currentStages.map(stage => {
+        pillsContainer.innerHTML = myStages.map(stage => {
             const isActive = stage.id === currentJudgingStageId;
             const stCrit = getStageCriteria(stage);
             const iconSymbol = stCrit.unit === 'time' ? (stCrit.timeOrder === 'asc' ? '⚡' : '⏳') : '🎯';
-            const multPill = (stage.multiplier && stage.multiplier !== 1) ? `<span style="font-size: 10px; background: rgba(99, 102, 241, 0.35); color: #c7d2fe; padding: 1px 5px; border-radius: 4px; margin-right: 4px; font-weight: 800;">×${stage.multiplier}</span>` : '';
+            const multPill = (stage.multiplier && stage.multiplier !== 1) ? `<span style="font-size: 10px; background: rgba(99, 102, 241, 0.35); color: var(--tx-indigo); padding: 1px 5px; border-radius: 4px; margin-right: 4px; font-weight: 800;">×${fmtNum(stage.multiplier, currentNumLang)}</span>` : '';
             return `
                 <button type="button" class="fj-stage-pill ${isActive ? 'active' : ''}" onclick="selectJudgingStage('${stage.id}')" title="${stCrit.descText}">
                     <span style="font-size: 12px;">${iconSymbol}</span>
@@ -3825,7 +4333,7 @@
         const isClosed = !!(currentClosedStages && currentClosedStages[currentJudgingStageId]);
 
         let scoredCount = 0;
-        currentTeams.forEach(t => {
+        myTeams.forEach(t => {
             if (t.judgeStageScores && t.judgeStageScores[currentJudgingStageId] && t.judgeStageScores[currentJudgingStageId][judgeKey]) {
                 scoredCount++;
             }
@@ -3857,12 +4365,12 @@
                         <div>
                             <div style="display: flex; align-items: center; gap: 8px;">
                                 <span style="background: #f59e0b; color: #fff; padding: 3px 9px; border-radius: 6px; font-size: 12px; font-weight: 800;">⏳ مسابقه پلکانی</span>
-                                <strong style="font-size: 13px; color: #93c5fd;">امتیازات در جدول اصلی اعمال نمی‌شود تا اپراتور مرحله را ببندد</strong>
+                                <strong style="font-size: 13px; color: var(--tx-blue);">امتیازات در جدول اصلی اعمال نمی‌شود تا اپراتور مرحله را ببندد</strong>
                             </div>
                             <div style="font-size: 11px; opacity: 0.85; margin-top: 4px;">
                                 ${isTime ? '⚡ قانون ۱: در آیتم‌های زمانی ثبت زمان توسط یکی از داوران کافی است. در صورت عدم اتمام مرحله، دکمه «-» را بزنید (قانون ۳ - امتیاز ۰).' : 'امتیازات تمام داوران پس از تکمیل جمع شده و طبق جدول پلکانی به تیم‌ها تعلق می‌گیرد.'}
-                                <div style="margin-top: 5px; color: #93c5fd; font-weight: 700;">
-                                    چینش پلکانی: ${ladder.join('، ')} امتیاز ${stageMultiplier !== 1 ? `⟵ با احتساب ضریب ${stageMultiplier}: <span style="color: #38bdf8;">${scaledLadder.join('، ')} امتیاز</span>` : ''}
+                                <div style="margin-top: 5px; color: var(--tx-blue); font-weight: 700;">
+                                    چینش پلکانی: ${ladder.join('، ')} امتیاز ${stageMultiplier !== 1 ? `⟵ با احتساب ضریب ${stageMultiplier}: <span style="color: var(--tx-sky);">${scaledLadder.join('، ')} امتیاز</span>` : ''}
                                 </div>
                             </div>
                         </div>
@@ -3872,14 +4380,14 @@
             }
         }
 
-        if (countEl) countEl.innerText = `ثبت‌شده توسط شما: ${scoredCount} از ${currentTeams.length} تیم | ${criteria.descText}`;
+        if (countEl) countEl.innerText = `ثبت‌شده توسط شما: ${fmtNum(scoredCount, currentNumLang)} از ${fmtNum(myTeams.length, currentNumLang)} تیم، ${criteria.descText}`;
 
         // Prepare display list based on view mode (normal vs ranked)
         let displayTeams = [];
         if (fjStageViewMode === 'ranked') {
-            displayTeams = getRankedTeamsForStage(currentTeams, currentStage);
+            displayTeams = getRankedTeamsForStage(myTeams, currentStage);
         } else {
-            displayTeams = currentTeams.map(t => {
+            displayTeams = myTeams.map(t => {
                 const dnf = isTeamStageDnf(t, currentStage.id);
                 return {
                     team: t,
@@ -3909,7 +4417,7 @@
                     const isOtherDnf = firstOther.dnf || firstOther.score === '-';
                     otherJudgesNotice = `
                         <div style="font-size: 11px; opacity: 0.9; margin-top: 5px; background: rgba(59,130,246,0.12); border-radius: 6px; padding: 4px 8px; display: flex; align-items: center; gap: 4px;">
-                            <i data-lucide="check" style="width: 12px; height: 12px; color: #93c5fd;"></i>
+                            <i data-lucide="check" style="width: 12px; height: 12px; color: var(--tx-blue);"></i>
                             <span>ثبت‌شده توسط ${esc(firstOther.judgeName || 'داور دیگر')}: <strong>${isOtherDnf ? 'عدم اتمام (-)' : `${esc(firstOther.score)} ${criteria.unitLabel}`}</strong></span>
                         </div>
                     `;
@@ -3946,17 +4454,26 @@
                     </div>
 
                     ${otherJudgesNotice}
+                    ${window.OPF ? OPF.criteriaControlsHtml(team, currentStage, judgeEntry) : ''}
 
                     <div class="fj-stage-score-controls" style="margin-top: 10px;">
                         ${dnfButtonHtml}
                         <button type="button" class="fj-stepper-btn minus" onclick="adjustJudgeStageScore('${team.id}', -10)">-۱۰</button>
                         <button type="button" class="fj-stepper-btn minus" onclick="adjustJudgeStageScore('${team.id}', -5)">-۵</button>
                         <button type="button" class="fj-stepper-btn minus" onclick="adjustJudgeStageScore('${team.id}', -1)">-۱</button>
-                        <input type="text" id="judge_score_${team.id}" class="fj-stage-num-input" value="${isEntryDnf ? '-' : esc(currentScore)}" data-dnf="${isEntryDnf ? 'true' : 'false'}" style="color: ${isEntryDnf ? '#ef4444' : 'inherit'};" placeholder="${criteria.unitLabel}">
+                        <input type="text" id="judge_score_${team.id}" ${window.OPF && OPF.criteriaFor(currentStage) ? 'readonly title="جمع وزنی معیارها"' : ''} class="fj-stage-num-input" value="${isEntryDnf ? '-' : esc(currentScore)}" data-dnf="${isEntryDnf ? 'true' : 'false'}" style="color: ${isEntryDnf ? '#ef4444' : 'inherit'};" placeholder="${criteria.unitLabel}">
                         <button type="button" class="fj-stepper-btn plus" onclick="adjustJudgeStageScore('${team.id}', 1)">+۱</button>
                         <button type="button" class="fj-stepper-btn plus" onclick="adjustJudgeStageScore('${team.id}', 5)">+۵</button>
                         <button type="button" class="fj-stepper-btn plus" onclick="adjustJudgeStageScore('${team.id}', 10)">+۱۰</button>
                     </div>
+                    ${isTime ? `
+                    <div class="fj-stopwatch" id="sw_box_${team.id}">
+                        <button type="button" class="fj-sw-btn" id="sw_toggle_${team.id}" onclick="toggleStopwatch('${team.id}')">▶ شروع کرنومتر</button>
+                        <span class="fj-sw-time" id="sw_time_${team.id}" dir="ltr">${formatSeconds(stopwatchElapsed(team.id))}</span>
+                        <button type="button" class="fj-sw-btn" onclick="resetStopwatch('${team.id}')" title="صفر کردن کرنومتر">↺</button>
+                        <button type="button" class="fj-sw-btn fj-sw-use" onclick="useStopwatch('${team.id}')">قرار دادن زمان</button>
+                    </div>
+                    <div class="fj-time-hint">زمان را به ثانیه (مثلاً ۸۳٫۵) یا دقیقه:ثانیه (مثلاً ۱:۲۳٫۵) وارد کنید.</div>` : ''}
 
                     <div class="fj-card-footer">
                         <span style="font-size: 12px; opacity: 0.7;">سهم ${criteria.unitLabel} شما در این مرحله</span>
@@ -3994,6 +4511,45 @@
         saveSingleTeamStageScore(teamId);
     }
 
+    // Per-team stopwatch for time stages (keeps running while the list re-renders).
+    const stopwatches = {};
+    function stopwatchElapsed(teamId) {
+        const sw = stopwatches[teamId];
+        if (!sw) return 0;
+        return (sw.acc + (sw.startedAt ? Date.now() - sw.startedAt : 0)) / 1000;
+    }
+    function renderStopwatch(teamId) {
+        const sw = stopwatches[teamId];
+        const t = document.getElementById('sw_time_' + teamId);
+        const b = document.getElementById('sw_toggle_' + teamId);
+        if (t) t.textContent = formatSeconds(stopwatchElapsed(teamId).toFixed(1));
+        if (b) {
+            b.textContent = sw && sw.startedAt ? '⏸ توقف' : (sw && sw.acc ? '▶ ادامه' : '▶ شروع کرنومتر');
+            b.classList.toggle('running', !!(sw && sw.startedAt));
+        }
+    }
+    setInterval(() => { Object.keys(stopwatches).forEach(id => { if (stopwatches[id].startedAt) renderStopwatch(id); }); }, 100);
+    function toggleStopwatch(teamId) {
+        const sw = stopwatches[teamId] || (stopwatches[teamId] = { acc: 0, startedAt: null });
+        if (sw.startedAt) { sw.acc += Date.now() - sw.startedAt; sw.startedAt = null; useStopwatch(teamId, true); }
+        else sw.startedAt = Date.now();
+        renderStopwatch(teamId);
+    }
+    function resetStopwatch(teamId) {
+        stopwatches[teamId] = { acc: 0, startedAt: null };
+        renderStopwatch(teamId);
+    }
+    function useStopwatch(teamId, silent) {
+        const input = document.getElementById('judge_score_' + teamId);
+        if (!input) return;
+        const secs = Math.round(stopwatchElapsed(teamId) * 100) / 100;
+        if (!secs) { if (!silent) showFloatingError('کرنومتر هنوز زمانی ثبت نکرده است.'); return; }
+        input.value = formatSeconds(secs);
+        input.dataset.dnf = 'false';
+        input.style.color = 'inherit';
+        if (!silent && window.showToast) showToast('زمان کرنومتر در کادر قرار گرفت؛ برای ثبت، «ثبت برای این تیم» را بزنید.', 'success');
+    }
+
     function adjustJudgeStageScore(teamId, delta) {
         const input = document.getElementById('judge_score_' + teamId);
         if (!input) return;
@@ -4002,8 +4558,8 @@
             input.dataset.dnf = 'false';
             input.style.color = 'inherit';
         }
-        let cur = parseFloat(input.value) || 0;
-        input.value = Math.max(0, cur + delta);
+        let cur = parseScoreInput(input.value) || 0;
+        input.value = Math.max(0, Math.round((cur + delta) * 100) / 100);
         input.style.borderColor = delta > 0 ? 'var(--success-color)' : 'var(--danger-color)';
         setTimeout(() => { input.style.borderColor = ''; }, 300);
     }
@@ -4017,20 +4573,20 @@
         if (!input) return;
         const rawVal = input.value.trim();
         const isDnf = rawVal === '-' || rawVal.toLowerCase() === 'dnf' || input.dataset.dnf === 'true';
-        const val = isDnf ? '-' : (parseFloat(rawVal) || 0);
+        const parsed = parseScoreInput(rawVal);
+        if (!isDnf && rawVal !== '' && isNaN(parsed)) {
+            showFloatingError('مقدار واردشده معتبر نیست. نمونه: ۸۳٫۵ یا ۱:۲۳٫۵');
+            return;
+        }
+        const val = isDnf ? '-' : (parsed || 0);
 
-        fetch(`api.php?action=judge_stage_score&id=${campId}`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                stageId: currentJudgingStageId,
-                singleScore: { teamId, score: val, dnf: isDnf }
-            })
-        })
-        .then(jsonOrThrow)
+        OfflineQueue.send(`api.php?action=judge_stage_score&id=${campId}`, {
+            stageId: currentJudgingStageId,
+            singleScore: { teamId, score: val, dnf: isDnf, breakdown: window.OPF ? OPF.breakdownFor(teamId) : null }
+        }, 'نمره مرحله')
         .then(res => {
             if (res.success) {
-                if (window.showToast) window.showToast(isDnf ? "ثبت عدم اتمام مرحله (-)" : "امتیاز با موفقیت ثبت شد", "success");
+                if (window.showToast) window.showToast(res.queued ? "اینترنت قطع است؛ نمره در صف ارسال قرار گرفت." : (isDnf ? "ثبت عدم اتمام مرحله (-)" : "امتیاز با موفقیت ثبت شد"), res.queued ? "error" : "success");
                 const badge = document.getElementById('stage_badge_' + teamId);
                 if (badge) {
                     if (isDnf) {
@@ -4059,12 +4615,15 @@
             return;
         }
         const scores = {};
+        const breakdown = {};
         currentTeams.forEach(t => {
             const inp = document.getElementById('judge_score_' + t.id);
             if (inp) {
                 const rawVal = inp.value.trim();
                 const isDnf = rawVal === '-' || rawVal.toLowerCase() === 'dnf' || inp.dataset.dnf === 'true';
-                scores[t.id] = isDnf ? '-' : (parseFloat(rawVal) || 0);
+                scores[t.id] = isDnf ? '-' : (parseScoreInput(rawVal) || 0);
+                const bd = window.OPF ? OPF.breakdownFor(t.id) : null;
+                if (bd && !isDnf) breakdown[t.id] = bd;
             }
         });
 
@@ -4074,23 +4633,19 @@
             btn.innerHTML = 'در حال ثبت...';
         }
 
-        fetch(`api.php?action=judge_stage_score&id=${campId}`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                stageId: currentJudgingStageId,
-                scores: scores
-            })
-        })
-        .then(jsonOrThrow)
+        OfflineQueue.send(`api.php?action=judge_stage_score&id=${campId}`, {
+            stageId: currentJudgingStageId,
+            scores: scores,
+            breakdown
+        }, 'نمرات مرحله')
         .then(res => {
             if (btn) {
                 btn.disabled = false;
                 btn.innerHTML = '<i data-lucide="check-check" style="width: 16px; height: 16px;"></i><span>ثبت نهایی امتیازات این مرحله</span>';
             }
             if (res.success) {
-                if (window.showToast) window.showToast("تمام امتیازات مرحله با موفقیت ثبت شدند", "success");
-                renderStagesJudgingView();
+                if (window.showToast) window.showToast(res.queued ? "اینترنت قطع است؛ نمرات در صف ارسال قرار گرفتند." : "تمام امتیازات مرحله با موفقیت ثبت شدند", res.queued ? "error" : "success");
+                if (!res.queued) renderStagesJudgingView();
             }
         })
         .catch(e => {
@@ -4246,7 +4801,7 @@
         }
 
         const sumColTitle = activeStage ? `مجموع سهم داوران (${stageCriteria.unitLabel})` : 'مجموع سهم همه داوران';
-        tableHtml += `<th style="background: rgba(37,99,235,0.25); color: #93c5fd; font-weight: 800;">${sumColTitle}</th>`;
+        tableHtml += `<th style="background: rgba(37,99,235,0.25); color: var(--tx-blue); font-weight: 800;">${sumColTitle}</th>`;
         tableHtml += `<th style="min-width: 100px;">امتیاز کل تیم</th>`;
         tableHtml += `</tr></thead><tbody>`;
 
@@ -4292,7 +4847,7 @@
                     }
                     if (has) teamJudgesSum += score;
                     const unitSuffix = (activeStage && has) ? ` <small style="opacity:0.7;">${stageCriteria.unitLabel}</small>` : '';
-                    tableHtml += `<td>${has ? `<span class="breakdown-judge-pill">${score}${unitSuffix}</span>` : '<span style="opacity:0.35;">—</span>'}</td>`;
+                    tableHtml += `<td>${has ? `<span class="breakdown-judge-pill">${fmtNum(score, currentNumLang)}${unitSuffix}</span>` : '<span style="opacity:0.35;">—</span>'}</td>`;
                 });
             }
 
@@ -4306,8 +4861,8 @@
             }
 
             const sumUnitSuffix = activeStage ? ` <small style="opacity:0.8;">${stageCriteria.unitLabel}</small>` : '';
-            tableHtml += `<td><span class="breakdown-sum-pill">${teamJudgesSum}${sumUnitSuffix}</span></td>`;
-            tableHtml += `<td><strong style="font-size: 16px; color: var(--text-color);">${team.score}</strong></td>`;
+            tableHtml += `<td><span class="breakdown-sum-pill">${fmtNum(teamJudgesSum, currentNumLang)}${sumUnitSuffix}</span></td>`;
+            tableHtml += `<td><strong style="font-size: 16px; color: var(--text-color);">${fmtNum(team.score, currentNumLang)}</strong></td>`;
             tableHtml += `</tr>`;
         });
 
@@ -4317,7 +4872,7 @@
     }
 
     function exportJudgesBreakdownToCsv() {
-        let csv = '\uFEFFشناسه,نام تیم,مرحله,داور,امتیاز داور,مجموع داوران این مرحله,امتیاز کل تیم\n';
+        let csv = '\uFEFF' + I18N.t('شناسه,نام تیم,مرحله,داور,امتیاز داور,مجموع داوران این مرحله,امتیاز کل تیم') + '\n';
         currentTeams.forEach(team => {
             (currentStages || []).forEach(stage => {
                 const jMap = (team.judgeStageScores && team.judgeStageScores[stage.id]) ? team.judgeStageScores[stage.id] : {};
@@ -4370,6 +4925,8 @@
         updateFjSelectedTeamBanner(team);
 
         const teamPhoto = team.image || team.photo || team.teamPhoto || '';
+        const bannerCard = document.querySelector('.fj-team-banner-card');
+        if (bannerCard) bannerCard.classList.toggle('no-photo', !teamPhoto);
         if (teamPhoto) {
             bannerImg.src = teamPhoto;
             bannerImg.style.display = 'block';
@@ -4390,9 +4947,14 @@
         fjCurrentValue = vals[0] || 5;
 
         const valWheel = document.getElementById('fjValueWheel');
-        if (valWheel) valWheel.scrollTo({ top: 0, behavior: 'auto' });
+        if (valWheel) {
+            valWheel.scrollTo({ top: 0, behavior: 'auto' });
+            // the starting value looks selected, not greyed out
+            valWheel.querySelectorAll('.wheel-item').forEach(i => i.classList.toggle('active', String(i.dataset.val) === String(fjCurrentValue)));
+        }
 
         selectFjSign('+');
+        if (window.OPF) OPF.onTeamSelected(team);
         if (typeof refreshIcons === 'function') refreshIcons();
     }
 
@@ -4684,26 +5246,26 @@
         const targetTeam = currentTeams.find(t => t.id === fjSelectedTeamId);
         const teamName = targetTeam ? targetTeam.name : 'نامشخص';
         
+        const clientLogId = newClientLogId();
         const payload = {
             teamId: fjSelectedTeamId,
             delta: delta,
-            tag: fjSelectedTag || ''
+            tag: fjSelectedTag || '',
+            clientLogId
         };
+        if (window.OPF) Object.assign(payload, OPF.takeScoreExtras());
         
-        fetch('api.php?action=instant&id=' + campId, {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify(payload)
-        }).then(jsonOrThrow).then(res => {
+        OfflineQueue.send('api.php?action=instant&id=' + campId, payload, `${fmtNum(delta, currentNumLang)} برای ${teamName}`).then(res => {
             if(res.success) {
                 if (targetTeam) {
                     targetTeam.score = (targetTeam.score || 0) + delta;
                     updateFjSelectedTeamBanner(targetTeam);
                 }
+                offerScoreUndo(clientLogId, targetTeam, delta, res.queued);
                 const btn = document.getElementById('fjSubmitBtn');
                 const oldHtml = btn.innerHTML;
                 const oldBg = btn.style.background;
-                btn.innerHTML = (typeof currentNumLang !== 'undefined' && currentNumLang === 'fa') ? '✔ ثبت شد' : '✔ Saved';
+                btn.innerHTML = res.queued ? '⏳ در صف ارسال' : '✔ ثبت شد';
                 btn.style.background = '#3b82f6';
                 setTimeout(() => {
                     btn.innerHTML = oldHtml;
@@ -4713,6 +5275,26 @@
                 }, 700);
             }
         }).catch(e => showFloatingError("امتیاز ثبت نشد: " + e.message));
+    }
+
+    // Undo for a just-recorded instant score (also works while it is still waiting offline).
+    function offerScoreUndo(logId, team, delta, queued) {
+        const name = team ? team.name : '';
+        const amount = `${delta > 0 ? '+' : ''}${fmtNum(delta, currentNumLang)}`;
+        const text = queued ? `${amount} برای ${name} (در صف ارسال، بدون اینترنت)` : `${amount} برای ${name} ثبت شد`;
+        undoToast(text, () => {
+            const revertLocal = () => {
+                if (team) { team.score = (team.score || 0) - delta; if (typeof updateFjSelectedTeamBanner === 'function' && fjSelectedTeamId === team.id) updateFjSelectedTeamBanner(team); }
+                window.showToast('امتیاز لغو شد.', 'success');
+                if (typeof renderPreviewBoard === 'function' && document.getElementById('operatorSection').style.display === 'block') renderPreviewBoard();
+            };
+            if (OfflineQueue.cancel(logId)) return revertLocal();
+            fetch(`api.php?action=undo_instant&id=${campId}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ logId })
+            }).then(jsonOrThrow).then(revertLocal).catch(e => window.showToast('لغو امتیاز انجام نشد: ' + e.message, 'error'));
+        }, 8);
     }
 
     // Quick Tag & Mode Config Modal Logic
