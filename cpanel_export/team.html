@@ -16,7 +16,7 @@
     <script>document.documentElement.setAttribute('data-theme', localStorage.getItem('theme') || 'light');</script>
 </head>
 <body class="pub-page">
-    <main id="root" class="pub-wrap"><div class="empty-state">…</div></main>
+    <main id="root" class="pub-wrap"><div class="empty-state">در حال بارگذاری…</div></main>
 
     <script>
         const qs = new URLSearchParams(location.search);
@@ -38,7 +38,8 @@
                     return r.json();
                 })
                 .then(d => { if (d) { state = d; render(); } })
-                .catch(err => { if (err.message === '404') root.innerHTML = `<div class="empty-state"><span class="empty-icon">🔍</span>${esc(L('مسابقه‌ای با این لینک پیدا نشد.'))}</div>`; });
+                .catch(err => { if (err.message === '404') root.innerHTML = `<div class="empty-state"><span class="empty-icon">🔍</span>${esc(L('مسابقه‌ای با این لینک پیدا نشد.'))}</div>`;
+                    else if (!state) root.innerHTML = `<div class="empty-state"><span class="empty-icon">📡</span>${esc(L('خطا در برقراری ارتباط با سرور'))}</div>`; });
         }
 
         // Do not redraw under the user's fingers while they type the code or fill in the vote.
@@ -78,7 +79,7 @@
                 html += `<section class="pub-card"><h2>${esc(L('اعضای تیم'))}</h2><div class="pub-members">${team.members.map(m => `
                     <div class="pub-member ${mvp && mvp.member.id === m.id && Feat.on(state, 'individual') ? 'mvp' : ''}">
                         <b>${esc(m.name)}</b>${m.role && Feat.on(state, 'roles') ? `<small>${esc(m.role)}</small>` : ''}
-                        ${Feat.on(state, 'individual') && pts[m.id] ? `<span>${N(pts[m.id])}</span>` : ''}
+                        ${Feat.on(state, 'individual') && pts[m.id] ? `<span class="pub-pts">${N(pts[m.id])} امتیاز</span>` : ''}
                         ${mvp && mvp.member.id === m.id && Feat.on(state, 'individual') ? '<span class="pub-star">⭐</span>' : ''}
                     </div>`).join('')}</div></section>`;
             }
@@ -98,8 +99,8 @@
                     const who = l.user ? ((l.user.firstName ? `${l.user.firstName} ${l.user.lastName || ''}` : l.user.username) || '') : '';
                     const member = l.memberId ? ((team.members || []).find(m => m.id === l.memberId) || {}).name : '';
                     return `<div class="pub-log ${l.type === 'cancelled' ? 'cancelled' : (v >= 0 ? 'pos' : 'neg')}">
-                        <b dir="ltr">${v > 0 ? '+' : ''}${N(v)}</b><span>${esc(l.tag || '')}${member ? ' · ' + esc(member) : ''}${l.note ? ' · ' + esc(l.note) : ''}</span>
-                        <small>${esc(who)} · ${esc(new Date(l.createdAt || l.timestamp).toLocaleTimeString(I18N.locale, { hour: '2-digit', minute: '2-digit' }))}</small>
+                        <b dir="ltr">${v > 0 ? '+' : ''}${N(v)}</b><span>${[l.tag, member, l.note].filter(Boolean).map(esc).join('، ')}</span>
+                        <small class="pub-sub">${who ? `<span>${esc(who)}</span>` : ''}<span>${esc(new Date(l.createdAt || l.timestamp).toLocaleTimeString(I18N.locale, { hour: '2-digit', minute: '2-digit' }))}</span></small>
                         ${l.photo ? `<img src="${esc(safeUrl(l.photo))}" alt="" loading="lazy">` : ''}</div>`;
                 }).join('')}</div></section>`;
             }
@@ -107,7 +108,7 @@
             if (needsPin) html += `<section class="pub-card" id="pinCard">${pinView ? privateHtml() : `<h2>🔐 ${esc(L('کد تیم'))}</h2>
                 <p class="pub-muted">برای انتخاب تاکتیک، دیدن کارت‌های محرمانه و رأی به هم‌تیمی‌ها، کد شش‌رقمی تیم را از داور یا اپراتور بگیرید.</p>
                 <div class="pub-row"><input id="pinInput" inputmode="numeric" maxlength="6" dir="ltr" placeholder="••••••" value="${esc(pin)}"><button type="button" onclick="unlock()">${esc(L('ورود'))}</button></div>`}</section>`;
-            html += `<p class="pub-foot"><a href="board.html?id=${encodeURIComponent(campId)}">جدول زنده</a> · <a href="live.html?id=${encodeURIComponent(campId)}">همه تیم‌ها</a></p>`;
+            html += `<p class="pub-foot"><a href="board.html?id=${encodeURIComponent(campId)}">جدول زنده</a><a href="live.html?id=${encodeURIComponent(campId)}">همه تیم‌ها</a></p>`;
             root.innerHTML = html;
         }
 

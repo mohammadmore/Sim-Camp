@@ -56,12 +56,13 @@
     function renderDefaults() {
         const el = document.getElementById('safDefaults');
         if (!el || !settings) return;
-        el.innerHTML = `<h4 style="margin: 0 0 8px 0;">پیش‌فرض نمایش برای مسابقه‌های جدید</h4>
-            <div class="manage-row" style="margin-bottom:8px"><button type="button" data-preset="full">همه روشن (جشنواره‌ای)</button><button type="button" data-preset="formal">رسمی (بدون کاغذرنگی، صدا و عکس شاد/ناراحت)</button></div>
+        el.innerHTML = `<h4><i data-lucide="sliders-horizontal"></i> پیش‌فرض نمایش برای مسابقه‌های جدید</h4>
+            <div class="manage-row"><button type="button" data-preset="full">همه روشن (جشنواره‌ای)</button><button type="button" data-preset="formal">رسمی (بدون کاغذرنگی، صدا و عکس شاد/ناراحت)</button></div>
             <div id="safDefaultSwitches"></div>
             <label class="adv-label">مهارت‌های پیش‌فرض (هر کدام در یک خط)</label>
             <textarea id="safDefaultSkills" rows="4" class="settings-input">${esc(settings.defaultSkills.map(s => s.name).join('\n'))}</textarea>
-            <button type="button" id="safSaveDefaults" style="padding: 10px; margin-top: 6px;">ذخیره پیش‌فرض‌ها</button>`;
+            <button type="button" id="safSaveDefaults" class="sa-save btn-primary">ذخیره پیش‌فرض‌ها</button>`;
+        if (typeof refreshIcons === 'function') refreshIcons();
         const sw = el.querySelector('#safDefaultSwitches');
         Feat.renderSwitches(sw, settings.displayDefaults, {}, { hideFeatures: true });
         el.querySelectorAll('[data-preset]').forEach(b => b.onclick = () => {
@@ -82,18 +83,20 @@
         get('/superadmin/organizers').then(d => {
             organizers = d.organizers;
             Help.show('برگزارکننده‌ها', `<p class="manage-note">هر برگزارکننده با نام کاربری خودش وارد همین پنل می‌شود و فقط مسابقه‌های خودش را می‌بیند و مدیریت می‌کند.</p>
-                <div id="orgList">${organizers.map(o => `<div class="trash-row"><div class="trash-info"><b>${esc(o.name || o.username)}</b><span class="manage-note" dir="ltr">${esc(o.username)}</span>${o.disabled ? '<span class="manage-note">غیرفعال</span>' : ''}</div>
-                    <div class="manage-row"><button type="button" data-edit="${esc(o.id)}">ویرایش</button><button type="button" class="camp-delete-btn" data-del="${esc(o.id)}">حذف</button></div></div>`).join('') || '<p class="manage-note">هنوز برگزارکننده‌ای تعریف نشده است.</p>'}</div>
-                <h3>افزودن / ویرایش</h3><input type="hidden" id="orgId">
+                <div id="orgList">${organizers.map(o => `<div class="trash-row"><div class="trash-info"><b>${esc(o.name || o.username)}</b><span class="trash-meta"><bdi dir="ltr">${esc(o.username)}</bdi>${o.disabled ? '<span>غیرفعال</span>' : ''}</span></div>
+                    <div class="manage-row"><button type="button" data-edit="${esc(o.id)}"><i data-lucide="edit-2"></i> ویرایش</button><button type="button" class="camp-delete-btn btn-danger" data-del="${esc(o.id)}"><i data-lucide="trash-2"></i> حذف</button></div></div>`).join('') || '<p class="manage-note">هنوز برگزارکننده‌ای تعریف نشده است.</p>'}</div>
+                <div class="sa-form"><h3>افزودن / ویرایش</h3><input type="hidden" id="orgId">
                 <input type="text" id="orgName2" class="settings-input" placeholder="نام نمایشی (مثلاً مؤسسه پیشگامان)">
                 <input type="text" id="orgUser" class="settings-input" placeholder="نام کاربری (انگلیسی)" dir="ltr">
                 <input type="password" id="orgPass" class="settings-input" placeholder="رمز عبور (برای ویرایش، خالی = بدون تغییر)" autocomplete="new-password">
                 <label class="adv-inline"><input type="checkbox" id="orgDisabled"> غیرفعال</label>
-                <div class="manage-row" style="margin-top:8px"><button type="button" id="orgSave" class="manage-primary">ذخیره برگزارکننده</button></div>`);
+                <div class="sa-actions"><button type="button" id="orgSave" class="btn-primary">ذخیره برگزارکننده</button></div></div>`, { ok: false });
+            if (typeof refreshIcons === 'function') refreshIcons();
             const m = document.getElementById('helpModal');
             m.querySelectorAll('[data-edit]').forEach(b => b.onclick = () => {
                 const o = organizers.find(x => x.id === b.dataset.edit);
                 m.querySelector('#orgId').value = o.id; m.querySelector('#orgName2').value = o.name; m.querySelector('#orgUser').value = o.username; m.querySelector('#orgDisabled').checked = o.disabled;
+                m.querySelector('.sa-form').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
             });
             m.querySelectorAll('[data-del]').forEach(b => b.onclick = () => confirm('این برگزارکننده حذف شود؟ مسابقه‌هایش برای سوپرادمین باقی می‌مانند.') && post('/superadmin/organizers', { op: 'delete', id: b.dataset.del }).then(S.openOrganizers).catch(fail));
             m.querySelector('#orgSave').onclick = () => post('/superadmin/organizers', {
@@ -116,15 +119,17 @@
         Promise.all([get('/superadmin/leagues'), get('/superadmin/camps')]).then(([l, c]) => {
             const leagues = l.leagues;
             const camps = c.camps;
+            // Each league: name, the camps it adds up (ticked = included), how it scores.
             const row = lg => `<div class="adv-item lg-item" data-id="${esc(lg.id || '')}">
-                <div class="adv-row"><input type="text" class="lg-name" value="${esc(lg.name || '')}" placeholder="نام لیگ (مثلاً لیگ تابستان ۱۴۰۵)"><button type="button" class="adv-del">✕</button></div>
+                <div class="adv-row"><input type="text" class="lg-name" value="${esc(lg.name || '')}" placeholder="نام لیگ (مثلاً لیگ تابستان ۱۴۰۵)" aria-label="نام لیگ"><button type="button" class="adv-del" title="حذف لیگ">✕</button></div>
+                <span class="lg-camps-label">مسابقه‌های این لیگ (تیک‌خورده‌ها حساب می‌شوند):</span>
                 <div class="adv-chips">${camps.map(x => `<label class="adv-chip"><input type="checkbox" class="lg-camp" value="${esc(x.id)}" ${(lg.campIds || []).includes(x.id) ? 'checked' : ''}>${esc(x.title || x.id)}</label>`).join('')}</div>
-                <div class="adv-row"><select class="lg-mode"><option value="rank" ${lg.mode !== 'score' ? 'selected' : ''}>امتیاز بر اساس رتبه</option><option value="score" ${lg.mode === 'score' ? 'selected' : ''}>جمع امتیازها</option></select>
-                <input type="text" class="lg-points" value="${esc((lg.rankPoints || [10, 8, 6, 5, 4, 3, 2, 1]).join(', '))}" placeholder="امتیاز رتبه‌ها: 10, 8, 6, ..." dir="ltr"></div>
+                <div class="lg-fields"><label class="lg-field">روش امتیاز لیگ<select class="lg-mode"><option value="rank" ${lg.mode !== 'score' ? 'selected' : ''}>امتیاز بر اساس رتبه</option><option value="score" ${lg.mode === 'score' ? 'selected' : ''}>جمع امتیازها</option></select></label>
+                <label class="lg-field">امتیاز رتبه‌ها (اول، دوم، …)<input type="text" class="lg-points" value="${esc((lg.rankPoints || [10, 8, 6, 5, 4, 3, 2, 1]).join(', '))}" placeholder="امتیاز رتبه‌ها: 10, 8, 6, ..." dir="ltr"></label></div>
                 ${lg.id ? `<div class="manage-row"><button type="button" onclick="copyText(${jsArg(appUrl('league.html?id=' + lg.id))})">کپی لینک جدول لیگ</button><a class="manage-link-btn" href="league.html?id=${encodeURIComponent(lg.id)}" target="_blank" rel="noopener">نمایش</a></div>` : ''}</div>`;
             Help.show('لیگ‌ها (جدول چند مسابقه)', `<p class="manage-note">تیم‌های هم‌نام در مسابقه‌های مختلف یک تیم حساب می‌شوند. جدول لیگ یک صفحه عمومی دارد.</p>
                 <div id="lgList">${leagues.map(row).join('')}</div><button type="button" class="adv-add" id="lgAdd">+ لیگ جدید</button>
-                <div class="manage-row" style="margin-top:10px"><button type="button" class="manage-primary" id="lgSave">ذخیره لیگ‌ها</button></div>`);
+                <div class="sa-actions"><button type="button" class="btn-primary" id="lgSave">ذخیره لیگ‌ها</button></div>`, { ok: false });
             const m = document.getElementById('helpModal');
             m.querySelector('#lgAdd').onclick = () => m.querySelector('#lgList').insertAdjacentHTML('beforeend', row({}));
             m.querySelector('#lgList').addEventListener('click', e => { if (e.target.closest('.adv-del')) e.target.closest('.lg-item').remove(); });
@@ -139,11 +144,11 @@
     };
 
     // ---- Camp cards and links ---------------------------------------------------------------
-    S.cardExtras = function (camp) {
+    S.cardAnalysis = function (camp) {
         const t = encodeURIComponent(Auth.get());
-        return `<a href="analysis.html?id=${encodeURIComponent(camp.id)}#t=${t}" target="_blank" rel="noopener" class="icon-btn" title="اتاق آنالیز و کارنامه‌ها"><i data-lucide="bar-chart-3"></i> آنالیز</a>
-            <button onclick="SAF.saveAsTemplate(${jsArg(camp.id)}, ${jsArg(camp.title || '')})" title="ذخیره تنظیمات این مسابقه به‌عنوان قالب"><i data-lucide="layout-template"></i> قالب</button>`;
+        return `<a href="analysis.html?id=${encodeURIComponent(camp.id)}#t=${t}" target="_blank" rel="noopener" class="camp-link" title="اتاق آنالیز و کارنامه‌ها"><i data-lucide="bar-chart-3"></i> آنالیز</a>`;
     };
+    S.cardExtras = camp => `<button type="button" onclick="SAF.saveAsTemplate(${jsArg(camp.id)}, ${jsArg(camp.title || '')})" title="ذخیره تنظیمات این مسابقه به‌عنوان قالب"><i data-lucide="layout-template"></i> قالب</button>`;
     S.ownerLabel = camp => (isSuper() && camp.owner ? `<div style="font-size: 12px; opacity: 0.75; margin-top: 4px;">برگزارکننده: ${esc(camp.owner)}</div>` : '');
 
     S.saveAsTemplate = function (campId, title) {
@@ -155,12 +160,13 @@
     S.linksExtra = function (campId) {
         const reg = appUrl('register.html?id=' + campId);
         const live = appUrl('live.html?id=' + campId);
+        const widget = `<iframe src="${appUrl('widget.html?id=' + campId)}" width="420" height="360" style="border:0"></iframe>`;
         return `<div class="link-block"><div class="link-info"><b>جدول موبایلی برای تماشاچی‌ها</b><span class="manage-note">نسخه سبک تابلو برای گوشی.</span>
-                <input type="text" readonly value="${esc(live)}" dir="ltr" onclick="this.select()"><div class="manage-row"><button type="button" onclick="copyText(${jsArg(live)})">کپی لینک</button></div></div><div class="link-qr">${qrSvg(live, 3)}</div></div>
+                <input type="text" readonly value="${esc(live)}" dir="ltr" onclick="this.select()"><div class="manage-row"><button type="button" onclick="copyText(${jsArg(live)})">کپی لینک</button><a class="manage-link-btn" href="${esc(live)}" target="_blank" rel="noopener">باز کردن</a></div></div><div class="link-qr">${qrSvg(live, 4)}</div></div>
             <div class="link-block"><div class="link-info"><b>ویجت برای سایت</b><span class="manage-note">این کد را در سایت خود قرار دهید.</span>
-                <input type="text" readonly value="${esc(`<iframe src="${appUrl('widget.html?id=' + campId)}" width="420" height="360" style="border:0"></iframe>`)}" dir="ltr" onclick="this.select()"></div></div>
+                <input type="text" readonly value="${esc(widget)}" dir="ltr" onclick="this.select()"><div class="manage-row"><button type="button" onclick="copyText(${jsArg(widget)})">کپی</button></div></div></div>
             <div class="link-block"><div class="link-info"><b>فرم ثبت‌نام تیم‌ها</b><span class="manage-note">فقط وقتی «ثبت‌نام آنلاین» روشن و فرم باز باشد کار می‌کند.</span>
-                <input type="text" readonly value="${esc(reg)}" dir="ltr" onclick="this.select()"></div></div>
+                <input type="text" readonly value="${esc(reg)}" dir="ltr" onclick="this.select()"><div class="manage-row"><button type="button" onclick="copyText(${jsArg(reg)})">کپی لینک</button><a class="manage-link-btn" href="${esc(reg)}" target="_blank" rel="noopener">باز کردن</a></div></div></div>
             <div class="link-block"><div class="link-info"><b>لینک گزارش برای سازمان مشتری</b><span class="manage-note">اتاق آنالیز و کارنامه‌ها، فقط خواندنی و بدون ورود. هر وقت بخواهید باطل می‌شود.</span>
                 <div class="manage-row"><button type="button" onclick="SAF.clientKey(${jsArg(campId)}, 'create')">ساخت لینک تازه</button><button type="button" onclick="SAF.clientKey(${jsArg(campId)}, 'revoke')">باطل کردن لینک</button></div>
                 <div id="clientKeyOut" class="manage-note"></div></div></div>`;
@@ -171,7 +177,7 @@
             const out = document.getElementById('clientKeyOut');
             if (op === 'revoke') { out.textContent = 'لینک گزارش باطل شد.'; return; }
             const url = appUrl(`analysis.html?id=${encodeURIComponent(campId)}&key=${encodeURIComponent(r.key)}`);
-            out.innerHTML = `<input type="text" readonly value="${esc(url)}" dir="ltr" onclick="this.select()"> <button type="button" onclick="copyText(${jsArg(url)})">کپی</button>`;
+            out.innerHTML = `<input type="text" readonly value="${esc(url)}" dir="ltr" onclick="this.select()"><div class="manage-row"><button type="button" onclick="copyText(${jsArg(url)})">کپی لینک</button></div>`;
         }).catch(fail);
     };
 
@@ -209,7 +215,7 @@
         box.innerHTML = `
             ${currentCamp ? '' : `<div class="saf-template-row"><label for="safTemplate">شروع از قالب (اختیاری):</label>
                 <div class="manage-row"><select id="safTemplate" class="settings-input" style="margin:0"><option value="">— بدون قالب —</option>${tplOpts}</select>
-                <button type="button" id="safApplyTpl">اعمال</button><button type="button" id="safDelTpl" title="حذف قالب ذخیره‌شده">🗑</button></div></div>`}
+                <button type="button" id="safApplyTpl">اعمال</button><button type="button" id="safDelTpl" class="btn-danger" title="حذف قالب ذخیره‌شده">🗑</button></div></div>`}
             ${isSuper() && organizers.length ? `<label>برگزارکننده (مالک مسابقه):</label><select id="safOwner" class="settings-input"><option value="">— سوپرادمین —</option>${organizers.map(o => `<option value="${esc(o.id)}" ${c.ownerId === o.id ? 'selected' : ''}>${esc(o.name || o.username)}</option>`).join('')}</select>` : ''}
             <details class="adv-sec saf-adv" id="safAdvDetails"><summary><span>امکانات پیشرفته، نمایش و برند</span><span class="adv-state off">اختیاری</span></summary>
                 <div class="adv-body"><p class="manage-note">برای مسابقه‌های ساده لازم نیست چیزی را تغییر دهید. اپراتور هم همین تنظیمات را در «مدیریت مسابقه ← تنظیمات پیشرفته» دارد.</p><div id="safAdvEditor"></div></div></details>

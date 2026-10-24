@@ -20,20 +20,25 @@
         .r { font-weight: 900; min-width: 1.5em; text-align: center; }
         .n { flex: 1; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
         .s { font-weight: 900; font-variant-numeric: tabular-nums; }
-        a.more { display: block; text-align: center; font-size: 12px; color: inherit; opacity: 0.75; margin-top: 4px; }
+        .msg { margin: 0; padding: 14px 10px; text-align: center; font-size: 13px; opacity: 0.8; }
+        a.more { display: block; text-align: center; font-size: 13px; padding: 8px 0; color: inherit; opacity: 0.75; margin-top: 4px; }
     </style>
 </head>
 <body>
-    <div class="w" id="root"></div>
+    <div class="w" id="root"><p class="msg">در حال بارگذاری…</p></div>
     <script>
         const q = new URLSearchParams(location.search);
         const campId = q.get('id'), max = Math.max(1, Math.min(50, parseInt(q.get('n'), 10) || 10));
         if (q.get('theme') === 'dark') document.body.classList.add('dark');
-        let etag = null;
+        let etag = null, shown = false;
+        const root = document.getElementById('root');
+        // Until the first standings arrive, say why the box is empty (loading, wrong link, no connection).
+        const note = text => { if (!shown) root.innerHTML = `<p class="msg">${esc(text)}</p>`; };
         function load() {
             fetch(`api.php?action=poll&id=${encodeURIComponent(campId)}`).then(r => {
+                if (!r.ok) { note(r.status === 404 ? 'مسابقه‌ای با این لینک پیدا نشد.' : 'خطا در برقراری ارتباط با سرور'); return null; }
                 const e = r.headers.get('ETag');
-                if (!r.ok || (e && e === etag)) return null;
+                if (e && e === etag) return null;
                 etag = e;
                 return r.json();
             }).then(s => {
@@ -44,12 +49,13 @@
                 const teams = showRanks ? [...s.teams].sort((a, b) => b.score - a.score) : [...s.teams];
                 const ranks = Feat.rankMap(s.teams);
                 const N = v => fmtNum(v, s.numLang);
-                document.getElementById('root').innerHTML = `<h1>${esc(s.title || '')}${s.frozen ? ' <small>🙈</small>' : ''}<small>● زنده</small></h1>` +
+                shown = true;
+                root.innerHTML = `<h1>${esc(s.title || '')}${s.frozen ? ' <small>🙈</small>' : ''}<small>● زنده</small></h1>` +
                     teams.slice(0, max).map(t => `<div class="row" style="--team:${safeColor(t.color, '#3b82f6')}">${showRanks ? `<span class="r">${N(ranks[t.id])}</span>` : ''}<span class="n">${esc(t.name)}</span><span class="s">${N(t.score)}</span></div>`).join('') +
                     `<a class="more" href="${esc(appUrl('board.html?id=' + encodeURIComponent(campId)))}" target="_blank" rel="noopener">جدول کامل</a>`;
-            }).catch(() => {});
+            }).catch(() => note('خطا در برقراری ارتباط با سرور'));
         }
-        if (campId) { load(); setInterval(load, 5000); }
+        if (campId) { load(); setInterval(load, 5000); } else note('لینک نامعتبر است.');
     </script>
 </body>
 </html>

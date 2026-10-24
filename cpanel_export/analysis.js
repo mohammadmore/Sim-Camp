@@ -245,7 +245,7 @@
             if (d.scoreBefore !== undefined) extra.push(`امتیاز ${N(num(d.scoreBefore))} ← ${N(num(d.scoreAfter))}`);
             if (d.of) extra.push('«' + (AUDIT[d.of] || d.of) + '»');
             const team = d.team ? D.teams.find(t => t.name === d.team) : null;
-            ev.push({ type: 'admin', at: e.ts, teamId: team ? team.id : null, text: text + (extra.length ? ' — ' + extra.join(' · ') : ''), by: (e.by && e.by.name) || '' });
+            ev.push({ type: 'admin', at: e.ts, teamId: team ? team.id : null, text: text + (extra.length ? ' — ' + extra.join('، ') : ''), by: (e.by && e.by.name) || '' });
         });
         return ev.filter(e => e.at).sort((a, b) => a.at - b.at);
     }
@@ -414,7 +414,7 @@
             </div>
             <ol class="tl" id="tlList"></ol><div class="tl-more" id="tlMore"></div>`;
         const km = keyMoments(EVENTS);
-        const kmHtml = km.length ? `<ul class="km">${km.map(k => `<li><span class="km-ico">${k.icon}</span><div><div>${esc(k.text)}</div><small>${esc(fmtTime(k.at))}${k.sub ? ' · ' + esc(k.sub) : ''}</small></div></li>`).join('')}</ul>` : empty('هنوز لحظه کلیدی ثبت نشده است.');
+        const kmHtml = km.length ? `<ul class="km">${km.map(k => `<li><span class="km-ico">${k.icon}</span><div><div>${esc(k.text)}</div><small>${esc(fmtTime(k.at))}${k.sub ? '، ' + esc(k.sub) : ''}</small></div></li>`).join('')}</ul>` : empty('هنوز لحظه کلیدی ثبت نشده است.');
         const qs = debriefQuestions();
         $('#pane-review').innerHTML = `
             <div class="an-grid-2">
@@ -461,7 +461,7 @@
         return `<li class="tl-item tl-${e.type}" style="--tc:${esc(safeColor(t && t.color, e.type === 'close' ? '#f59e0b' : '#94a3b8'))}">
             <span class="tl-time" title="${esc(fullTime(e.at))}">${esc(fmtTime(e.at))}</span>
             <span class="tl-ico" title="${esc(label)}">${icon}</span>
-            <div><div class="tl-head">${head}</div>${e.text ? `<div class="tl-text">${esc(e.text)}</div>` : ''}${meta.length ? `<div class="tl-meta">${esc(meta.join(' · '))}</div>` : ''}</div>
+            <div><div class="tl-head">${head}</div>${e.text ? `<div class="tl-text">${esc(e.text)}</div>` : ''}${meta.length ? `<div class="tl-meta">${esc(meta.join('، '))}</div>` : ''}</div>
             ${photo}</li>`;
     }
 
@@ -491,7 +491,7 @@
 
     // ---- Tab 2: report cards -------------------------------------------------------------------------------
     function skillBlock(labels, values, color) {
-        if (labels.length >= 3) return `<div class="fc-radar">${Feat.radarChart(labels, values, color, { size: 250 })}</div>`;
+        if (labels.length >= 3) return `<div class="fc-radar">${Feat.radarChart(labels, values, color, { size: 250, font: 15 })}</div>`;
         if (!labels.length) return '';
         return `<div class="fc-skillbars">${labels.map((l, i) => `<div><span>${esc(l)}</span><i style="width:${Math.max(4, Math.min(100, values[i]))}%"></i><b>${N(Math.round(values[i]))}</b></div>`).join('')}</div>`;
     }
@@ -510,9 +510,9 @@
         const cap = Feat.captain(t);
         const div = on('divisions') && t.division ? ((camp.divisions || []).find(d => d.id === t.division) || {}).name : '';
         const badges = (D.badges[t.id] || []).map(b => `<span class="chip">${b.icon} ${esc(b.label)}</span>`).join('');
-        const notes = s.notes.slice(-3).map(l => `<li>💬 ${esc(l.note)} <small>(${esc(l.tag || '')}${l.tag ? ' · ' : ''}${esc(sN(num(l.value)))})</small></li>`);
+        const notes = s.notes.slice(-3).map(l => `<li>💬 ${esc(l.note)} <small>(${esc(l.tag || '')}${l.tag ? '، ' : ''}${esc(sN(num(l.value)))})</small></li>`);
         (camp.moments || []).filter(m => m.kind === 'moment' && m.teamId === t.id).slice(-2).forEach(m => notes.push(`<li>⭐ ${esc(m.text)}</li>`));
-        const sub = [div ? (/^گروه/.test(div) ? div : `گروه ${div}`) : '', cap ? `کاپیتان: ${cap.name}` : '', (t.members || []).length ? `${N(t.members.length)} بازیکن` : ''].filter(Boolean).join(' · ');
+        const sub = [div ? (/^گروه/.test(div) ? div : `گروه ${div}`) : '', cap ? `کاپیتان: ${cap.name}` : '', (t.members || []).length ? `${N(t.members.length)} بازیکن` : ''].filter(Boolean).join('، ');
         const budgetTile = on('budget') && shown('budget') ? `<div><b>${N(num(t.budget))}</b><span>بودجه</span></div>` : `<div><b>${N(s.tags.size)}</b><span>برچسب متفاوت</span></div>`;
         return `<article class="fc ${rank === 1 ? 'gold' : ''}" style="--tc:${esc(safeColor(t.color, '#3b82f6'))}">
             <div class="fc-top">
@@ -556,7 +556,7 @@
             return `<article class="fc ${isMvp || crowd ? 'gold' : ''}" style="--tc:${esc(safeColor(t.color, '#3b82f6'))}">
                 <div class="fc-top">
                     <div class="fc-ovr"><b>${N(pts[m.id] || 0)}</b><small>امتیاز</small></div>
-                    <div class="fc-id"><h3 class="fc-name">${esc(m.name)}</h3><div class="fc-sub">${esc([t.name, m.role].filter(Boolean).join(' · '))}</div></div>
+                    <div class="fc-id"><h3 class="fc-name">${esc(m.name)}</h3><div class="fc-sub">${esc([t.name, m.role].filter(Boolean).join('، '))}</div></div>
                     <div class="fc-medal">${isMvp ? '🌟' : i < 3 && pts[m.id] > 0 ? MEDAL[i + 1] : ''}</div>
                 </div>
                 ${radar}
@@ -591,7 +591,8 @@
             const draw = () => {
                 cardsTeam = $('#pcTeam').value;
                 const list = teams.filter(t => (t.members || []).length && (!cardsTeam || t.id === cardsTeam));
-                $('#pcList').innerHTML = list.map(t => `<h3 class="team-group-title">${teamDot(t)}${esc(t.name)}</h3><div class="cards players">${playerCards(t)}</div>`).join('');
+                // Teams sit side by side (two per row on wide screens), so a team of two players does not leave half the row empty.
+                $('#pcList').innerHTML = `<div class="pc-teams ${list.length === 1 ? 'one' : ''}">${list.map(t => `<section class="pc-team"><h3 class="team-group-title">${teamDot(t)}${esc(t.name)}</h3><div class="cards players">${playerCards(t)}</div></section>`).join('')}</div>`;
             };
             $('#pcTeam').onchange = draw;
             draw();
@@ -755,7 +756,7 @@
         const biasHtml = b.length ? `<h3 class="team-group-title">گرایش هر داور نسبت به میانگین هم‌داورها</h3><div class="bars">${b.map(x => {
             const lbl = x.relAvg <= -0.05 ? 'سخت‌گیر' : x.relAvg >= 0.05 ? 'دست‌ودل‌باز' : 'هم‌راستا';
             const w = Math.min(100, Math.abs(x.relAvg) * 250);
-            return `<div class="bar-row"><span class="bar-label">${esc(x.name)}</span><span class="bar-track"><span class="bar-fill ${x.relAvg < 0 ? 'neg' : 'pos'}" style="width:${Math.max(3, w)}%;display:block"></span></span><b class="val" title="${esc(lbl)}">${esc(sN(r2(x.avg)))}</b></div><div class="an-hint" style="margin:-4px 0 4px;font-size:12px;color:var(--an-muted)">${esc(lbl)} · ${esc(N(x.diffs.length))} نمره مشترک</div>`;
+            return `<div class="bar-row"><span class="bar-label">${esc(x.name)}</span><span class="bar-track"><span class="bar-fill ${x.relAvg < 0 ? 'neg' : 'pos'}" style="width:${Math.max(3, w)}%;display:block"></span></span><b class="val" title="${esc(lbl)}">${esc(sN(r2(x.avg)))}</b></div><div class="an-hint" style="margin:-4px 0 4px;font-size:12px;color:var(--an-muted)">${esc(lbl)}، ${esc(N(x.diffs.length))} نمره مشترک</div>`;
         }).join('')}</div>` : '';
         return out.join('') + biasHtml;
     }
@@ -802,7 +803,7 @@
                 const who = Object.entries(asg).filter(([, a]) => covers(a, t.id, s.id)).map(([u]) => u);
                 const done = who.filter(u => rec.includes(u)).length;
                 const extra = rec.length - done; // free referees / head referee without an assignment
-                const cls = !who.length ? (rec.length ? 'ok' : 'flag') : done >= who.length ? 'ok' : done || extra ? 'mid' : '';
+                const cls = !who.length ? (rec.length ? 'ok' : 'flag') : done >= who.length ? 'ok' : 'mid'; // colours as in the hint above
                 if (!who.length && !rec.length) gaps++;
                 const label = who.length ? `${N(done)}/${N(who.length)}${extra > 0 ? ` <small>+${N(extra)}</small>` : ''}` : rec.length ? `${N(rec.length)} داور <small>(آزاد)</small>` : 'بدون داور';
                 return `<td class="${cls}" title="${esc('سپرده به: ' + (who.map(u => refName({ username: u })).join('، ') || 'هیچ‌کس') + ' — ثبت: ' + (recNames.join('، ') || 'هیچ'))}">${label}</td>`;
@@ -879,7 +880,7 @@
     }
 
     function printHeader(title) {
-        return `<div class="print-head"><h1>${esc(title)}</h1><div>${esc([camp.title, camp.orgName].filter(Boolean).join(' — '))} · ${esc(new Date().toLocaleDateString(locale()))}</div></div>`;
+        return `<div class="print-head"><h1>${esc(title)}</h1><div>${esc([camp.title, camp.orgName].filter(Boolean).join(' — '))}، ${esc(new Date().toLocaleDateString(locale()))}</div></div>`;
     }
     function printHtml(html) {
         const area = $('#printArea');
@@ -1023,10 +1024,14 @@
         try { localStorage.setItem('analysis_tab', name); } catch (e) { /* ignore */ }
     }
 
-    function fail(text) {
+    // Error screen: the message plus what the person can do next (sign in, or try again).
+    function fail(text, action) {
         const s = $('#anStatus');
         s.style.display = '';
-        s.innerHTML = esc(text).replace(/\n/g, '<br>');
+        const btn = action === 'login' && campId
+            ? `<a class="an-btn primary" href="operator.html?id=${encodeURIComponent(campId)}">ورود به پنل اپراتور</a>`
+            : action === 'retry' ? '<button type="button" class="an-btn primary" onclick="location.reload()">تلاش دوباره</button>' : '';
+        s.innerHTML = `<div>${esc(text).replace(/\n/g, '<br>')}</div>${btn ? `<div class="an-msg-actions">${btn}</div>` : ''}`;
         $('#anSub').textContent = 'دسترسی به آنالیز';
     }
 
@@ -1056,9 +1061,9 @@
             try { first = localStorage.getItem('analysis_tab') || 'review'; } catch (e) { /* ignore */ }
             showTab(first);
         }).catch(err => {
-            if (err.status === 401 || err.status === 403) fail('برای دیدن آنالیز از پنل اپراتور یا سوپرادمین وارد شوید یا لینک گزارش معتبر داشته باشید.');
+            if (err.status === 401 || err.status === 403) fail('برای دیدن آنالیز از پنل اپراتور یا سوپرادمین وارد شوید یا لینک گزارش معتبر داشته باشید.', 'login');
             else if (err.status === 404) fail('مسابقه‌ای با این شناسه پیدا نشد.');
-            else fail('دریافت اطلاعات ممکن نشد: ' + (err.message || 'خطای ناشناخته') + '\nاتصال را بررسی کنید و صفحه را دوباره باز کنید.');
+            else fail('دریافت اطلاعات ممکن نشد: ' + (err.message || 'خطای ناشناخته') + '\nاتصال را بررسی کنید و صفحه را دوباره باز کنید.', 'retry');
         });
     }
 

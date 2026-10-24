@@ -178,42 +178,127 @@
     };
 
     // ---- SVG charts ------------------------------------------------------------------------------
-    F.lineChart = function (series, opts) {
-        opts = opts || {};
-        const W = opts.width || 800, H = opts.height || 320, P = 36;
-        const all = series.flatMap(s => s.points);
-        if (!all.length) return `<div class="chart-empty">${esc(opts.empty || 'هنوز داده‌ای برای نمودار نیست.')}</div>`;
-        const xs = all.map(p => p[0]), ys = all.map(p => p[1]).concat([0]);
-        const x0 = Math.min(...xs), x1 = Math.max(...xs) || x0 + 1, y0 = Math.min(...ys), y1 = Math.max(...ys) || 1;
-        const sx = x => P + ((x - x0) / Math.max(1, x1 - x0)) * (W - 2 * P);
-        const sy = y => H - P - ((y - y0) / Math.max(1e-9, y1 - y0)) * (H - 2 * P);
-        const grid = [0, 0.25, 0.5, 0.75, 1].map(f => {
-            const y = y0 + f * (y1 - y0);
-            return `<line x1="${P}" x2="${W - P}" y1="${sy(y)}" y2="${sy(y)}" class="chart-grid"/><text x="${P - 6}" y="${sy(y) + 4}" class="chart-axis" text-anchor="end">${fmtNum(Math.round(y), opts.lang)}</text>`;
-        }).join('');
-        const lines = series.filter(s => s.points.length).map(s => {
-            const pts = [[x0, 0], ...s.points];
-            const d = pts.map((p, i) => (i ? 'L' : 'M') + sx(p[0]).toFixed(1) + ' ' + sy(p[1]).toFixed(1)).join(' ');
-            const last = pts[pts.length - 1];
-            return `<path d="${d}" fill="none" stroke="${safeColor(s.color, '#3b82f6')}" stroke-width="3" stroke-linejoin="round" stroke-linecap="round"/>` +
-                (opts.labels === false ? '' : `<text x="${Math.min(W - 4, sx(last[0]) + 4)}" y="${sy(last[1]) - 6}" class="chart-label" fill="${safeColor(s.color, '#3b82f6')}">${esc(s.name)}</text>`);
-        }).join('');
-        return `<svg viewBox="0 0 ${W} ${H}" class="line-chart" role="img" aria-label="${esc(opts.title || 'نمودار روند امتیاز')}">${grid}${lines}</svg>`;
+    // Chart width that matches the screen when the caller gives none (text then stays readable on phones).
+    F.chartWidth = () => Math.round(Math.max(340, Math.min(900, ((window.innerWidth || 900) - 48))));
+    // Round tick steps (1, 2, 5 × 10^k) for about `count` ticks between lo and hi.
+    const niceTicks = function (lo, hi, count) {
+        const span = Math.max(1e-9, hi - lo), raw = span / Math.max(1, count);
+        const mag = Math.pow(10, Math.floor(Math.log10(raw)));
+        const step = [1, 2, 5, 10].map(m => m * mag).find(s => s >= raw) || raw;
+        const out = [];
+        const top = Math.ceil(hi / step - 1e-9) * step;
+        for (let v = Math.floor(lo / step + 1e-9) * step; v <= top + step * 1e-6; v += step) out.push(Math.round(v * 1e6) / 1e6);
+        return out;
+    };
+    const pageDir = () => (document.documentElement.getAttribute('dir') === 'ltr' ? 'ltr' : 'rtl');
+    // Cuts a name to about `px` wide (Persian glyphs ≈ 0.56 em); the full name stays in the tooltip.
+    const fitText = (s, px, font) => {
+        const max = Math.max(3, Math.floor(px / (font * 0.56)));
+        s = String(s || '');
+        return s.length > max ? s.slice(0, max - 1).trim() + '…' : s;
+    };
+    const clockText = (ts, lang, withDay) => {
+        const d = new Date(ts);
+        const t = String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
+        return fmtNum(withDay ? (d.getMonth() + 1) + '/' + d.getDate() + ' ' + t : t, lang).replace('٫', '.');
     };
 
+    // Cumulative score over time: one stepped line per team, from its first event to the latest event
+    // of the camp (the score holds between events). Team names sit in a column beside the line ends.
+    F.lineChart = function (series, opts) {
+        opts = opts || {};
+        // A width wider than the screen would shrink every label; draw at screen width instead.
+        const fit = F.chartWidth(), shrink = opts.width && opts.width > fit && opts.width > (window.innerWidth || 1e9) - 48;
+        const W = shrink ? fit : (opts.width || fit);
+        const H = opts.height && !shrink ? opts.height : Math.round(Math.max(240, Math.min(420, W * (opts.height && opts.width ? opts.height / opts.width : 0.5))));
+        const font = opts.font || Math.round(Math.max(12, Math.min(16, W / 62)));
+        const lang = opts.lang;
+        const list = series.filter(s => s.points.length);
+        if (!list.length) return `<div class="chart-empty">${esc(opts.empty || 'هنوز داده‌ای برای نمودار نیست.')}</div>`;
+        const all = list.flatMap(s => s.points);
+        const xs = all.map(p => p[0]), ys = all.map(p => p[1]).concat([0]);
+        let x0 = Math.min(...xs), x1 = Math.max(...xs);
+        if (x1 - x0 < 60000) { x0 -= 30000; x1 += 30000; }
+        const ticksY = niceTicks(Math.min(...ys), Math.max(...ys, 1), 5);
+        const y0 = ticksY[0], y1 = ticksY[ticksY.length - 1];
+        const rtl = (opts.dir || pageDir()) === 'rtl';
+        const showLabels = opts.labels !== false;
+        // Plot area: numbers on the left, team names on the right, clock times below.
+        const yLabW = Math.max(...ticksY.map(v => fmtNum(v, lang).length)) * font * 0.62 + 12;
+        const gut = showLabels ? Math.round(Math.min(W * 0.3, font * 14)) : 12;
+        const L = Math.round(yLabW), R = W - gut, T = Math.round(font * 0.9), B = H - Math.round(font * 2.2);
+        const sx = x => L + ((x - x0) / Math.max(1, x1 - x0)) * (R - L);
+        const sy = y => B - ((y - y0) / Math.max(1e-9, y1 - y0)) * (B - T);
+        const f = n => n.toFixed(1);
+        const axisStyle = `style="font-size:${font - 1}px" fill="currentColor" fill-opacity="0.75"`;
+        let svg = ticksY.map(v => `<line x1="${L}" x2="${R}" y1="${f(sy(v))}" y2="${f(sy(v))}" class="chart-grid" stroke="currentColor" stroke-opacity="${v === 0 ? 0.35 : 0.12}"/>` +
+            `<text x="${L - 8}" y="${f(sy(v) + font * 0.35)}" text-anchor="end" direction="ltr" class="chart-axis" ${axisStyle}>${esc(fmtNum(v, lang))}</text>`).join('');
+        // Time axis: round clock steps, at most about one label per 90px.
+        const withDay = x1 - x0 > 20 * 3600000;
+        const want = Math.max(2, Math.floor((R - L) / (withDay ? 110 : 64)));
+        const stepMin = [1, 2, 5, 10, 15, 30, 60, 120, 180, 360, 720, 1440, 2880, 10080].find(m => (x1 - x0) / (m * 60000) <= want) || 10080;
+        const step = stepMin * 60000, tz = new Date(x0).getTimezoneOffset() * 60000;
+        for (let t = Math.ceil((x0 - tz) / step) * step + tz; t <= x1; t += step) {
+            svg += `<line x1="${f(sx(t))}" x2="${f(sx(t))}" y1="${B}" y2="${B + 5}" stroke="currentColor" stroke-opacity="0.35"/>` +
+                `<text x="${f(sx(t))}" y="${B + font + 6}" text-anchor="middle" direction="ltr" class="chart-axis" ${axisStyle}>${esc(clockText(t, lang, withDay))}</text>`;
+        }
+        // Lines: start at the team's first event (from zero), hold the score until the next event.
+        const ends = [];
+        svg += list.map(s => {
+            const c = safeColor(s.color, '#3b82f6');
+            let d = `M${f(sx(s.points[0][0]))} ${f(sy(0))}`;
+            s.points.forEach(p => { d += ` H${f(sx(p[0]))} V${f(sy(p[1]))}`; });
+            const last = s.points[s.points.length - 1];
+            d += ` H${f(sx(x1))}`;
+            ends.push({ s, c, y: sy(last[1]), v: last[1] });
+            return `<path d="${d}" fill="none" stroke="${c}" stroke-width="${Math.max(2.5, font / 5)}" stroke-linejoin="round" stroke-linecap="round"><title>${esc(s.name)}: ${esc(fmtNum(last[1], lang))}</title></path>` +
+                `<circle cx="${f(sx(x1))}" cy="${f(sy(last[1]))}" r="${Math.max(3.5, font / 3.5)}" fill="${c}"/>`;
+        }).join('');
+        // Names beside the line ends, pushed apart so they never overlap.
+        if (showLabels) {
+            const gap = font * 1.25;
+            ends.sort((a, b) => a.y - b.y);
+            ends.forEach((e, i) => { e.ly = Math.max(e.y, i ? ends[i - 1].ly + gap : T + font * 0.4); });
+            const over = ends.length ? ends[ends.length - 1].ly - (H - font * 0.5) : 0;
+            if (over > 0) {
+                ends[ends.length - 1].ly -= over;
+                for (let i = ends.length - 2; i >= 0; i--) ends[i].ly = Math.min(ends[i].ly, ends[i + 1].ly - gap);
+            }
+            const lx = R + 14, tx = rtl ? W - 2 : lx + 4;
+            svg += ends.map(e => {
+                const name = fitText(e.s.name, gut - 22, font);
+                const lead = Math.abs(e.ly - e.y) > 1 ? `<path d="M${f(R + 4)} ${f(e.y)} L${lx} ${f(e.ly)}" stroke="${e.c}" stroke-opacity="0.6" fill="none"/>` : '';
+                return `${lead}<text x="${tx}" y="${f(e.ly + font * 0.35)}" text-anchor="start" direction="${rtl ? 'rtl' : 'ltr'}" class="chart-label" style="font-size:${font}px" fill="${e.c}" ` +
+                    `stroke="#fff" stroke-opacity="0.75" stroke-width="3" paint-order="stroke" font-weight="800"><title>${esc(e.s.name)}</title>${esc(name)}</text>`;
+            }).join('');
+        }
+        return `<svg viewBox="0 0 ${W} ${H}" class="line-chart" role="img" aria-label="${esc(opts.title || 'نمودار روند امتیاز')}">${svg}</svg>`;
+    };
+
+    // Skill radar (0..100 per label). Long labels wrap on two lines; the drawing leaves room for them.
     F.radarChart = function (labels, values, color, opts) {
         opts = opts || {};
-        const S = opts.size || 260, C = S / 2, R = S / 2 - 46, n = labels.length;
+        const S = opts.size || 260, C = S / 2, R = S / 2 - 40, n = labels.length;
+        const font = opts.font || 13, padX = Math.round(font * 3.4);
         if (n < 3) return '';
         const pt = (i, r) => [C + r * Math.sin((2 * Math.PI * i) / n), C - r * Math.cos((2 * Math.PI * i) / n)];
-        const rings = [0.25, 0.5, 0.75, 1].map(f => `<polygon points="${labels.map((_, i) => pt(i, R * f).join(',')).join(' ')}" class="radar-ring"/>`).join('');
+        const rings = [0.25, 0.5, 0.75, 1].map(f => `<polygon points="${labels.map((_, i) => pt(i, R * f).join(',')).join(' ')}" class="radar-ring" fill="none" stroke="currentColor" stroke-opacity="0.18"/>`).join('');
+        const wrap = s => {
+            // Translate before wrapping: the dictionary knows the whole label, not its halves.
+            const words = String(F.t(s) || '').split(/\s+/).filter(Boolean), lines = [''];
+            words.forEach(w => { const cur = lines[lines.length - 1]; if (cur && (cur + ' ' + w).length > 12 && lines.length < 2) lines.push(w); else lines[lines.length - 1] = cur ? cur + ' ' + w : w; });
+            return lines.map(l => fitText(l, padX * 2 + 30, font));
+        };
         const axes = labels.map((l, i) => {
-            const [x, y] = pt(i, R), [lx, ly] = pt(i, R + 22);
-            return `<line x1="${C}" y1="${C}" x2="${x}" y2="${y}" class="radar-axis"/><text x="${lx}" y="${ly}" text-anchor="middle" dominant-baseline="middle" class="radar-label">${esc(l)}</text>`;
+            const [x, y] = pt(i, R), [lx, ly] = pt(i, R + font * 1.3);
+            const lines = wrap(l), y0 = ly - ((lines.length - 1) * font * 1.15) / 2;
+            return `<line x1="${C}" y1="${C}" x2="${x}" y2="${y}" class="radar-axis" stroke="currentColor" stroke-opacity="0.18"/>` +
+                `<text text-anchor="middle" class="radar-label" style="font-size:${font}px" fill="currentColor" font-weight="700"><title>${esc(l)}</title>${lines.map((t, k) =>
+                    `<tspan x="${lx.toFixed(1)}" y="${(y0 + k * font * 1.15 + font * 0.35).toFixed(1)}">${esc(t)}</tspan>`).join('')}</text>`;
         }).join('');
         const shape = values.map((v, i) => pt(i, (R * Math.max(0, Math.min(100, v))) / 100).join(',')).join(' ');
         const c = safeColor(color, '#3b82f6');
-        return `<svg viewBox="0 0 ${S} ${S}" class="radar-chart" role="img" aria-label="${esc(opts.title || 'نمودار مهارت‌ها')}">${rings}${axes}<polygon points="${shape}" fill="${c}" fill-opacity="0.3" stroke="${c}" stroke-width="2.5"/></svg>`;
+        return `<svg viewBox="${-padX} -6 ${S + 2 * padX} ${S + 12}" class="radar-chart" role="img" aria-label="${esc(opts.title || 'نمودار مهارت‌ها')}">${rings}${axes}<polygon points="${shape}" fill="${c}" fill-opacity="0.3" stroke="${c}" stroke-width="2.5"/></svg>`;
     };
 
     // ---- Ranking helpers ---------------------------------------------------------------------------

@@ -37,7 +37,8 @@
         }
         /* Phones: room for the theme / fullscreen buttons above the title */
         @media (max-width: 600px) {
-            body.board-page { padding-top: 58px; }
+            /* top: theme / fullscreen buttons; bottom: the connection dot stays clear of the footer */
+            body.board-page { padding-top: 58px; padding-bottom: calc(52px + env(safe-area-inset-bottom, 0px)); }
             #boardHeader { margin-top: 0 !important; min-height: 0; }
         }
 

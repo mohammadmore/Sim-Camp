@@ -284,7 +284,8 @@
         const pt = (i, r) => [C + r * Math.sin((2 * Math.PI * i) / n), C - r * Math.cos((2 * Math.PI * i) / n)];
         const rings = [0.25, 0.5, 0.75, 1].map(f => `<polygon points="${labels.map((_, i) => pt(i, R * f).join(',')).join(' ')}" class="radar-ring" fill="none" stroke="currentColor" stroke-opacity="0.18"/>`).join('');
         const wrap = s => {
-            const words = String(s || '').split(/\s+/).filter(Boolean), lines = [''];
+            // Translate before wrapping: the dictionary knows the whole label, not its halves.
+            const words = String(F.t(s) || '').split(/\s+/).filter(Boolean), lines = [''];
             words.forEach(w => { const cur = lines[lines.length - 1]; if (cur && (cur + ' ' + w).length > 12 && lines.length < 2) lines.push(w); else lines[lines.length - 1] = cur ? cur + ' ' + w : w; });
             return lines.map(l => fitText(l, padX * 2 + 30, font));
         };

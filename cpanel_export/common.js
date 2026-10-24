@@ -238,8 +238,13 @@ window.fmtNum = function (n, lang) {
             lastOpener.set(d, document.activeElement);
             setTimeout(() => {
                 if (!isShown(d) || d.contains(document.activeElement)) return;
-                const target = d.querySelector('input:not([type="hidden"]):not([readonly]), select, textarea') || d.querySelector(FOCUSABLE);
-                if (target && isShown(target)) target.focus({ preventScroll: true });
+                // Touch screens: focus the dialog itself, so the keyboard does not pop up on every dialog.
+                const touch = window.matchMedia && matchMedia('(pointer: coarse)').matches;
+                const box = d.querySelector('.modal-content') || d;
+                let target = touch ? null : (d.querySelector('input:not([type="hidden"]):not([readonly]), select, textarea')
+                    || [...d.querySelectorAll(FOCUSABLE)].find(x => !x.classList.contains('close-btn')));
+                if (!target || !isShown(target)) { if (!box.hasAttribute('tabindex')) box.setAttribute('tabindex', '-1'); target = box; }
+                target.focus({ preventScroll: true });
             }, 60);
         });
         wasOpen.forEach(d => {
@@ -443,11 +448,26 @@ window.newClientLogId = function () {
     return 'log_c' + r;
 };
 
+// Pages with the round theme button in the top corner keep their content below it on phones.
+document.addEventListener('DOMContentLoaded', () => {
+    if (document.querySelector('.theme-toggle:not(.board-theme-toggle)')) document.body.classList.add('corner-controls');
+});
+
+// Styled file picker: fills the file name next to a .file-pick label.
+document.addEventListener('change', e => {
+    const i = e.target;
+    if (!i || i.type !== 'file' || !i.closest('.file-pick')) return;
+    const n = i.closest('.file-pick').querySelector('.file-name');
+    if (n) n.textContent = i.files && i.files[0] ? i.files[0].name : '';
+});
+
 // ---------------------------------------------------------------------------
 // Help dialog, clipboard and QR code
 // ---------------------------------------------------------------------------
 window.Help = {
-    show(title, html) {
+    // opts.ok: label of the bottom button ('متوجه شدم' by default); false hides it (dialogs with their own buttons).
+    show(title, html, opts) {
+        opts = opts || {};
         let m = document.getElementById('helpModal');
         if (!m) {
             m = document.createElement('div');
@@ -455,7 +475,7 @@ window.Help = {
             m.className = 'modal-overlay';
             m.style.zIndex = '20000';
             m.innerHTML = `<div class="modal-content glass help-content">
-                <span class="close-btn" title="بستن" onclick="document.getElementById('helpModal').style.display='none'">&times;</span>
+                <button type="button" class="close-btn" title="بستن" onclick="document.getElementById('helpModal').style.display='none'">&times;</button>
                 <h2 class="help-title"></h2><div class="help-body"></div>
                 <button type="button" class="help-ok" onclick="document.getElementById('helpModal').style.display='none'">متوجه شدم</button></div>`;
             m.addEventListener('click', e => { if (e.target === m) m.style.display = 'none'; });
@@ -463,6 +483,9 @@ window.Help = {
         }
         m.querySelector('.help-title').textContent = title;
         m.querySelector('.help-body').innerHTML = html; // trusted, static help text
+        const ok = m.querySelector('.help-ok');
+        ok.style.display = opts.ok === false ? 'none' : '';
+        ok.textContent = typeof opts.ok === 'string' ? opts.ok : 'متوجه شدم';
         m.style.display = 'flex';
     },
     // Shows the help automatically the first time this browser opens the page.

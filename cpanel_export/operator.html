@@ -288,7 +288,7 @@
         align-items: center;
         padding: 12px 20px 16px 20px;
         background: rgba(255, 255, 255, 0.35);
-        backdrop-filter: blur(14px);
+        backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
         -webkit-backdrop-filter: blur(14px);
         border-top: 1px solid rgba(0, 0, 0, 0.08);
         flex-shrink: 0;
@@ -331,7 +331,9 @@
         display: flex;
         flex-direction: column;
         align-items: center;
-        justify-content: center;
+        /* auto margins on the first/last child centre the content, but unlike
+           justify-content: center they never push the top out of reach when it scrolls */
+        justify-content: flex-start;
         width: 100%;
         max-width: 1300px;
         margin: 0 auto;
@@ -451,7 +453,7 @@
         background: rgba(0, 0, 0, 0.65);
         padding: 4px 12px;
         border-radius: 20px;
-        backdrop-filter: blur(8px);
+        backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
         -webkit-backdrop-filter: blur(8px);
         display: inline-flex;
         align-items: center;
@@ -526,7 +528,7 @@
         padding: 5px;
         border-radius: 16px;
         border: 1px solid rgba(0, 0, 0, 0.08);
-        backdrop-filter: blur(8px);
+        backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
     }
     [data-theme="dark"] .fj-sign-toggle-bar {
         background: rgba(255, 255, 255, 0.06);
@@ -626,6 +628,7 @@
         #fjSubmitBtn {
             max-width: 520px !important;
         }
+    }
     /* Tiered Stage & DNF (-) Styles */
     .dnf-minus-btn {
         background: rgba(239, 68, 68, 0.15) !important;
@@ -673,6 +676,160 @@
         color: #ef4444;
         border: 1px solid rgba(239, 68, 68, 0.4);
     }
+    /* ======================================================================
+       Referee screen and operator panel: phone layout, contrast, safe scrolling
+       ====================================================================== */
+    /* Selected team: centred while it fits, scrolls from the top when it doesn't */
+    .fj-selected-view > :first-child { margin-top: auto; }
+    .fj-selected-view > :last-child { margin-bottom: auto; }
+    @media (min-width: 860px) and (min-height: 480px) {
+        .fj-selected-view { align-items: flex-start !important; overflow-y: auto !important; }
+        .fj-selected-view > * { margin-top: auto !important; margin-bottom: auto !important; }
+    }
+    /* Value wheel and the +/- choice side by side (where the second wheel used to be) */
+    .fj-scoring-area { display: grid; grid-template-columns: 1fr 1fr; column-gap: 16px; justify-items: center; }
+    .fj-scoring-area > * { grid-column: 1 / -1; }
+    .fj-scoring-area > .fj-presets-wrapper { grid-row: 1; }
+    .fj-scoring-area > .fj-wheels-wrapper { grid-row: 2; grid-column: 1; justify-self: end; width: auto; margin-bottom: 16px !important; }
+    .fj-scoring-area > .fj-sign-toggle-bar {
+        grid-row: 2; grid-column: 2; justify-self: start; flex-direction: column; align-items: stretch; align-self: stretch;
+        width: 130px; box-sizing: border-box; margin: 0 0 16px 0;
+    }
+    .fj-scoring-area > .fj-sign-toggle-bar .fj-sign-toggle-btn { flex-direction: column; gap: 4px; font-size: 16px; }
+    .fj-scoring-area > .fj-tags-section { grid-row: 3; }
+    .fj-scoring-area > .fj-extras-area { grid-row: 4; }
+    .fj-scoring-area > .fj-submit-row { grid-row: 5; }
+    .fj-wheels-wrapper .wheel-container { width: 150px; }
+    /* Team names break between words, not inside them */
+    .fj-team-circle .fj-orb-text { word-break: normal; overflow-wrap: break-word; }
+    /* The back button only takes room when it can be used */
+    #fjBackBtn[style*="opacity: 0"] { display: none; }
+    #fjBackBtn { border-radius: 12px; font-size: 15px; }
+    #fjBackBtn:focus-visible { outline-width: 2px; }
+    #fjMainTitle { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    /* The page's own theme button / language menu would show through the referee screen */
+    body:has(#fieldJudgingModal[style*="flex"]) > .theme-toggle,
+    body:has(#fieldJudgingModal[style*="flex"]) .lang-picker.lang-fixed { visibility: hidden; }
+    /* «ثبت» with the note / photo button next to it */
+    .fj-submit-row { display: flex; gap: 10px; align-items: stretch; width: 100%; max-width: 400px; }
+    .fj-submit-row #fjSubmitBtn { flex: 1 1 auto; min-width: 0; }
+    .fj-note-btn {
+        flex: 0 0 auto; padding: 8px 12px; border-radius: 15px; cursor: pointer; white-space: nowrap;
+        font-family: inherit; font-size: 14px; font-weight: 700; line-height: 1.4;
+        background: var(--input-bg); color: var(--text-color); border: 1px solid var(--glass-border);
+    }
+    @media (min-width: 860px) and (min-height: 480px) { .fj-submit-row { max-width: 100%; } }
+    @media (min-width: 600px) and (max-width: 859px) { .fj-submit-row { max-width: 520px; } }
+    /* Scoreboard button: solid in the light theme (white on pale blue was unreadable) */
+    :root:not([data-theme="dark"]) .fj-scoreboard-btn,
+    :root:not([data-theme="dark"]) .fj-scoreboard-btn:hover {
+        background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%); border-color: #1d4ed8; color: #fff;
+    }
+    /* Unit chip inside the blue stage badge: white, whatever the theme */
+    .fj-stage-active-badge .stage-unit-chip { color: #fff !important; background: rgba(255, 255, 255, 0.2); border-color: rgba(255, 255, 255, 0.45); }
+    /* Tool dialogs (notes, budget, timer…): opaque enough to read over busy screens */
+    #opToolModal .modal-content { background: rgba(255, 255, 255, 0.97); }
+    [data-theme="dark"] #opToolModal .modal-content { background: rgba(17, 24, 39, 0.97); }
+    #opToolModal .manage-section { background: var(--surface-2); border-color: var(--line); }
+    #opToolModal .adv-label { display: block; margin: 12px 0 6px; }
+    #opToolModal .file-pick { background: var(--surface-2); border-color: var(--line); }
+    #opToolModal input:not([type="checkbox"]):not([type="radio"]):not([type="file"]), #opToolModal select, #opToolModal textarea {
+        background: var(--surface); border: 1px solid var(--line); color: var(--text-color);
+    }
+
+    /* Field-judging button in the operator header: solid purple (pale tint was unreadable in light theme) */
+    :root:not([data-theme="dark"]) #btnFieldJudging { background: #7c3aed !important; color: #fff !important; border-color: #7c3aed !important; }
+    .stage-input::placeholder { font-size: 13px; opacity: 0.6; }
+
+    /* Settings: the save button stays in reach at the bottom of the long form */
+    .op-sticky-save { position: sticky; bottom: 0; z-index: 3; margin: 14px -30px -30px; padding: 12px 30px 16px; background: var(--surface); border-top: 1px solid var(--line); box-shadow: 0 -6px 16px rgba(0, 0, 0, 0.08); }
+
+    /* Login card: comfortable width on phones */
+    #loginSection { width: min(400px, 92%) !important; box-sizing: border-box; }
+
+    /* Management dialog: anchored to the top, so switching tabs doesn't make it jump */
+    #manageModal { align-items: flex-start; }
+    #manageModal .manage-content { margin-top: max(16px, 4dvh); }
+
+    /* Operator board rows: team colour tints are pale in the light theme, so names and scores are dark there */
+    :root:not([data-theme="dark"]) #boardContainer .team-name-op,
+    :root:not([data-theme="dark"]) #boardContainer .score-val { color: #0f172a !important; text-shadow: none !important; }
+    #boardContainer .team-stages-summary { white-space: nowrap; }
+
+    @media (max-width: 600px) {
+        /* Referee header: one row (title + small buttons), the tab switcher below */
+        .fj-header { padding: 8px 12px; gap: 6px 8px; }
+        .fj-header > :first-child { order: 1; flex: 1 1 0; min-width: 0; }
+        .fj-header > :first-child > div { min-width: 0; }
+        #fjMainTitle { font-size: 18px !important; }
+        #fjBackBtn { padding: 6px 12px !important; font-size: 14px; }
+        #fjRefereeInfo { order: 2; }
+        #fjRefereeInfo > div { padding: 2px !important; gap: 0 !important; }
+        #fjRefereeInfo > div > div:last-child { display: none !important; }
+        .fj-header > :last-child { order: 3; gap: 6px !important; }
+        .fj-header > :last-child > .icon-btn { width: 36px !important; height: 36px !important; }
+        #fjLogoutBtn { width: 36px; height: 36px; padding: 0 !important; justify-content: center; }
+        #fjLogoutBtn span { display: none; }
+        .fj-tab-switcher-wrapper { order: 4; flex: 1 1 100%; }
+        .fj-segment-btn { padding: 7px 14px; }
+        /* while a team is open the back button returns to the grid; the switcher only costs room */
+        #fieldJudgingModal:has(#fjSelectedTeamView[style*="flex"]) .fj-tab-switcher-wrapper { display: none; }
+        #fjLockBanner { margin: 8px 12px 0 12px !important; }
+
+        /* Selected team: compact banner and controls so «ثبت» is on the first screen */
+        .fj-selected-view { padding: 10px 14px 16px; gap: 10px; }
+        .fj-team-banner-card { aspect-ratio: auto; height: min(30vh, 190px); margin-bottom: 0; border-radius: 16px; }
+        .fj-team-banner-card.no-photo { height: 76px; }
+        .fj-team-banner-card.no-photo .fj-team-banner-placeholder { display: none !important; }
+        .fj-team-banner-card.no-photo .fj-team-banner-gradient-scrim { background: linear-gradient(135deg, rgba(15, 23, 42, 0.92), rgba(30, 41, 59, 0.8)); }
+        .fj-team-banner-info-bar { padding: 8px 12px; }
+        .fj-mini-orb { width: 52px; height: 52px; }
+        .fj-orb-score-text { font-size: 21px; }
+        .fj-team-banner-title { font-size: 18px; }
+        .fj-scoring-area > .fj-wheels-wrapper { margin-bottom: 12px !important; }
+        .fj-scoring-area > .fj-sign-toggle-bar { margin-bottom: 12px; }
+        .fj-tags-section { margin-bottom: 10px; }
+        .fj-extras-area { margin: 0 0 10px 0; }
+        #fjSubmitBtn { padding: 14px !important; font-size: 20px !important; }
+        /* Tool dialogs: team pickers on their own line, short fields share one */
+        #opToolModal .manage-row > select { flex: 1 1 100%; min-width: 0; }
+        #opToolModal .manage-row > input[type="text"] { flex: 1 1 120px; min-width: 0; }
+        #opToolModal .modal-content { padding: 24px 18px; width: 94%; }
+        /* Settings stage rows: name + ▲▼× on one line, unit and multiplier below */
+        .op-stage-row .stage-name-input { order: 1; flex: 1 1 0 !important; min-width: 0 !important; }
+        .op-stage-row .op-row-actions { order: 2; }
+        .op-stage-row .stage-unit-select { order: 3; flex: 1 1 0 !important; min-width: 0 !important; }
+        .op-stage-row > div:not(.op-row-actions) { order: 4; }
+        .op-row-actions .icon-btn { min-width: 36px; min-height: 36px; }
+        /* Stage judging: less padding around the bars */
+        .fj-stages-judging-container { padding: 12px 12px 32px; gap: 12px; }
+        .fj-stage-selector-bar, .fj-stage-info-banner { padding: 8px 12px; gap: 8px; }
+        .fj-stage-team-card { padding: 12px; gap: 10px; }
+
+        /* Operator panel: header and control desk take less room, the team list comes sooner */
+        .op-header-container { margin-bottom: 14px !important; gap: 10px !important; }
+        .op-header-container > div:last-child { gap: 6px !important; }
+        .op-header-container > div:last-child > .icon-btn,
+        .op-header-container > div:last-child > .snapshot-btn-group { height: 38px !important; font-size: 13px !important; }
+        .op-header-container > div:last-child > .icon-btn:not(.help-btn) { padding: 0 10px !important; }
+        #orgTitle { white-space: normal !important; font-size: 20px !important; line-height: 1.5 !important; }
+        /* JS shows the strip with an inline display:flex; two scrolling rows instead of eight */
+        .op-control-strip:not([style*="none"]) { display: grid !important; }
+        .op-control-strip {
+            grid-auto-flow: column; grid-template-rows: auto auto; grid-auto-columns: max-content;
+            justify-content: start; overflow-x: auto; -webkit-overflow-scrolling: touch; scrollbar-width: none;
+            padding: 8px 10px; margin-bottom: 12px; gap: 6px;
+        }
+        .op-control-strip::-webkit-scrollbar { display: none; }
+        .op-control-strip .ctl-title { grid-row: 1 / span 2; align-self: center; writing-mode: vertical-rl; margin: 0; font-size: 12px; }
+        .op-control-strip .ctl-btn { min-height: 36px; white-space: nowrap; }
+        #stagesButtons { gap: 8px !important; }
+        #stagesButtons > button { flex: 1 1 100%; justify-content: center; padding: 6px 12px !important; font-size: 14px; }
+        #operatorSection > .glass:not(.op-control-strip) { padding: 14px !important; margin-bottom: 16px !important; }
+        #boardContainer .team-name-op { white-space: normal !important; overflow-wrap: anywhere; font-size: 16px !important; }
+        #boardContainer .team-row > div:nth-child(1) { width: 70% !important; }
+        #boardContainer .team-row > div:nth-child(3) { width: 30% !important; gap: 8px !important; }
+    }
     </style>
 
     <script src="vendor/html2canvas-1.4.1.min.js"></script>
@@ -690,7 +847,7 @@
         <h3 id="loginCampTitle" style="margin: 0 0 20px 0; font-size: 16px; opacity: 0.8; font-weight: normal;"></h3>
         <input type="text" id="opUsername" placeholder="نام کاربری" class="settings-input" onkeydown="if(event.key === 'Enter') login()">
         <input type="password" id="opPassword" placeholder="رمز عبور" class="settings-input" onkeydown="if(event.key === 'Enter') login()">
-        <button onclick="login()" style="padding: 10px 20px; width: 100%;" title="ورود به پنل اپراتور">ورود</button>
+        <button onclick="login()" class="btn-primary" style="padding: 12px 20px; width: 100%; font-size: 16px;" title="ورود به پنل اپراتور">ورود</button>
         <p id="errorMsg" style="color: var(--error-color); display: none; margin-top: 15px;"></p>
     </div>
 
@@ -754,7 +911,7 @@
                     <h2 id="scoreStageTitle" style="margin: 0 0 4px 0; font-size: 20px;">ثبت امتیاز گروهی</h2>
                     <div id="scoreStageSubtitle" style="font-size: 13px; opacity: 0.85;">نمایش سهم ثبت‌شده هر داور به تفکیک نام و مجموع کل امتیاز داوران</div>
                 </div>
-                <span class="close-btn" style="position: static; font-size: 24px; line-height: 1;" onclick="closeGuardedModal('scoreModal', 'score')">&times;</span>
+                <button type="button" class="close-btn" style="position: static; font-size: 24px; line-height: 1;" onclick="closeGuardedModal('scoreModal', 'score')">&times;</button>
             </div>
 
             <!-- Stage Criteria & Unit Info Bar -->
@@ -782,7 +939,7 @@
 
             <input type="hidden" id="currentStageId">
             <div id="scoreTeamsList" style="margin-bottom: 16px; display: flex; flex-direction: column; gap: 12px; overflow-y: auto; flex-grow: 1; padding: 4px;"></div>
-            <button onclick="saveScores()" style="padding: 14px; width: 100%; background: linear-gradient(135deg, rgba(0, 255, 136, 0.4), rgba(0, 200, 100, 0.5)); border: 1px solid rgba(0, 255, 136, 0.6); border-radius: 10px; color: #fff; font-size: 17px; font-weight: bold; cursor: pointer;" title="ثبت امتیازهای وارد شده در جدول">ثبت و بروزرسانی جدول</button>
+            <button onclick="saveScores()" style="padding: 14px; width: 100%; background: linear-gradient(135deg, #10b981, #059669); border: 1px solid #059669; border-radius: 10px; color: #fff; text-shadow: none; font-size: 17px; font-weight: bold; cursor: pointer;" title="ثبت امتیازهای وارد شده در جدول">ثبت و بروزرسانی جدول</button>
         </div>
     </div>
 
@@ -801,7 +958,7 @@
                 </div>
                 <div style="display: flex; align-items: center; gap: 8px;">
                     <button type="button" onclick="exportJudgesBreakdownToCsv()" class="icon-btn" style="padding: 6px 14px; font-size: 13px; border-radius: 8px; display: inline-flex; align-items: center; gap: 6px; cursor: pointer;" title="خروجی اکسل CSV"><i data-lucide="download" style="width: 14px; height: 14px;"></i> خروجی اکسل</button>
-                    <span class="close-btn" style="position: static; font-size: 24px; line-height: 1;" onclick="closeJudgesBreakdownModal()">&times;</span>
+                    <button type="button" class="close-btn" style="position: static; font-size: 24px; line-height: 1;" onclick="closeJudgesBreakdownModal()">&times;</button>
                 </div>
             </div>
 
@@ -840,7 +997,7 @@
     <!-- Modal Logs -->
     <div id="logsModal" class="modal-overlay" data-guard="logs">
         <div class="modal-content glass" style="max-width: 600px;">
-            <span class="close-btn" onclick="closeGuardedModal('logsModal', 'logs')">&times;</span>
+            <button type="button" class="close-btn" onclick="closeGuardedModal('logsModal', 'logs')">&times;</button>
             <h2 id="logsTeamName">تاریخچه امتیازات</h2>
             <div id="logsList" style="max-height: 400px; overflow-y: auto; margin-bottom: 20px; padding-left: 10px; display: flex; flex-direction: column; gap: 10px;"></div>
             <button onclick="saveLogs()" style="padding: 15px; width: 100%; background: rgba(0, 255, 136, 0.4); font-size: 18px;" title="ذخیره تغییرات تاریخچه امتیازها">ذخیره تغییرات</button>
@@ -850,7 +1007,7 @@
     <!-- Modal Settings -->
     <div id="settingsModal" class="modal-overlay" data-guard="settings">
         <div class="modal-content glass">
-            <span class="close-btn" onclick="closeSettings()">&times;</span>
+            <button type="button" class="close-btn" onclick="closeSettings()">&times;</button>
             <h2>تنظیمات مسابقه</h2>
             
             <label>نام سازمان:</label>
@@ -934,7 +1091,7 @@
                 <div id="editNegTagsList" class="tags-chips-list"></div>
             </div>
 
-            <button onclick="saveSettings()" style="padding: 15px; width: 100%; font-size: 18px; background: rgba(0, 255, 136, 0.4);" title="ذخیره تغییرات تنظیمات">ذخیره تغییرات</button>
+            <div class="op-sticky-save"><button onclick="saveSettings()" style="padding: 15px; width: 100%; font-size: 18px; background: linear-gradient(135deg, #10b981, #059669); color: #fff; border: 1px solid #059669; text-shadow: none;" title="ذخیره تغییرات تنظیمات">ذخیره تغییرات</button></div>
         </div>
     </div>
 
@@ -1488,7 +1645,7 @@
 
                 let multBadge = '';
                 if (stage.multiplier && stage.multiplier !== 1) {
-                    multBadge = `<span style="font-size: 11px; margin-right: 5px; background: rgba(99, 102, 241, 0.25); border: 1px solid rgba(99, 102, 241, 0.45); color: var(--tx-indigo); padding: 2px 7px; border-radius: 6px; font-weight: 800;" title="ضریب این مرحله ${stage.multiplier} است">ضریب ${stage.multiplier}</span>`;
+                    multBadge = `<span style="font-size: 11px; margin-right: 5px; background: rgba(99, 102, 241, 0.25); border: 1px solid rgba(99, 102, 241, 0.45); color: var(--tx-indigo); padding: 2px 7px; border-radius: 6px; font-weight: 800;" title="ضریب این مرحله ${fmtNum(stage.multiplier, currentNumLang)} است">ضریب ${fmtNum(stage.multiplier, currentNumLang)}</span>`;
                 }
 
                 btn.innerHTML = `<span style="font-size: 14px; margin-left: 6px;">${criteria.unit === 'time' ? (criteria.timeOrder === 'asc' ? '⚡' : '⏳') : '🎯'}</span> <span>${esc(stage.name)}</span> <span style="font-size: 11px; opacity: 0.85; margin-right: 6px; background: rgba(255,255,255,0.12); padding: 2px 7px; border-radius: 6px;">${criteria.badgeText}</span>${multBadge}${tieredBadge}`;
@@ -1704,7 +1861,7 @@
                             </div>
                             
                             <div class="input-actions-container" id="ic-${team.id}" style="display: flex; align-items: center; justify-content: center; gap: 8px; width: 40%;">
-                                <input type="number" id="inp-${team.id}" class="stage-input" style="width: 60px; height: 35px; font-size: 18px; color: ${signColor}; padding: 0 5px; text-align: center;" value="" inputmode="numeric" onkeydown="handleInstantInputKey(event, '${team.id}')" oninput="this.value = this.value.replace(/[^0-9]/g, '')">
+                                <input type="number" id="inp-${team.id}" class="stage-input" placeholder="امتیاز" aria-label="امتیاز لحظه‌ای" style="width: 60px; height: 35px; font-size: 18px; color: ${signColor}; padding: 0 5px; text-align: center;" value="" inputmode="numeric" onkeydown="handleInstantInputKey(event, '${team.id}')" oninput="this.value = this.value.replace(/[^0-9]/g, '')">
                                 <button class="instant-btn" id="tgl-${team.id}" title="تغییر بین امتیاز مثبت و منفی" onclick="toggleSign('${team.id}')" style="background: ${signBg}; color: ${signColor}; width: 35px; height: 35px; border-radius: 5px; font-weight: bold; font-size: 20px;">${signs[team.id]}</button>
                                 <button class="instant-btn" onclick="applyInstant('${team.id}')" title="ثبت امتیاز لحظه‌ای برای این تیم" style="background: rgba(255,255,255,0.1); width: 45px; height: 35px; border-radius: 5px; border: 1px solid var(--glass-border);">ثبت</button>
                             </div>
@@ -2517,7 +2674,7 @@
             item.className = 'dynamic-item';
             item.dataset.id = id;
             item.innerHTML = `
-                <div style="display: flex; gap: 8px; align-items: center; width: 100%; flex-wrap: wrap;">
+                <div class="op-stage-row" style="display: flex; gap: 8px; align-items: center; width: 100%; flex-wrap: wrap;">
                     <input type="text" class="stage-name-input" placeholder="نام مرحله" value="${esc(name)}" style="flex: 2; min-width: 140px;">
                     <select class="stage-unit-select settings-input" style="flex: 1.5; min-width: 180px; margin: 0; padding: 6px 10px; font-size: 13px;" title="واحد سنجش مرحله">
                         <option value="points" ${unitVal === 'points' ? 'selected' : ''}>🎯 امتیاز (بیشترین = برتر)</option>
@@ -2528,7 +2685,7 @@
                         <span style="font-size: 12px; opacity: 0.85; white-space: nowrap;">ضریب:</span>
                         <input type="number" step="0.5" min="0.1" class="stage-multiplier-input" placeholder="۱" value="${multVal}" style="width: 55px; margin: 0; padding: 4px; text-align: center; font-size: 13px; font-weight: 800; border-radius: 6px;">
                     </div>
-                    <div style="display: flex; gap: 4px; align-items: center;">
+                    <div class="op-row-actions" style="display: flex; gap: 4px; align-items: center;">
                         <button type="button" onclick="moveItemUp(this)" class="icon-btn" title="انتقال به بالا">▲</button>
                         <button type="button" onclick="moveItemDown(this)" class="icon-btn" title="انتقال به پایین">▼</button>
                         <button type="button" onclick="confirmRemoveItem(this, 'stage')" class="icon-btn remove-btn" title="حذف مرحله">×</button>
@@ -2552,7 +2709,7 @@
                     <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
                         <div class="t-img-thumb" style="width: 56px; height: 31px; aspect-ratio: 16/9; border-radius: 6px; overflow: hidden; border: 1px solid var(--glass-border); flex-shrink: 0; background: var(--input-bg); display: flex; align-items: center; justify-content: center; position: relative;" title="پیش‌نمایش عکس اصلی ۱۶:۹">
                             ${image ? `<img src="${esc(safeUrl(image))}" style="width: 100%; height: 100%; object-fit: cover;" onerror="this.style.display='none'">` : `<i data-lucide="image" style="width: 14px; height: 14px; opacity: 0.5;"></i>`}
-                            <span style="position: absolute; bottom: 1px; right: 2px; font-size: 7px; font-weight: bold; background: rgba(0,0,0,0.65); color: #fff; padding: 0 2px; border-radius: 2px; pointer-events: none;">16:9</span>
+                            
                         </div>
                         <input type="text" class="t-image" placeholder="عکس اصلی ۱۶:۹ (پیش‌فرض)" value="${esc(image)}" style="flex: 1; min-width: 120px; margin: 0;" oninput="updateTeamImgThumb(this)">
                         <button type="button" class="icon-btn" onclick="triggerCustomPhotoInput(this)" title="آپلود عکس از فایل (نسبت ۱۶:۹)" style="padding: 5px 9px; font-size: 11px; display: inline-flex; align-items: center; gap: 3px; white-space: nowrap;"><i data-lucide="upload" style="width: 12px; height: 12px;"></i> آپلود</button>
@@ -2650,7 +2807,7 @@
                 } else if (isSad) {
                     thumb.innerHTML = `<span style="font-size: 11px;">😔</span>`;
                 } else {
-                    thumb.innerHTML = `<i data-lucide="image" style="width: 14px; height: 14px; opacity: 0.5;"></i><span style="position: absolute; bottom: 1px; right: 2px; font-size: 7px; font-weight: bold; background: rgba(0,0,0,0.65); color: #fff; padding: 0 2px; border-radius: 2px; pointer-events: none;">16:9</span>`;
+                    thumb.innerHTML = `<i data-lucide="image" style="width: 14px; height: 14px; opacity: 0.5;"></i>`;
                 }
                 if (clearBtn) clearBtn.style.display = 'none';
                 if (typeof refreshIcons === 'function') refreshIcons();
@@ -2705,9 +2862,9 @@
             const url = input.value.trim();
             if (thumb) {
                 if (url) {
-                    thumb.innerHTML = `<img src="${esc(safeUrl(url))}" style="width: 100%; height: 100%; object-fit: cover;" onerror="this.style.display='none'"><span style="position: absolute; bottom: 1px; right: 2px; font-size: 8px; font-weight: bold; background: rgba(0,0,0,0.65); color: #fff; padding: 0 3px; border-radius: 2px; pointer-events: none;">16:9</span>`;
+                    thumb.innerHTML = `<img src="${esc(safeUrl(url))}" style="width: 100%; height: 100%; object-fit: cover;" onerror="this.style.display='none'">`;
                 } else {
-                    thumb.innerHTML = `<i data-lucide="image" style="width: 16px; height: 16px; opacity: 0.5;"></i><span style="position: absolute; bottom: 1px; right: 2px; font-size: 8px; font-weight: bold; background: rgba(0,0,0,0.65); color: #fff; padding: 0 3px; border-radius: 2px; pointer-events: none;">16:9</span>`;
+                    thumb.innerHTML = `<i data-lucide="image" style="width: 16px; height: 16px; opacity: 0.5;"></i>`;
                     if(typeof refreshIcons === 'function') refreshIcons();
                 }
             }
@@ -2994,7 +3151,7 @@
         m.style.zIndex = '10300';
         m.innerHTML = `
             <div class="modal-content glass manage-content">
-                <span class="close-btn" title="بستن" onclick="document.getElementById('manageModal').style.display='none'">&times;</span>
+                <button type="button" class="close-btn" title="بستن" onclick="document.getElementById('manageModal').style.display='none'">&times;</button>
                 <h2 style="margin-top: 0;">مدیریت مسابقه</h2>
                 <div class="manage-tabs" role="tablist">
                     <button type="button" role="tab" data-tab="board" class="active">تابلو و نتایج</button>
@@ -3163,7 +3320,7 @@
         if (d.amount !== undefined) parts.push('مبلغ ' + fmtNum(d.amount, currentNumLang));
         if (d.status) parts.push({ accepted: 'پذیرفته شد', rejected: 'رد شد', open: 'باز' }[d.status] || d.status);
         if (d.of) parts.push('«' + (AUDIT_LABELS[d.of] || d.of) + '»');
-        return parts.join(' · ');
+        return parts.join('؛ ');
     }
 
     function renderManageAudit() {
@@ -3238,7 +3395,7 @@
             <li><b>داوری مراحل:</b> مرحله را انتخاب و نمره یا زمان هر تیم را ثبت کنید. زمان را به ثانیه (۸۳٫۵) یا دقیقه:ثانیه (۱:۲۳٫۵) بنویسید یا از کرنومتر استفاده کنید. دکمه «-» یعنی تیم مرحله را تمام نکرده است.</li>
             <li><b>اینترنت قطع شد؟</b> ثبت‌ها در صف می‌مانند و خودکار ارسال می‌شوند.</li>
             <li>برای تغییر رمز یا عکس، روی عکس پروفایل خود بزنید.</li>
-            <li>برای افزودن یادداشت یا عکس به یک امتیاز، دکمه «ثبت» را چند لحظه نگه دارید.</li>
+            <li>برای افزودن یادداشت یا عکس به یک امتیاز، دکمه «📝 یادداشت/عکس» را بزنید (یا «ثبت» را چند لحظه نگه دارید).</li>
         </ul>`;
     function showOperatorHelp() { Help.show('راهنمای پنل اپراتور', OPERATOR_HELP); }
     function showRefereeHelp() { Help.show('راهنمای داوری', REFEREE_HELP); }
@@ -3309,7 +3466,7 @@
                     <img id="fjTeamBannerImg" src="" alt="عکس تیم" class="fj-team-banner-img" onerror="this.style.display='none'; document.getElementById('fjTeamBannerPlaceholder').style.display='flex';">
                     <div id="fjTeamBannerPlaceholder" class="fj-team-banner-placeholder" style="display: none;">
                         <i data-lucide="users" style="width: 44px; height: 44px; opacity: 0.65;"></i>
-                        <span style="font-size: 13px; opacity: 0.85; margin-top: 6px; font-weight: 500;">عکس ۱۶:۹ تیم ثبت نشده است</span>
+                        <span style="font-size: 13px; opacity: 0.85; margin-top: 6px; font-weight: 500;">عکس تیم ثبت نشده است</span>
                     </div>
                     <div class="fj-team-banner-gradient-scrim"></div>
                 </div>
@@ -3346,14 +3503,6 @@
                         <div style="height: 70px;"></div>
                         <!-- populated by JS -->
                     </div>
-                    <!-- Sign Wheel -->
-                    <div id="fjSignWheel" class="wheel-container" title="برای تغییر علامت کلیک کنید یا بچرخانید">
-                        <div class="wheel-highlight"></div>
-                        <div style="height: 70px;"></div>
-                        <div class="wheel-item" data-val="+" onclick="selectFjSign('+')">+</div>
-                        <div class="wheel-item" data-val="-" onclick="selectFjSign('-')">-</div>
-                        <div style="height: 70px;"></div>
-                    </div>
                 </div>
 
                 <!-- Tags Section -->
@@ -3366,10 +3515,13 @@
 
                 <div id="fjExtrasArea" class="fj-extras-area"></div>
 
-                <!-- Big Submit Button -->
+                <!-- Big Submit Button (+ note / photo, same dialog as a long press) -->
+                <div class="fj-submit-row">
                 <button id="fjSubmitBtn" onclick="submitFjScore()" style="width: 100%; max-width: 400px; padding: 18px; box-sizing: border-box; font-size: 22px; border-radius: 15px; border: none; font-weight: bold; cursor: pointer; display: flex; justify-content: center; align-items: center; gap: 12px; transition: all 0.2s;">
                     ثبت <span id="fjPreviewValue" dir="ltr" style="font-size: 26px;">+5</span>
                 </button>
+                <button type="button" id="fjNoteBtn" class="fj-note-btn" onclick="OPF.openNote()" style="display: none;" title="یادداشت یا عکس برای این امتیاز">📝 یادداشت/عکس</button>
+                </div>
             </div>
         </div>
 
@@ -3426,7 +3578,7 @@
     <!-- Quick Modal for Field Judging & Tag Config (Operator & Head Referee) -->
     <div id="fjTagConfigModal" class="modal-overlay" style="z-index: 10500;">
         <div class="modal-content glass" style="max-width: 480px; padding: 25px;">
-            <span class="close-btn" onclick="closeFjTagConfigModal()">&times;</span>
+            <button type="button" class="close-btn" onclick="closeFjTagConfigModal()">&times;</button>
             <h3 style="margin-top: 0; display: flex; align-items: center; gap: 8px;"><i data-lucide="tag"></i> تنظیمات برچسب‌ها و داوری میدانی</h3>
             
             <label style="margin-top: 10px;">حالت داوری میدانی:</label>
@@ -3784,7 +3936,7 @@
         
         if (isMobile) {
             // Mobile phones: Maintain the existing ergonomic layout that user confirmed is good
-            const isPortrait = containerHeight > containerWidth;
+            const isPortrait = window.innerHeight >= window.innerWidth;
             let cols = 3;
             let maxSize = 145;
             let fontSize = "clamp(17px, 3.8vw, 24px)";
@@ -4149,7 +4301,7 @@
         const criteria = getStageCriteria(currentStage);
 
         if (badgeEl) {
-            const multBadge = criteria.multiplier !== 1 ? `<span style="margin-right: 6px; font-size: 11px; background: rgba(99, 102, 241, 0.25); border: 1px solid rgba(99, 102, 241, 0.45); color: var(--tx-indigo); padding: 2px 8px; border-radius: 6px; font-weight: 800;">ضریب: ×${criteria.multiplier}</span>` : '';
+            const multBadge = criteria.multiplier !== 1 ? `<span style="margin-right: 6px; font-size: 11px; background: rgba(99, 102, 241, 0.25); border: 1px solid rgba(99, 102, 241, 0.45); color: var(--tx-indigo); padding: 2px 8px; border-radius: 6px; font-weight: 800;">ضریب: ×${fmtNum(criteria.multiplier, currentNumLang)}</span>` : '';
             badgeEl.innerHTML = `
                 <span>${currentStage.name}</span>
                 <span class="stage-unit-chip ${criteria.unit === 'time' ? (criteria.timeOrder === 'asc' ? 'time-speed' : 'time-endurance') : 'points'}" style="margin-right: 6px; font-size: 11px;">
@@ -4165,7 +4317,7 @@
             const isActive = stage.id === currentJudgingStageId;
             const stCrit = getStageCriteria(stage);
             const iconSymbol = stCrit.unit === 'time' ? (stCrit.timeOrder === 'asc' ? '⚡' : '⏳') : '🎯';
-            const multPill = (stage.multiplier && stage.multiplier !== 1) ? `<span style="font-size: 10px; background: rgba(99, 102, 241, 0.35); color: var(--tx-indigo); padding: 1px 5px; border-radius: 4px; margin-right: 4px; font-weight: 800;">×${stage.multiplier}</span>` : '';
+            const multPill = (stage.multiplier && stage.multiplier !== 1) ? `<span style="font-size: 10px; background: rgba(99, 102, 241, 0.35); color: var(--tx-indigo); padding: 1px 5px; border-radius: 4px; margin-right: 4px; font-weight: 800;">×${fmtNum(stage.multiplier, currentNumLang)}</span>` : '';
             return `
                 <button type="button" class="fj-stage-pill ${isActive ? 'active' : ''}" onclick="selectJudgingStage('${stage.id}')" title="${stCrit.descText}">
                     <span style="font-size: 12px;">${iconSymbol}</span>
@@ -4228,7 +4380,7 @@
             }
         }
 
-        if (countEl) countEl.innerText = `ثبت‌شده توسط شما: ${scoredCount} از ${myTeams.length} تیم | ${criteria.descText}`;
+        if (countEl) countEl.innerText = `ثبت‌شده توسط شما: ${fmtNum(scoredCount, currentNumLang)} از ${fmtNum(myTeams.length, currentNumLang)} تیم، ${criteria.descText}`;
 
         // Prepare display list based on view mode (normal vs ranked)
         let displayTeams = [];
@@ -4773,6 +4925,8 @@
         updateFjSelectedTeamBanner(team);
 
         const teamPhoto = team.image || team.photo || team.teamPhoto || '';
+        const bannerCard = document.querySelector('.fj-team-banner-card');
+        if (bannerCard) bannerCard.classList.toggle('no-photo', !teamPhoto);
         if (teamPhoto) {
             bannerImg.src = teamPhoto;
             bannerImg.style.display = 'block';
@@ -4793,7 +4947,11 @@
         fjCurrentValue = vals[0] || 5;
 
         const valWheel = document.getElementById('fjValueWheel');
-        if (valWheel) valWheel.scrollTo({ top: 0, behavior: 'auto' });
+        if (valWheel) {
+            valWheel.scrollTo({ top: 0, behavior: 'auto' });
+            // the starting value looks selected, not greyed out
+            valWheel.querySelectorAll('.wheel-item').forEach(i => i.classList.toggle('active', String(i.dataset.val) === String(fjCurrentValue)));
+        }
 
         selectFjSign('+');
         if (window.OPF) OPF.onTeamSelected(team);
