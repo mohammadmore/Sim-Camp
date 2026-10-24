@@ -729,6 +729,10 @@
     /* Tool dialogs (notes, budget, timer…): opaque enough to read over busy screens */
     #opToolModal .modal-content { background: rgba(255, 255, 255, 0.97); }
     [data-theme="dark"] #opToolModal .modal-content { background: rgba(17, 24, 39, 0.97); }
+    #opToolModal .manage-section { background: var(--surface-2); border-color: var(--line); }
+    #opToolModal input:not([type="checkbox"]):not([type="radio"]):not([type="file"]), #opToolModal select, #opToolModal textarea {
+        background: var(--surface); border: 1px solid var(--line); color: var(--text-color);
+    }
 
     /* Field-judging button in the operator header: solid purple (pale tint was unreadable in light theme) */
     :root:not([data-theme="dark"]) #btnFieldJudging { background: #7c3aed !important; color: #fff !important; border-color: #7c3aed !important; }
@@ -778,6 +782,14 @@
         .fj-tags-section { margin-bottom: 10px; }
         .fj-extras-area { margin: 0 0 10px 0; }
         #fjSubmitBtn { padding: 14px !important; font-size: 20px !important; }
+        /* Tool dialogs: team pickers on their own line, short fields share one */
+        #opToolModal .manage-row > select { flex: 1 1 100%; min-width: 0; }
+        #opToolModal .manage-row > input[type="text"] { flex: 1 1 120px; min-width: 0; }
+        #opToolModal .modal-content { padding: 24px 18px; width: 94%; }
+        /* Stage judging: less padding around the bars */
+        .fj-stages-judging-container { padding: 12px 12px 32px; gap: 12px; }
+        .fj-stage-selector-bar, .fj-stage-info-banner { padding: 8px 12px; gap: 8px; }
+        .fj-stage-team-card { padding: 12px; gap: 10px; }
 
         /* Operator panel: header and control desk take less room, the team list comes sooner */
         .op-header-container { margin-bottom: 14px !important; gap: 10px !important; }
@@ -786,8 +798,10 @@
         .op-header-container > div:last-child > .snapshot-btn-group { height: 38px !important; font-size: 13px !important; }
         .op-header-container > div:last-child > .icon-btn:not(.help-btn) { padding: 0 10px !important; }
         #orgTitle { white-space: normal !important; font-size: 20px !important; line-height: 1.5 !important; }
+        /* JS shows the strip with an inline display:flex; two scrolling rows instead of eight */
+        .op-control-strip:not([style*="none"]) { display: grid !important; }
         .op-control-strip {
-            display: grid; grid-auto-flow: column; grid-template-rows: auto auto; grid-auto-columns: max-content;
+            grid-auto-flow: column; grid-template-rows: auto auto; grid-auto-columns: max-content;
             justify-content: start; overflow-x: auto; -webkit-overflow-scrolling: touch; scrollbar-width: none;
             padding: 8px 10px; margin-bottom: 12px; gap: 6px;
         }
@@ -2645,7 +2659,7 @@
             item.className = 'dynamic-item';
             item.dataset.id = id;
             item.innerHTML = `
-                <div style="display: flex; gap: 8px; align-items: center; width: 100%; flex-wrap: wrap;">
+                <div class="op-stage-row" style="display: flex; gap: 8px; align-items: center; width: 100%; flex-wrap: wrap;">
                     <input type="text" class="stage-name-input" placeholder="نام مرحله" value="${esc(name)}" style="flex: 2; min-width: 140px;">
                     <select class="stage-unit-select settings-input" style="flex: 1.5; min-width: 180px; margin: 0; padding: 6px 10px; font-size: 13px;" title="واحد سنجش مرحله">
                         <option value="points" ${unitVal === 'points' ? 'selected' : ''}>🎯 امتیاز (بیشترین = برتر)</option>
@@ -2656,7 +2670,7 @@
                         <span style="font-size: 12px; opacity: 0.85; white-space: nowrap;">ضریب:</span>
                         <input type="number" step="0.5" min="0.1" class="stage-multiplier-input" placeholder="۱" value="${multVal}" style="width: 55px; margin: 0; padding: 4px; text-align: center; font-size: 13px; font-weight: 800; border-radius: 6px;">
                     </div>
-                    <div style="display: flex; gap: 4px; align-items: center;">
+                    <div class="op-row-actions" style="display: flex; gap: 4px; align-items: center;">
                         <button type="button" onclick="moveItemUp(this)" class="icon-btn" title="انتقال به بالا">▲</button>
                         <button type="button" onclick="moveItemDown(this)" class="icon-btn" title="انتقال به پایین">▼</button>
                         <button type="button" onclick="confirmRemoveItem(this, 'stage')" class="icon-btn remove-btn" title="حذف مرحله">×</button>
@@ -2680,7 +2694,7 @@
                     <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
                         <div class="t-img-thumb" style="width: 56px; height: 31px; aspect-ratio: 16/9; border-radius: 6px; overflow: hidden; border: 1px solid var(--glass-border); flex-shrink: 0; background: var(--input-bg); display: flex; align-items: center; justify-content: center; position: relative;" title="پیش‌نمایش عکس اصلی ۱۶:۹">
                             ${image ? `<img src="${esc(safeUrl(image))}" style="width: 100%; height: 100%; object-fit: cover;" onerror="this.style.display='none'">` : `<i data-lucide="image" style="width: 14px; height: 14px; opacity: 0.5;"></i>`}
-                            <span style="position: absolute; bottom: 1px; right: 2px; font-size: 7px; font-weight: bold; background: rgba(0,0,0,0.65); color: #fff; padding: 0 2px; border-radius: 2px; pointer-events: none;">16:9</span>
+                            
                         </div>
                         <input type="text" class="t-image" placeholder="عکس اصلی ۱۶:۹ (پیش‌فرض)" value="${esc(image)}" style="flex: 1; min-width: 120px; margin: 0;" oninput="updateTeamImgThumb(this)">
                         <button type="button" class="icon-btn" onclick="triggerCustomPhotoInput(this)" title="آپلود عکس از فایل (نسبت ۱۶:۹)" style="padding: 5px 9px; font-size: 11px; display: inline-flex; align-items: center; gap: 3px; white-space: nowrap;"><i data-lucide="upload" style="width: 12px; height: 12px;"></i> آپلود</button>
@@ -2778,7 +2792,7 @@
                 } else if (isSad) {
                     thumb.innerHTML = `<span style="font-size: 11px;">😔</span>`;
                 } else {
-                    thumb.innerHTML = `<i data-lucide="image" style="width: 14px; height: 14px; opacity: 0.5;"></i><span style="position: absolute; bottom: 1px; right: 2px; font-size: 7px; font-weight: bold; background: rgba(0,0,0,0.65); color: #fff; padding: 0 2px; border-radius: 2px; pointer-events: none;">16:9</span>`;
+                    thumb.innerHTML = `<i data-lucide="image" style="width: 14px; height: 14px; opacity: 0.5;"></i>`;
                 }
                 if (clearBtn) clearBtn.style.display = 'none';
                 if (typeof refreshIcons === 'function') refreshIcons();
@@ -2833,9 +2847,9 @@
             const url = input.value.trim();
             if (thumb) {
                 if (url) {
-                    thumb.innerHTML = `<img src="${esc(safeUrl(url))}" style="width: 100%; height: 100%; object-fit: cover;" onerror="this.style.display='none'"><span style="position: absolute; bottom: 1px; right: 2px; font-size: 8px; font-weight: bold; background: rgba(0,0,0,0.65); color: #fff; padding: 0 3px; border-radius: 2px; pointer-events: none;">16:9</span>`;
+                    thumb.innerHTML = `<img src="${esc(safeUrl(url))}" style="width: 100%; height: 100%; object-fit: cover;" onerror="this.style.display='none'">`;
                 } else {
-                    thumb.innerHTML = `<i data-lucide="image" style="width: 16px; height: 16px; opacity: 0.5;"></i><span style="position: absolute; bottom: 1px; right: 2px; font-size: 8px; font-weight: bold; background: rgba(0,0,0,0.65); color: #fff; padding: 0 3px; border-radius: 2px; pointer-events: none;">16:9</span>`;
+                    thumb.innerHTML = `<i data-lucide="image" style="width: 16px; height: 16px; opacity: 0.5;"></i>`;
                     if(typeof refreshIcons === 'function') refreshIcons();
                 }
             }

@@ -12,7 +12,7 @@
     <script>document.documentElement.setAttribute('data-theme', localStorage.getItem('theme') || 'light');</script>
 </head>
 <body class="pub-page">
-    <main id="root" class="pub-wrap wide"><div class="empty-state">…</div></main>
+    <main id="root" class="pub-wrap wide"><div class="empty-state">در حال بارگذاری…</div></main>
     <script>
         const id = new URLSearchParams(location.search).get('id');
         const root = document.getElementById('root');
@@ -23,11 +23,11 @@
                 document.title = d.league.name;
                 root.innerHTML = `<header class="pub-head"><div><div class="pub-kicker">🏆 لیگ</div><h1>${esc(d.league.name)}</h1>
                     <div class="pub-muted">${d.league.mode === 'score' ? 'مجموع امتیازها' : 'امتیاز بر اساس رتبه در هر مسابقه: ' + d.league.rankPoints.map(N).join('، ')}</div></div></header>
-                    <section class="pub-card"><div class="pub-table-wrap"><table class="pub-table league">
-                    <thead><tr><th>رتبه</th><th>تیم</th>${d.camps.map(c => `<th title="${esc(c.orgName)}">${esc(c.title)}</th>`).join('')}<th>بازی</th><th>مجموع</th></tr></thead>
+                    <section class="pub-card"><div class="pub-table-wrap scroll-x"><table class="pub-table league">
+                    <thead><tr><th>رتبه</th><th>تیم</th><th>مجموع</th><th>بازی</th>${d.camps.map(c => `<th title="${esc(c.orgName)}">${esc(c.title)}</th>`).join('')}</tr></thead>
                     <tbody>${d.rows.map((r, i) => `<tr><td>${medals[i] || N(i + 1)}</td><td style="border-inline-start: 4px solid ${safeColor(r.color, '#94a3b8')}"><b>${esc(r.name)}</b></td>
-                        ${d.camps.map(c => { const v = r.perCamp[c.id]; return `<td>${v ? `${N(v.value)}<small> (${N(v.rank)})</small>` : '—'}</td>`; }).join('')}
-                        <td>${N(r.played)}</td><td><b>${N(r.total)}</b></td></tr>`).join('')}</tbody></table></div></section>`;
+                        <td><b class="lg-total">${N(r.total)}</b></td><td>${N(r.played)}</td>
+                        ${d.camps.map(c => { const v = r.perCamp[c.id]; return `<td>${v ? `${N(v.value)}<small style="display:block">رتبه ${N(v.rank)}</small>` : '—'}</td>`; }).join('')}</tr>`).join('')}</tbody></table></div></section>`;
             }).catch(() => { root.innerHTML = '<div class="empty-state"><span class="empty-icon">🔍</span>لیگی با این لینک پیدا نشد.</div>'; });
         }
         load();

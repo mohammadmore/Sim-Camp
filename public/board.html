@@ -45,6 +45,8 @@
         body.board-page .team-name, body.board-page .score-val {
             text-shadow: 0 1px 2px rgba(0,0,0,0.65), 0 0 1px rgba(0,0,0,0.9) !important;
         }
+        /* Persian digits sit high in their line box: centre them optically */
+        body.board-page .score-val { line-height: 1; padding-top: 0.12em; }
         body.board-page .name-container { flex: 1 1 auto; }
         body.board-page .team-name { flex: 0 1 auto; padding: 0.06em 0.12em; }
         body.board-page .team-name-wrap { line-height: 1.2; }
@@ -52,7 +54,7 @@
            hidden second line, so a chip is either shown whole or not at all. */
         body.board-page .team-extras {
             flex: 1 1 0; display: flex; flex-wrap: wrap; align-items: center; align-content: flex-start;
-            height: 1.9em; overflow: hidden; gap: 0.2em 0.45em; padding-block: 0.15em;
+            height: calc(1.45em + 2px); overflow: hidden; gap: 2em 0.45em;
         }
         body.board-page .tx-chip { line-height: 1.45; padding: 0 0.6em; white-space: nowrap; }
         body.board-page .tx-badge { line-height: 1.45; }
@@ -86,7 +88,7 @@
         body.board-page .br-col { flex: 0 1 300px; min-width: 200px; }
         body.board-page .br-head {
             align-self: center; padding: 4px 16px; border-radius: 999px; opacity: 1;
-            background: var(--input-bg); border: 1px solid var(--glass-border); font-size: clamp(14px, 1.3vw, 22px);
+            background: rgba(79, 70, 229, 0.12); border: 1px solid rgba(79, 70, 229, 0.3); font-size: clamp(14px, 1.3vw, 22px);
         }
         body.board-page .br-col.br-final .br-head { background: #facc15; border-color: #eab308; color: #422006; }
         body.board-page .br-match { box-shadow: 0 4px 14px rgba(0,0,0,0.08); }
@@ -1219,7 +1221,7 @@ evtSource.addEventListener('splash', function(e) {
             if (narrow) nameFont = Math.max(14, Math.min(nameFont, (innerHeight - 2 * padV) / 2.5));
             const nameWrap = (innerHeight - 2 * padV) >= nameFont * 2.45;
             const scoreFont = Math.max(16, Math.min(ROW_HEIGHT * 0.45, rowWidth / 9));
-            const paddingStart = narrow ? Math.max(30, Math.min(ROW_HEIGHT * 0.55, 44)) : Math.max(30, ROW_HEIGHT * (useTwoColumns ? 0.5 : 0.8));
+            const paddingStart = narrow ? Math.max(30, Math.min(ROW_HEIGHT * 0.55, 44)) : Math.max(30, Math.min(96, ROW_HEIGHT * (useTwoColumns ? 0.5 : 0.8)));
             const medalW = Math.max(18, Math.min(ROW_HEIGHT * 0.5, paddingStart - 6));
 
             sortedTeams.forEach((team, index) => {
@@ -1280,7 +1282,7 @@ evtSource.addEventListener('splash', function(e) {
                 const extrasEl = row.querySelector('.team-extras');
                 const extras = teamExtrasHtml(team, data, badges, divRanks);
                 if (extrasEl.dataset.html !== extras) { extrasEl.innerHTML = extras; extrasEl.dataset.html = extras; }
-                extrasEl.style.fontSize = Math.max(narrow ? 12 : 13, Math.min(nameFont * 0.6, 26)) + 'px';
+                extrasEl.style.fontSize = Math.max(narrow ? 12 : 13, Math.min(nameFont * 0.55, 24)) + 'px';
 
                 const scoreEl = row.querySelector('.score-val');
                 scoreEl.style.fontSize = scoreFont + 'px';
