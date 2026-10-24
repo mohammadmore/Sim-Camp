@@ -9,6 +9,8 @@
 | Node.js | `server.js` + `public/` | Firebase Firestore (یا `memory` برای تست) |
 | PHP (سی‌پنل) | `cpanel_export/` | SQLite خودکار یا MySQL — راهنما: [`cpanel_export/README.md`](cpanel_export/README.md) |
 
+> **نصب یا ارتقا روی سرور:** فهرست کارها در [`DEPLOY.md`](DEPLOY.md) (پشتیبان قبل از ارتقا، متغیرهای محیطی، نگه‌داشتن `db.php` در سی‌پنل، بررسی بعد از نصب).
+
 ## اجرای نسخه Node
 
 ```bash
