@@ -730,6 +730,8 @@
     #opToolModal .modal-content { background: rgba(255, 255, 255, 0.97); }
     [data-theme="dark"] #opToolModal .modal-content { background: rgba(17, 24, 39, 0.97); }
     #opToolModal .manage-section { background: var(--surface-2); border-color: var(--line); }
+    #opToolModal .adv-label { display: block; margin: 12px 0 6px; }
+    #opToolModal .file-pick { background: var(--surface-2); border-color: var(--line); }
     #opToolModal input:not([type="checkbox"]):not([type="radio"]):not([type="file"]), #opToolModal select, #opToolModal textarea {
         background: var(--surface); border: 1px solid var(--line); color: var(--text-color);
     }
@@ -737,6 +739,12 @@
     /* Field-judging button in the operator header: solid purple (pale tint was unreadable in light theme) */
     :root:not([data-theme="dark"]) #btnFieldJudging { background: #7c3aed !important; color: #fff !important; border-color: #7c3aed !important; }
     .stage-input::placeholder { font-size: 13px; opacity: 0.6; }
+
+    /* Settings: the save button stays in reach at the bottom of the long form */
+    .op-sticky-save { position: sticky; bottom: 0; z-index: 3; margin: 14px -30px -30px; padding: 12px 30px 16px; background: var(--surface); border-top: 1px solid var(--line); box-shadow: 0 -6px 16px rgba(0, 0, 0, 0.08); }
+
+    /* Login card: comfortable width on phones */
+    #loginSection { width: min(400px, 92%) !important; box-sizing: border-box; }
 
     /* Management dialog: anchored to the top, so switching tabs doesn't make it jump */
     #manageModal { align-items: flex-start; }
@@ -786,6 +794,12 @@
         #opToolModal .manage-row > select { flex: 1 1 100%; min-width: 0; }
         #opToolModal .manage-row > input[type="text"] { flex: 1 1 120px; min-width: 0; }
         #opToolModal .modal-content { padding: 24px 18px; width: 94%; }
+        /* Settings stage rows: name + ▲▼× on one line, unit and multiplier below */
+        .op-stage-row .stage-name-input { order: 1; flex: 1 1 0 !important; min-width: 0 !important; }
+        .op-stage-row .op-row-actions { order: 2; }
+        .op-stage-row .stage-unit-select { order: 3; flex: 1 1 0 !important; min-width: 0 !important; }
+        .op-stage-row > div:not(.op-row-actions) { order: 4; }
+        .op-row-actions .icon-btn { min-width: 36px; min-height: 36px; }
         /* Stage judging: less padding around the bars */
         .fj-stages-judging-container { padding: 12px 12px 32px; gap: 12px; }
         .fj-stage-selector-bar, .fj-stage-info-banner { padding: 8px 12px; gap: 8px; }
@@ -832,7 +846,7 @@
         <h3 id="loginCampTitle" style="margin: 0 0 20px 0; font-size: 16px; opacity: 0.8; font-weight: normal;"></h3>
         <input type="text" id="opUsername" placeholder="نام کاربری" class="settings-input" onkeydown="if(event.key === 'Enter') login()">
         <input type="password" id="opPassword" placeholder="رمز عبور" class="settings-input" onkeydown="if(event.key === 'Enter') login()">
-        <button onclick="login()" style="padding: 10px 20px; width: 100%;" title="ورود به پنل اپراتور">ورود</button>
+        <button onclick="login()" class="btn-primary" style="padding: 12px 20px; width: 100%; font-size: 16px;" title="ورود به پنل اپراتور">ورود</button>
         <p id="errorMsg" style="color: var(--error-color); display: none; margin-top: 15px;"></p>
     </div>
 
@@ -1076,7 +1090,7 @@
                 <div id="editNegTagsList" class="tags-chips-list"></div>
             </div>
 
-            <button onclick="saveSettings()" style="padding: 15px; width: 100%; font-size: 18px; background: rgba(0, 255, 136, 0.4);" title="ذخیره تغییرات تنظیمات">ذخیره تغییرات</button>
+            <div class="op-sticky-save"><button onclick="saveSettings()" style="padding: 15px; width: 100%; font-size: 18px; background: linear-gradient(135deg, #10b981, #059669); color: #fff; border: 1px solid #059669; text-shadow: none;" title="ذخیره تغییرات تنظیمات">ذخیره تغییرات</button></div>
         </div>
     </div>
 

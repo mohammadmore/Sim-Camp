@@ -2461,6 +2461,7 @@ body.has-brand-bg { background-size: cover !important; background-position: cent
 .fj-criteria { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 6px; margin-top: 8px; }
 .fj-crit { display: flex; flex-direction: column; gap: 3px; font-size: 12.5px; font-weight: 600; }
 .fj-crit input { padding: 8px; border-radius: 8px; border: 1.5px solid var(--line); background: var(--surface); color: var(--text-color); text-align: center; font-size: 16px; font-family: inherit; min-height: 40px; box-sizing: border-box; }
+.fj-crit small { font-size: 12px; opacity: 0.8; }
 .fj-crit input::placeholder { color: var(--text-color); opacity: 0.45; }
 
 /* Operator control strip and tools */
@@ -2471,7 +2472,8 @@ body.has-brand-bg { background-size: cover !important; background-position: cent
 .ctl-btn.active { background: rgba(37, 99, 235, 0.22); border-color: rgba(37, 99, 235, 0.55); }
 .ctl-btn.warn { background: rgba(245, 158, 11, 0.25); border-color: rgba(245, 158, 11, 0.6); }
 .ctl-badge { background: #dc2626; color: #fff; border-radius: 999px; padding: 0 7px; font-size: 12px; }
-.tool-clock { font-size: 44px; font-weight: 900; text-align: center; font-variant-numeric: tabular-nums; margin: 6px 0 12px 0; }
+.tool-clock { font-size: 44px; font-weight: 900; text-align: center; direction: ltr; unicode-bidi: isolate; margin: 6px 0 12px 0; }
+.tool-clock.tool-state { font-size: 20px; font-weight: 800; direction: rtl; }
 .tool-table-wrap { overflow-x: auto; margin-bottom: 10px; }
 .tool-table { border-collapse: collapse; width: 100%; font-size: 13.5px; }
 .tool-table th, .tool-table td { padding: 6px 8px; border-bottom: 1px solid var(--glass-border); text-align: center; white-space: nowrap; }

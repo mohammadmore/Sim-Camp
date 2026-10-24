@@ -314,7 +314,7 @@
             m.querySelector('#cerState').textContent = c ? `${N(c.revealed)} از ${N(c.total)} تیم اعلام شده` : 'مراسم شروع نشده است.';
         };
         const m = toolModal('مراسم اهدای جوایز', `<p class="manage-note">رتبه‌ها از آخر به اول، با هر کلیک یک تیم، روی همه تابلوها اعلام می‌شوند.</p>
-            <div class="tool-clock" id="cerState"></div>
+            <div class="tool-clock tool-state" id="cerState"></div>
             <div class="manage-row"><button type="button" class="manage-primary" data-op="start">شروع مراسم</button>
             <button type="button" data-op="next">◀ اعلام تیم بعدی</button><button type="button" data-op="prev">برگشت ▶</button>
             <button type="button" data-op="all">اعلام همه</button><button type="button" class="manage-danger" data-op="end">پایان مراسم</button></div>`);

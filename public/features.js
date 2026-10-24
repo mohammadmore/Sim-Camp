@@ -207,8 +207,10 @@
     // of the camp (the score holds between events). Team names sit in a column beside the line ends.
     F.lineChart = function (series, opts) {
         opts = opts || {};
-        const W = opts.width || F.chartWidth();
-        const H = opts.height || Math.round(Math.max(240, Math.min(420, W * 0.5)));
+        // A width wider than the screen would shrink every label; draw at screen width instead.
+        const fit = F.chartWidth(), shrink = opts.width && opts.width > fit && opts.width > (window.innerWidth || 1e9) - 48;
+        const W = shrink ? fit : (opts.width || fit);
+        const H = opts.height && !shrink ? opts.height : Math.round(Math.max(240, Math.min(420, W * (opts.height && opts.width ? opts.height / opts.width : 0.5))));
         const font = opts.font || Math.round(Math.max(12, Math.min(16, W / 62)));
         const lang = opts.lang;
         const list = series.filter(s => s.points.length);
@@ -223,7 +225,7 @@
         const showLabels = opts.labels !== false;
         // Plot area: numbers on the left, team names on the right, clock times below.
         const yLabW = Math.max(...ticksY.map(v => fmtNum(v, lang).length)) * font * 0.62 + 12;
-        const gut = showLabels ? Math.round(Math.min(W * 0.3, font * 12)) : 12;
+        const gut = showLabels ? Math.round(Math.min(W * 0.3, font * 14)) : 12;
         const L = Math.round(yLabW), R = W - gut, T = Math.round(font * 0.9), B = H - Math.round(font * 2.2);
         const sx = x => L + ((x - x0) / Math.max(1, x1 - x0)) * (R - L);
         const sy = y => B - ((y - y0) / Math.max(1e-9, y1 - y0)) * (B - T);
