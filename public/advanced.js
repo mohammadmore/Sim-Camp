@@ -86,7 +86,7 @@
             `<div class="adv-cal">${((cfg.calibration || {}).cases || []).map(calHtml).join('')}</div><button type="button" class="adv-add" data-add="cal">+ نمونه جدید</button>`, 'calibration', cfg);
 
         const regUrl = appUrl('register.html?id=' + encodeURIComponent(ctx.campId || ''));
-        html += section('registration', 'ثبت‌نام آنلاین تیم‌ها', `لینک فرم ثبت‌نام: <span dir="ltr">${esc(regUrl)}</span>`,
+        html += section('registration', 'ثبت‌نام آنلاین تیم‌ها', `لینک فرم ثبت‌نام: <bdi dir="ltr" class="adv-url">${esc(regUrl)}</bdi>`,
             `<label class="adv-inline"><input type="checkbox" class="adv-reg-open" ${(cfg.registration || {}).open ? 'checked' : ''}> فرم ثبت‌نام باز است</label>
              <button type="button" onclick="copyText(${jsArg(regUrl)})">کپی لینک فرم</button>`, 'registration', cfg);
 
@@ -102,7 +102,7 @@
              <label class="adv-label">متن</label><textarea class="adv-cert-body" rows="3" placeholder="بدین‌وسیله از تیم {team} برای کسب رتبه {rank} در {title} قدردانی می‌شود.">${esc(cert.body || '')}</textarea>
              <div class="adv-row"><input type="text" class="adv-cert-signer" value="${attr(cert.signer || '')}" placeholder="نام امضاکننده"><input type="text" class="adv-cert-role" value="${attr(cert.signerRole || '')}" placeholder="سمت"></div>
              <label class="adv-label">تصویر زمینه (اختیاری)</label>
-             <div class="adv-row"><input type="text" class="adv-cert-bg" dir="ltr" value="${attr(cert.background || '')}" placeholder="https://..."><input type="file" accept="image/*" class="adv-file" data-target="adv-cert-bg"></div>
+             <div class="adv-row"><input type="text" class="adv-cert-bg" dir="ltr" value="${attr(cert.background || '')}" placeholder="https://..."><label class="file-pick"><input type="file" accept="image/*" class="adv-file" data-target="adv-cert-bg">📷 انتخاب فایل <span class="file-name"></span></label></div>
              <div class="adv-row"><label class="adv-inline">رنگ <input type="color" class="adv-cert-color" value="${attr(/^#[0-9a-f]{6}$/i.test(cert.color || '') ? cert.color : '#a16207')}"></label>
              <label class="adv-inline"><input type="checkbox" class="adv-cert-logo" ${cert.showLogo === false ? '' : 'checked'}> نمایش لوگو</label></div>`);
 
@@ -110,9 +110,9 @@
         html += section('brand', 'برند، اسپانسر و زبان صفحات عمومی', 'لوگو و رنگ سازمان مشتری روی تابلو نمایش داده می‌شود.',
             `<div class="adv-grid2">
                 <label class="adv-label">لوگوی سازمان مشتری (آدرس تصویر یا انتخاب فایل)</label>
-                <div class="adv-row"><input type="text" class="adv-client-logo" dir="ltr" value="${attr(b.clientLogo || '')}" placeholder="https://..."><input type="file" accept="image/*" class="adv-file" data-target="adv-client-logo"></div>
+                <div class="adv-row"><input type="text" class="adv-client-logo" dir="ltr" value="${attr(b.clientLogo || '')}" placeholder="https://..."><label class="file-pick"><input type="file" accept="image/*" class="adv-file" data-target="adv-client-logo">📷 انتخاب فایل <span class="file-name"></span></label></div>
                 <label class="adv-label">تصویر پس‌زمینه تابلو</label>
-                <div class="adv-row"><input type="text" class="adv-bg" dir="ltr" value="${attr(b.background || '')}" placeholder="https://..."><input type="file" accept="image/*" class="adv-file" data-target="adv-bg"></div>
+                <div class="adv-row"><input type="text" class="adv-bg" dir="ltr" value="${attr(b.background || '')}" placeholder="https://..."><label class="file-pick"><input type="file" accept="image/*" class="adv-file" data-target="adv-bg">📷 انتخاب فایل <span class="file-name"></span></label></div>
                 <label class="adv-label">رنگ سازمانی</label><input type="color" class="adv-accent" value="${attr(/^#[0-9a-f]{6}$/i.test(b.accent || '') ? b.accent : '#7c3aed')}"><label class="adv-inline"><input type="checkbox" class="adv-accent-on" ${b.accent ? 'checked' : ''}> استفاده از رنگ سازمانی</label>
                 <label class="adv-label">نام اسپانسر / حامی</label><input type="text" class="adv-sponsor" value="${attr(b.sponsor || '')}">
                 <label class="adv-label">زبان مسابقه (تابلو، صفحات عمومی و پیش‌فرض پنل‌ها)</label><select class="adv-lang" translate="no">${[['fa', 'فارسی'], ['en', 'English'], ['ar', 'العربية']].map(([v, n]) => `<option value="${v}" ${(cfg.uiLang || 'fa') === v ? 'selected' : ''}>${n}</option>`).join('')}</select>

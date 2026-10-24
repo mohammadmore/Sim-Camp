@@ -64,7 +64,7 @@
         const parts = [];
         if (s.timer && Feat.shown(s, 'judgeTimer')) {
             const ms = Feat.timerRemaining(s.timer);
-            parts.push(`<span class="fj-chip ${ms < 60000 ? 'urgent' : ''}">⏱ ${s.timer.label ? esc(s.timer.label) + ' · ' : ''}<b dir="ltr">${Feat.fmtClock(ms, lang())}</b>${s.timer.running ? '' : ' ⏸'}</span>`);
+            parts.push(`<span class="fj-chip ${ms < 60000 ? 'urgent' : ''}">⏱ ${s.timer.label ? `<span>${esc(s.timer.label)}</span>` : ''}<b dir="ltr">${Feat.fmtClock(ms, lang())}</b>${s.timer.running ? '' : ' ⏸'}</span>`);
         }
         const rem = Feat.shown(s, 'judgeRemaining') ? remainingInActiveStage() : null;
         if (rem) parts.push(rem.left
@@ -76,7 +76,7 @@
         let dismissed = null;
         try { dismissed = sessionStorage.getItem('jm_seen_' + campId); } catch (e) { /* ignore */ }
         if (msg && Feat.shown(s, 'judgeMessages') && String(msg.at) !== dismissed) {
-            parts.push(`<span class="fj-msg">💬 <b>${esc(msg.by || 'اپراتور')}:</b> ${esc(msg.text)} <button type="button" onclick="OPF.dismissMessage(${msg.at})" aria-label="بستن پیام">✕</button></span>`);
+            parts.push(`<div class="fj-msg"><span class="fj-msg-text">💬 <b>${esc(msg.by || 'اپراتور')}:</b> ${esc(msg.text)}</span><button type="button" onclick="OPF.dismissMessage(${msg.at})" aria-label="بستن پیام">✕</button></div>`);
         }
         const html = parts.join('');
         if (el.dataset.html !== html) { el.innerHTML = html; el.dataset.html = html; }
@@ -98,8 +98,9 @@
                 `<button type="button" class="fj-player" data-member="${esc(m.id)}">${esc(m.name)}${m.role ? ` <small>${esc(m.role)}</small>` : ''}</button>`).join('')}</div>`;
         }
         if (Feat.on(s, 'appeals')) html += `<button type="button" class="fj-appeal" onclick="OPF.fileAppeal(${jsArg(team.id)})">⚖️ ثبت اعتراض درباره این تیم</button>`;
-        if (Feat.shown(s, 'notes')) html += `<div class="fj-hold-hint">برای افزودن یادداشت یا عکس، دکمه «ثبت» را نگه دارید.</div>`;
         el.innerHTML = html;
+        const noteBtn = document.getElementById('fjNoteBtn');
+        if (noteBtn) noteBtn.style.display = Feat.shown(s, 'notes') ? '' : 'none';
         el.querySelectorAll('.fj-player').forEach(b => b.onclick = () => {
             const on = !b.classList.contains('active');
             el.querySelectorAll('.fj-player').forEach(x => x.classList.remove('active'));
@@ -137,7 +138,7 @@
     function openNoteDialog() {
         const m = toolModal('یادداشت و عکس برای این امتیاز', `
             <textarea id="fjNoteText" rows="3" class="settings-input" placeholder="مثلاً: کمک به تیم مقابل بعد از زمین خوردن" maxlength="300"></textarea>
-            <label class="adv-label">عکس (اختیاری)</label><input type="file" id="fjNotePhoto" accept="image/*" capture="environment">
+            <label class="adv-label">عکس (اختیاری)</label><label class="file-pick"><input type="file" id="fjNotePhoto" accept="image/*" capture="environment">📷 انتخاب فایل <span class="file-name"></span></label>
             <div class="manage-row" style="margin-top:12px"><button type="button" class="manage-primary" id="fjNoteSave">ثبت امتیاز با یادداشت</button></div>`);
         m.querySelector('#fjNoteSave').onclick = async () => {
             const note = m.querySelector('#fjNoteText').value.trim();
@@ -148,6 +149,8 @@
             if (typeof submitFjScore === 'function') submitFjScore();
         };
     }
+
+    O.openNote = openNoteDialog;
 
     // Multi-criteria stage scores: the stage value is the weighted sum (shown read-only).
     O.criteriaFor = function (stage) {
@@ -202,7 +205,7 @@
             m.id = 'opToolModal';
             m.className = 'modal-overlay';
             m.style.zIndex = '10400';
-            m.innerHTML = `<div class="modal-content glass manage-content"><span class="close-btn" title="بستن" onclick="document.getElementById('opToolModal').style.display='none'">&times;</span><h2 class="tool-title" style="margin-top:0"></h2><div class="tool-body"></div></div>`;
+            m.innerHTML = `<div class="modal-content glass manage-content"><button type="button" class="close-btn" title="بستن" onclick="document.getElementById('opToolModal').style.display='none'">&times;</button><h2 class="tool-title" style="margin-top:0"></h2><div class="tool-body"></div></div>`;
             m.addEventListener('click', e => { if (e.target === m) m.style.display = 'none'; });
             document.body.appendChild(m);
         }
@@ -330,9 +333,9 @@
                 const sid = m.querySelector('#jsStage').value;
                 const since = Feat.now() - 30 * 60000;
                 const recent = u => (s.teams || []).reduce((n, t) => n + (t.scoreLogs || []).filter(l => l.type === 'instant' && l.user && l.user.username === u && (l.createdAt || l.timestamp) > since).length, 0);
-                m.querySelector('#jsTable').innerHTML = `<div class="tool-table-wrap"><table class="tool-table"><thead><tr><th>داور</th>${(s.teams || []).map(t => `<th>${esc(t.name)}</th>`).join('')}<th>میدانی (۳۰ دقیقه)</th></tr></thead><tbody>${refs.map(u => {
+                m.querySelector('#jsTable').innerHTML = `<div class="tool-table-wrap scroll-x"><table class="tool-table sticky-first"><thead><tr><th>داور</th>${(s.teams || []).map(t => `<th class="wrap-name">${esc(t.name)}</th>`).join('')}<th class="wrap-name">میدانی (۳۰ دقیقه)</th></tr></thead><tbody>${refs.map(u => {
                     const a = cfg.assignments[u.username];
-                    return `<tr><th>${esc(u.name)}</th>${(s.teams || []).map(t => {
+                    return `<tr><th class="wrap-name">${esc(u.name)}</th>${(s.teams || []).map(t => {
                         const mine = a && a.teams.length && !a.teams.includes(t.id);
                         const done = ((t.judgeStageScores || {})[sid] || {})[u.username];
                         return `<td class="${done ? 'ok' : (mine ? 'na' : 'wait')}">${done ? '✓' : (mine ? '' : '—')}</td>`;
@@ -350,7 +353,7 @@
             const m = toolModal('اعتراض‌ها (VAR)', list.map(a => `
                 <section class="manage-section appeal ${a.status}"><div class="manage-row" style="justify-content:space-between"><b>${esc(teamName(a.teamId))}</b>
                 <span class="manage-badge">${{ open: 'در حال بررسی', accepted: 'پذیرفته شد', rejected: 'رد شد' }[a.status]}</span></div>
-                <p>${esc(a.text)}</p><p class="manage-note">ثبت: ${esc(a.by.name)} · ${esc(new Date(a.at).toLocaleTimeString(I18N.locale))}${a.resolution ? ' · پاسخ: ' + esc(a.resolution) : ''}</p>
+                <p>${esc(a.text)}</p><p class="manage-note">ثبت: ${esc(a.by.name)}، ${esc(new Date(a.at).toLocaleTimeString(I18N.locale))}${a.resolution ? '، پاسخ: ' + esc(a.resolution) : ''}</p>
                 ${a.status === 'open' ? `<div class="manage-row"><input type="text" class="ap-res" placeholder="توضیح (اختیاری)"><button type="button" class="manage-primary" data-ap="${esc(a.id)}" data-st="accepted">پذیرفتن</button><button type="button" class="manage-danger" data-ap="${esc(a.id)}" data-st="rejected">رد</button></div>` : ''}
                 </section>`).join('') || '<p class="manage-note">اعتراضی ثبت نشده است.</p>');
             m.querySelectorAll('[data-ap]').forEach(b => b.onclick = () => {
@@ -382,7 +385,7 @@
         const s = O.state;
         const opts = (s.teams || []).map(t => `<option value="${esc(t.id)}">${esc(t.name)}</option>`).join('');
         const m = toolModal('بودجه تیم‌ها', `
-            <div class="tool-table-wrap"><table class="tool-table"><tbody>${(s.teams || []).map(t => `<tr><th>${esc(t.name)}</th><td>💰 ${N(t.budget || 0)}</td></tr>`).join('')}</tbody></table></div>
+            <div class="tool-table-wrap"><table class="tool-table tool-budget"><tbody>${(s.teams || []).map(t => `<tr><th class="wrap-name">${esc(t.name)}</th><td>💰 <b>${N(t.budget || 0)}</b></td></tr>`).join('')}</tbody></table></div>
             <section class="manage-section"><h3>افزایش / کاهش</h3><div class="manage-row"><select id="bgTeam">${opts}</select><input type="text" inputmode="decimal" id="bgDelta" placeholder="مبلغ (منفی = کسر)" size="10"><input type="text" id="bgNote" placeholder="بابت"><button type="button" class="manage-primary" id="bgSave">ثبت</button></div></section>
             <section class="manage-section"><h3>انتقال بین تیم‌ها</h3><div class="manage-row"><select id="bgFrom">${opts}</select> ← <select id="bgTo">${opts}</select><input type="text" inputmode="decimal" id="bgAmount" placeholder="مبلغ" size="8"><button type="button" id="bgTransfer">انتقال</button></div></section>
             <p class="manage-note">بودجه جدا از امتیاز است و در امتیاز کل حساب نمی‌شود.</p>`);
@@ -396,7 +399,7 @@
         const s = O.state;
         const label = { draft: 'پیش‌نویس', open: 'باز — تیم‌ها در حال انتخاب', closed: 'بسته' };
         const m = toolModal('دورهای تصمیم‌گیری', (s.rounds || []).map(r => `
-            <section class="manage-section"><div class="manage-row" style="justify-content:space-between"><b>${esc(r.title)}</b><span class="manage-badge">${label[r.status]}${r.revealed ? ' · روی تابلو' : ''}</span></div>
+            <section class="manage-section"><div class="manage-row" style="justify-content:space-between"><b>${esc(r.title)}</b><span class="manage-badge">${label[r.status]}${r.revealed ? '، روی تابلو' : ''}</span></div>
             <p class="manage-note">${esc(r.question || '')} — ${N(r.submitted)} از ${N((s.teams || []).length)} تیم انتخاب کرده‌اند.</p>
             <div class="manage-row">
                 ${r.status !== 'open' ? `<button type="button" class="manage-primary" data-r="${esc(r.id)}" data-op="open">باز کردن</button>` : ''}
