@@ -2668,3 +2668,15 @@ input[type="file"]::file-selector-button {
 
 @media print { body::before, body::after { display: none !important; } }
 .modal-content[tabindex="-1"]:focus { outline: none; }
+
+/* Touch screens: small links and toggles get a comfortable tap area */
+@media (pointer: coarse) {
+    .team-stages-summary { display: inline-flex; align-items: center; min-height: 32px; padding: 2px 6px; }
+    .stage-view-btn, .dnf-minus-btn, .stage-dnf-toggle-btn { min-height: 36px; min-width: 36px; }
+}
+/* The full-screen camp form and toasts cover the corner controls / connection pill instead of fighting them */
+body:has(#setupModal[style*="flex"]) .theme-toggle,
+body:has(#setupModal[style*="flex"]) .lang-picker.lang-fixed,
+body:has(#setupModal[style*="block"]) .theme-toggle,
+body:has(#setupModal[style*="block"]) .lang-picker.lang-fixed,
+body:has(.floating-toast) .conn-status { display: none; }
