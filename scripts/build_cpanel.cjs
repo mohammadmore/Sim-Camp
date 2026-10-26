@@ -113,6 +113,7 @@ function pollBoardState() {
         ConnectionStatus.ok();
         if (!state) return;
         latestState = state;
+        if (window.DRAWBOARD) DRAWBOARD.update(latestState); // live team draw (before renderBoard sorts the teams)
         let maxTime = lastSeenLogTime;
         (state.teams || []).forEach(t => {
             (Array.isArray(t.scoreLogs) ? t.scoreLogs : []).forEach(log => {
@@ -163,6 +164,7 @@ const boardPollTimer = setInterval(pollBoardState, 1500);
 }`;
 if (!sseBlockRegex.test(board)) throw new Error('board.html: EventSource block not found; update scripts/build_cpanel.cjs');
 board = board.replace(sseBlockRegex, pollingReplacement);
+if (!board.includes('DRAWBOARD.update(')) throw new Error('board.html: the live draw hook is missing after the SSE replacement');
 assertNoAbsoluteApiUrls('board.html', board);
 fs.writeFileSync(path.join(OUT, 'board.html'), board, 'utf8');
 console.log('✓ board.html (SSE replaced with polling)');

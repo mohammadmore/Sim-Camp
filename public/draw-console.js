@@ -73,17 +73,19 @@
         const at = r => { const seedRaw = cell(r, sc); return { name: cell(r, nc), seedRaw, seed: parseSeed(seedRaw) }; };
         const ok = x => !!x.name && x.seed != null && x.seed <= MAX_SEED;
         const people = [], skipped = [];
-        let header = null;
+        let header = null, headerChecked = false;
         for (let r = 0; r < rows.length; r++) {
             const x = at(r);
             if (!x.name && !x.seedRaw) continue;
             const row = base + r + 1;
-            // Header row: before any participant, the seed cell is text (not a number) and the next
-            // non-empty row is a valid participant. Anything else is reported, never dropped silently.
-            if (!header && !people.length && x.seedRaw && x.seed == null) {
+            // Header row: the first row whose seed cell is text (not a number), if it comes before any
+            // participant and the next non-empty row is a valid participant. Anything else is reported
+            // as a skipped row, never dropped silently.
+            if (!headerChecked && x.seedRaw && x.seed == null && !/^[-+]?[\d۰-۹٠-٩.,٫\s]+$/.test(x.seedRaw)) {
+                headerChecked = true;
                 let n = r + 1;
                 while (n < rows.length) { const y = at(n); if (y.name || y.seedRaw) break; n++; }
-                if (n < rows.length && ok(at(n))) { header = { row, text: [x.name, x.seedRaw].filter(Boolean).join(' | ') }; continue; }
+                if (!people.length && n < rows.length && ok(at(n))) { header = { row, text: [x.name, x.seedRaw].filter(Boolean).join(' | ') }; continue; }
             }
             if (!x.name) { skipped.push({ row, name: '', reason: 'نام خالی است' }); continue; }
             if (x.seed == null) { skipped.push({ row, name: x.name, reason: 'سید معتبر نیست' }); continue; }
@@ -557,7 +559,7 @@
     function renderPots() {
         const d = D.draw, pots = potsOf(d, placedIds());
         $('.dr-pots').innerHTML = pots.map(p => `<button type="button" class="dr-pot${p.seed === d.curPot ? ' act' : ''}${p.remaining === 0 ? ' done' : ''}" data-pot="${p.seed}" aria-pressed="${p.seed === d.curPot}">
-            <span>${E(potName(d, p.seed))}</span> <b>${fmt(p.remaining)}</b><small>/${fmt(p.total)}</small></button>`).join('')
+            <span>${E(potName(d, p.seed))}</span> <bdi dir="ltr"><b>${fmt(p.remaining)}</b><small>/${fmt(p.total)}</small></bdi></button>`).join('')
             || '<p class="manage-note">—</p>';
     }
 
@@ -598,10 +600,17 @@
         renderPicker();
     }
 
+    // Fewest placements among the teams that are not full; -1 when it would mark every open team.
+    function hintMin(c, cap) {
+        const open = D.teams.filter(t => c[t.id] < cap).map(t => c[t.id]);
+        if (!open.length) return -1;
+        const min = Math.min(...open);
+        return open.every(n => n === min) && open.length > 1 ? -1 : min;
+    }
+
     function renderPicker() {
         const d = D.draw, cap = capacityOf(d, D.teams), c = countsOf(d, D.teams);
-        const open = D.teams.filter(t => c[t.id] < cap).map(t => c[t.id]);
-        const min = open.length ? Math.min(...open) : -1;
+        const min = hintMin(c, cap);
         const matches = new Set(UI.matches.map(t => t.id));
         $('.dr-picker').innerHTML = D.teams.map((t, i) => {
             const full = c[t.id] >= cap;
@@ -623,8 +632,7 @@
 
     function boardHtml(editable) {
         const d = D.draw, cap = capacityOf(d, D.teams), c = countsOf(d, D.teams);
-        const open = D.teams.filter(t => c[t.id] < cap).map(t => c[t.id]);
-        const min = open.length && editable ? Math.min(...open) : -1;
+        const min = editable ? hintMin(c, cap) : -1;
         const byId = new Map(d.people.map(p => [p.id, p]));
         const byTeam = {};
         validPlaced(d, D.teams).forEach(x => { (byTeam[x.team] = byTeam[x.team] || []).push(x); });
