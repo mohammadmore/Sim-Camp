@@ -737,7 +737,7 @@
         const tq = $('#drTeamQ'); if (tq) tq.value = '';
         renderSel();
         const card = $('.dr-sel');
-        if (card && card.scrollIntoView && window.innerWidth < 900) card.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+        if (card && card.scrollIntoView) card.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
         if (tq) tq.focus({ preventScroll: true });
     }
     function cancelSel() {

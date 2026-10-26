@@ -1,9 +1,9 @@
 // Service worker: keeps the app shell available offline. API calls are never cached.
-const CACHE = 'simcamp-shell-v4';
+const CACHE = 'simcamp-shell-v5';
 const MEDIA_CACHE = 'simcamp-media-v1';
 const SHELL = [
     './', 'operator.html', 'board.html', 'superadmin.html', 'results.html', 'team.html', 'live.html', 'analysis.html',
-    'style.css?v=14', 'i18n.js', 'lang/en.js', 'lang/ar.js', 'common.js', 'features.js', 'advanced.js', 'operator-features.js', 'tooltip.js', 'validateRealTime.js?v=5',
+    'style.css?v=14', 'i18n.js', 'lang/en.js', 'lang/ar.js', 'common.js', 'features.js', 'advanced.js', 'operator-features.js', 'draw-console.js', 'draw-board.js', 'tooltip.js', 'validateRealTime.js?v=5',
     'favicon.svg', 'favicon.png', 'icon-192.png', 'manifest.webmanifest',
     'vendor/lucide-1.61.0.min.js', 'vendor/canvas-confetti-1.9.4.js', 'vendor/html2canvas-1.4.1.min.js',
     'vendor/qrcode-generator-1.4.4.js', 'vendor/vazirmatn/Vazirmatn-font-face.css',
