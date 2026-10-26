@@ -134,6 +134,7 @@
     <script src="common.js"></script>
     <script src="features.js"></script>
     <script src="vendor/canvas-confetti-1.9.4.js"></script>
+    <script src="draw-board.js"></script>
     <script>
         const savedTheme = localStorage.getItem('theme') || 'light';
         document.documentElement.setAttribute('data-theme', savedTheme);
@@ -430,6 +431,7 @@ evtSource.onmessage = function(e) {
     if (e.data === ':') return;
     ConnectionStatus.ok();
     latestState = JSON.parse(e.data);
+    if (window.DRAWBOARD) DRAWBOARD.update(latestState); // live team draw (before renderBoard sorts the teams)
     if (splashQueue.length === 0 && !isSplashing) {
         renderBoard(latestState);
     }

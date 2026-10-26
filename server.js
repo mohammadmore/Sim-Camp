@@ -14,7 +14,7 @@ import {
 } from './lib/campLogic.js';
 import {
     parseExtras, effectiveDisplay, effectiveFeatures, maskNotify, ensurePins, cleanMembers, cleanCriteria, cleanSchedule,
-    cleanDisplay, cleanSkills, cleanNotify, cleanLeagues, newKey, templateFromCamp,
+    cleanDisplay, cleanSkills, cleanNotify, cleanLeagues, newKey, templateFromCamp, drawPublic,
     DISPLAY_KEYS, FEATURE_KEYS, DISPLAY_PRESETS, DEFAULT_SKILLS, DEFAULT_TAG_SKILLS, TAG_PACKS, BUILTIN_TEMPLATES
 } from './lib/features.js';
 import { notifyChannels, notifyHeading, standingsText } from './lib/notify.js';
@@ -230,7 +230,7 @@ function publicState(camp, view = 'public') {
     const member = view === 'member';
     const {
         password, users, auditLog, deletedAt, clientKey, ownerId, notify, assignments, chanceCards, judgeMessage,
-        appeals, moments, decisions, rounds, registration, calibration, scoreCap, frozen, ...rest
+        appeals, moments, decisions, rounds, registration, calibration, scoreCap, frozen, draw, ...rest
     } = camp;
     const display = effectiveDisplay(camp.display);
     const masked = frozen && !member;
@@ -247,6 +247,9 @@ function publicState(camp, view = 'public') {
             decisions: r.revealed ? Object.fromEntries(Object.entries(decisions[r.id] || {}).map(([tid, d]) => [tid, d.optionId])) : undefined
         }))
     };
+    // The team draw is shown (as a summary without the names still in the pots) only while it is live.
+    const drawView = drawPublic(draw, camp.teams);
+    if (drawView) out.draw = drawView;
     if (masked) { out.closedStages = frozen.closedStages || {}; out.stageTieredResults = frozen.stageTieredResults || {}; }
     if (member) {
         out.judgeMessage = judgeMessage;

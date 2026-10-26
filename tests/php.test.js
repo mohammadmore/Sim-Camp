@@ -31,7 +31,7 @@ function phpPath(method, p) {
         '/superadmin/trash': 'superadmin_trash', '/superadmin/backup': 'superadmin_backup', '/superadmin/import': 'superadmin_import',
         '/api/manage': 'manage', '/api/advanced': 'advanced', '/api/live': 'live', '/api/appeal': 'appeal', '/api/appeal/resolve': 'appeal_resolve',
         '/api/chance': 'chance', '/api/budget': 'budget', '/api/rounds': 'rounds', '/api/bracket': 'bracket', '/api/peer': 'peer',
-        '/api/undo': 'undo', '/api/team': 'team', '/api/calibration': 'calibration', '/api/register': 'register',
+        '/api/undo': 'undo', '/api/draw': 'draw', '/api/team': 'team', '/api/calibration': 'calibration', '/api/register': 'register',
         '/api/register/review': 'register_review', '/api/analysis': 'analysis', '/api/league': 'league', '/api/time': 'time',
         '/superadmin/me': 'superadmin_me', '/superadmin/settings': 'superadmin_settings', '/superadmin/templates': 'superadmin_templates',
         '/superadmin/organizers': 'superadmin_organizers', '/superadmin/org_password': 'superadmin_org_password', '/superadmin/leagues': 'superadmin_leagues'

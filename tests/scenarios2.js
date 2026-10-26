@@ -476,4 +476,156 @@ export function registerFeatureScenarios(ctx) {
         const a = (await call('GET', `/api/analysis?id=${campId}`, undefined, op)).json;
         assert.ok(a.teams.every(t => t.records.length === 0));
     });
+
+    test('features: team draw (قرعه‌کشی) fills the teams with members', async () => {
+        const draw = (body, token = op) => call('POST', `/api/draw?id=${campId}`, body, token);
+        const manage = async () => (await call('GET', `/api/manage?id=${campId}`, undefined, op)).json;
+        const members = (m, tid) => m.teams.find(t => t.id === tid).members;
+        const people = [
+            { name: '  Ali   Reza ', seed: 1, row: 2 }, { name: 'Bita', seed: 1 }, { name: 'Cyrus', seed: '1' }, { name: 'Dara', seed: 1 },
+            { name: 'Elham', seed: 2 }, { name: 'Farid', seed: 2 }, { name: 'Golnar', seed: 2 }, { name: 'Zed Unplaced', seed: 2 },
+            { name: 'Hamid', seed: 3 }, { name: 'Iran', seed: 3 },
+            { name: '   ', seed: 1 }, { name: 'Bad seed', seed: 'x' }, { name: 'Negative', seed: -1 }, { name: 'Big', seed: 1000 }
+        ];
+        // The feature is off by default.
+        let r = await draw({ op: 'setup', people });
+        assert.equal(r.status, 409);
+        assert.equal(r.json.success, false);
+        let m = await manage();
+        assert.equal(m.draw, null);
+        await call('POST', `/api/advanced?id=${campId}`, { features: { ...m.features, draw: true } }, op);
+        assert.equal((await poll()).json.features.draw, true);
+        const teamIds = (await poll()).json.teams.map(t => t.id);
+        assert.equal(teamIds.length, 4);
+        const before = Object.fromEntries(m.teams.map(t => [t.id, t.members]));
+
+        // Setup: validation and cleaning.
+        assert.equal((await draw({ op: 'setup', people }, ref1)).status, 403, 'referees cannot run the draw');
+        r = await draw({ op: 'setup', people: Array.from({ length: 3001 }, (_, i) => ({ name: 'P' + i, seed: 1 })) });
+        assert.equal(r.status, 400);
+        assert.equal((await draw({ op: 'setup', people: [{ name: '', seed: 1 }] })).status, 400);
+        r = await draw({ op: 'setup', people, title: 'Opening draw', potNames: { 2: 'Pot B' }, fileName: 'list.xlsx' });
+        assert.equal(r.json.success, true, r.text);
+        let d = r.json.draw;
+        assert.equal(d.status, 'setup');
+        assert.equal(d.live, false);
+        assert.equal(d.title, 'Opening draw');
+        assert.equal(d.people.length, 10, 'empty names and bad seeds are dropped');
+        assert.equal(d.people[0].name, 'Ali Reza');
+        assert.equal(d.people[0].row, 2);
+        assert.equal(d.people[2].seed, 1);
+        assert.equal(new Set(d.people.map(p => p.id)).size, 10);
+        assert.deepEqual(d.potNames, { 1: 'گلدان ۱', 2: 'Pot B', 3: 'گلدان ۳' });
+        assert.equal(d.curPot, 1);
+        assert.deepEqual(d.placed, []);
+        const pid = Object.fromEntries(d.people.map(p => [p.name, p.id]));
+
+        // Settings: capacity at or below the automatic one is "automatic"; hold time is clamped.
+        r = await draw({ op: 'settings', capacity: 2, holdMs: 99999, auto: true });
+        assert.equal(r.json.draw.capacity, null);
+        assert.equal(r.json.draw.settings.holdMs, 8000);
+        assert.equal(r.json.draw.settings.auto, true);
+        r = await draw({ op: 'settings', capacity: 5 });
+        assert.equal(r.json.draw.capacity, 5);
+        r = await draw({ op: 'settings', capacity: null, holdMs: 2000, potNames: { 1: 'Pot A' } });
+        assert.equal(r.json.draw.capacity, null);
+        assert.equal(r.json.draw.potNames['1'], 'Pot A');
+
+        r = await draw({ op: 'start' });
+        assert.equal(r.json.draw.status, 'running');
+        assert.ok(!('draw' in (await poll()).json), 'not public while the draw is not live');
+        assert.equal((await manage()).draw.status, 'running');
+
+        // Placing (capacity = ceil(10 / 4) = 3).
+        r = await draw({ op: 'place', pid: pid['Ali Reza'], team: 't_c' });
+        assert.equal(r.json.success, true, r.text);
+        assert.deepEqual([r.json.placement.team, r.json.placement.s, r.json.placement.o], ['t_c', 0, 1]);
+        assert.equal((await draw({ op: 'place', pid: pid['Ali Reza'], team: 't_a' })).status, 409, 'no duplicates');
+        assert.equal((await draw({ op: 'place', pid: pid.Bita, team: 'nope' })).status, 404);
+        assert.equal((await draw({ op: 'place', pid: 999, team: 't_a' })).status, 404);
+        await draw({ op: 'place', pid: pid.Bita, team: 't_c' });
+        r = await draw({ op: 'place', pid: pid.Cyrus, team: 't_c' });
+        assert.equal(r.json.placement.s, 2);
+        assert.equal((await draw({ op: 'place', pid: pid.Dara, team: 't_c' })).status, 409, 'team is full');
+        r = await draw({ op: 'place', pid: pid.Dara, team: 't_a' });
+        assert.equal(r.json.draw.curPot, 2, 'empty pot moves on to the next one');
+        m = await manage();
+        assert.deepEqual(members(m, 't_c').map(x => x.id), [`dm_${pid['Ali Reza']}`, `dm_${pid.Bita}`, `dm_${pid.Cyrus}`]);
+        assert.deepEqual(members(m, 't_c')[0], { id: `dm_${pid['Ali Reza']}`, name: 'Ali Reza', seed: 1, source: 'draw' });
+        assert.deepEqual(members(m, 't_a').slice(0, before.t_a.length), before.t_a, 'manual members are untouched');
+        assert.equal(members(m, 't_a').at(-1).id, `dm_${pid.Dara}`);
+
+        // Auto: the team with the fewest placements (earlier team on a tie).
+        r = await draw({ op: 'auto', pid: pid.Elham });
+        assert.equal(r.json.placement.team, 't_b');
+        assert.ok(members(await manage(), 't_b').some(x => x.id === `dm_${pid.Elham}`));
+
+        // Remove and undo take the member out again.
+        r = await draw({ op: 'remove', pid: pid.Elham });
+        assert.equal(r.json.draw.curPot, 2);
+        assert.ok(!members(await manage(), 't_b').some(x => x.id === `dm_${pid.Elham}`));
+        assert.deepEqual(members(await manage(), 't_b'), before.t_b);
+        r = await draw({ op: 'undo' });
+        assert.ok(!r.json.draw.placed.some(x => x.pid === pid.Dara));
+        assert.equal(r.json.draw.curPot, 1);
+        assert.deepEqual(members(await manage(), 't_a'), before.t_a);
+
+        // Rename also renames the member.
+        r = await draw({ op: 'rename', pid: pid['Ali Reza'], name: 'Ali R.' });
+        assert.equal(r.json.draw.people.find(p => p.id === pid['Ali Reza']).name, 'Ali R.');
+        assert.equal(members(await manage(), 't_c')[0].name, 'Ali R.');
+        r = await draw({ op: 'pot', seed: 3 });
+        assert.equal(r.json.draw.curPot, 3);
+        assert.equal((await draw({ op: 'pot', seed: 9 })).status, 404);
+        r = await draw({ op: 'add', name: 'New One', seed: 7 });
+        assert.equal(r.json.draw.people.length, 11);
+        assert.equal(r.json.draw.potNames['7'], 'گلدان ۷');
+
+        // Live: the public state carries a summary without the names still in the pots.
+        r = await draw({ op: 'live', on: true });
+        assert.equal(r.json.draw.live, true);
+        const pub = (await poll()).json;
+        assert.deepEqual(Object.keys(pub.draw).sort(), ['cap', 'holdMs', 'live', 'placed', 'placedCount', 'pot', 'title', 'total'].sort());
+        assert.deepEqual([pub.draw.live, pub.draw.title, pub.draw.cap, pub.draw.total, pub.draw.placedCount, pub.draw.pot, pub.draw.holdMs],
+            [true, 'Opening draw', 3, 11, 3, 'گلدان ۳', 2000]);
+        assert.deepEqual(pub.draw.placed.map(x => [x.team, x.s, x.name]), [['t_c', 0, 'Ali R.'], ['t_c', 1, 'Bita'], ['t_c', 2, 'Cyrus']]);
+        assert.ok(!JSON.stringify(pub).includes('Zed Unplaced'), 'unplaced names stay private');
+        assert.equal((await poll(ref1)).json.draw.placedCount, 3);
+
+        // Finish keeps the members; a finished draw takes no more placements until it is reopened.
+        r = await draw({ op: 'finish' });
+        assert.deepEqual([r.json.draw.status, r.json.draw.live], ['done', false]);
+        assert.ok(!('draw' in (await poll()).json));
+        assert.equal(members(await manage(), 't_c').length, 3);
+        assert.equal((await draw({ op: 'place', pid: pid.Farid, team: 't_b' })).status, 409);
+        assert.equal((await draw({ op: 'start' })).json.draw.status, 'running');
+        assert.equal((await draw({ op: 'setup', people })).status, 409, 'a draw with results is reset first');
+
+        // Reset removes the draw's members only.
+        r = await draw({ op: 'reset' });
+        assert.deepEqual([r.json.draw.placed.length, r.json.draw.order, r.json.draw.curPot, r.json.draw.status], [0, 0, 1, 'running']);
+        m = await manage();
+        for (const t of m.teams) assert.deepEqual(t.members, before[t.id]);
+
+        // Clear deletes the draw; the members stay, and a new draw never reuses their ids.
+        await draw({ op: 'place', pid: pid.Bita, team: 't_a' });
+        // A placement can also be undone from the history (draw and members together).
+        const entry = (await call('GET', `/api/audit?id=${campId}`, undefined, op)).json.entries.find(e => e.action === 'draw');
+        assert.ok(entry.canUndo);
+        assert.equal((await call('POST', `/api/undo?id=${campId}`, { auditId: entry.id }, op)).json.success, true);
+        m = await manage();
+        assert.equal(m.draw.placed.length, 0);
+        assert.deepEqual(m.draw.potNames, { 1: 'Pot A', 2: 'Pot B', 3: 'گلدان ۳', 7: 'گلدان ۷' });
+        assert.deepEqual(members(m, 't_a'), before.t_a);
+        await draw({ op: 'place', pid: pid.Bita, team: 't_a' });
+        r = await draw({ op: 'clear' });
+        assert.equal(r.json.draw, null);
+        m = await manage();
+        assert.equal(m.draw, null);
+        assert.equal(members(m, 't_a').at(-1).id, `dm_${pid.Bita}`);
+        r = await draw({ op: 'setup', people: people.slice(0, 3) });
+        assert.ok(r.json.draw.people.every(p => p.id > pid.Bita));
+        assert.equal((await draw({ op: 'place', pid: r.json.draw.people[0].id, team: 't_b' }, ref1)).status, 403);
+        await draw({ op: 'clear' });
+    });
 }

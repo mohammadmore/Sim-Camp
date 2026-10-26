@@ -24,6 +24,7 @@
         O.state = data;
         renderJudgeStrip();
         renderControlStrip();
+        if (window.DRAW && data !== prev) DRAW.onState(data);
         // Assignment changes re-draw the referee grids.
         if (prev && JSON.stringify(prev.assignments || {}) !== JSON.stringify(data.assignments || {})) {
             if (typeof renderFjOrbs === 'function' && typeof fjSelectedTeamId !== 'undefined' && !fjSelectedTeamId) try { renderFjOrbs(); } catch (e) { /* not open */ }
@@ -247,6 +248,7 @@
         if (f('decisions')) html += btn('rounds', '🗳', 'تصمیم‌گیری');
         if (f('bracket')) html += btn('bracket', '🏁', 'جدول حذفی');
         if (f('peerReview')) html += btn('peer', '🤝', 'رأی هم‌تیمی', s.peerReview && s.peerReview.open ? 'active' : '');
+        if (f('draw')) html += btn('draw', '🎲', 'قرعه‌کشی', s.draw && s.draw.live ? 'active' : '');
         if (f('registration')) html += btn('registrations', '📝', 'ثبت‌نام‌ها' + (regs ? ` <b class="ctl-badge">${N(regs)}</b>` : ''));
         html += `<a class="ctl-btn" href="analysis.html?id=${encodeURIComponent(campId)}#t=${encodeURIComponent(Auth.get())}" target="_blank" rel="noopener">📊 <span>اتاق آنالیز</span></a>`;
         if (el.dataset.html !== html) { el.innerHTML = html; el.dataset.html = html; }
@@ -449,6 +451,9 @@
         const c = m.querySelector('#prClose');
         if (c) c.onclick = () => api('peer', { open: null }).then(() => { toast('رأی‌گیری بسته شد.'); m.style.display = 'none'; }).catch(fail);
     };
+
+    // Live team draw: full console in draw-console.js.
+    TOOLS.draw = () => window.DRAW ? DRAW.open() : toast('بخش قرعه‌کشی بارگذاری نشده است.', 'error');
 
     TOOLS.registrations = function () {
         loadManage().then(cfg => {

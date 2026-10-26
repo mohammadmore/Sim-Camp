@@ -8,7 +8,8 @@ import {
 import {
     LIMITS, cleanDisplay, cleanFeatures, cleanSkills, cleanTagSkills, cleanNamedList, cleanRoles, cleanMembers,
     cleanSecretCards, cleanCriteria, cleanAssignments, cleanScoreCap, cleanChanceCards, cleanRounds,
-    cleanCalibrationCases, cleanBrand, cleanSchedule, cleanCertificate, effectiveFeatures, ensurePins, newPin, str
+    cleanCalibrationCases, cleanBrand, cleanSchedule, cleanCertificate, effectiveFeatures, ensurePins, newPin, str, bool,
+    DRAW_DEFAULT_TITLE, defaultPotName, drawName, drawSeed, drawSeeds, drawCapacity, drawPlacements
 } from '../lib/features.js';
 import { applyUndo } from '../lib/undo.js';
 import { createRateLimiter } from '../lib/auth.js';
@@ -53,6 +54,7 @@ export function registerFeatureRoutes(app, ctx) {
             divisions: camp.divisions, roles: camp.roles, assignments: camp.assignments, scoreCap: camp.scoreCap,
             chanceCards: camp.chanceCards, rounds: camp.rounds, decisions: camp.decisions, appeals: camp.appeals,
             registration: camp.registration, peerReview: camp.peerReview, bracket: camp.bracket, brand: camp.brand, uiLang: camp.uiLang, certificate: camp.certificate,
+            draw: camp.draw,
             calibration: { cases: camp.calibration.cases, scores: camp.calibration.scores },
             teams: camp.teams.map(t => ({ id: t.id, name: t.name, color: t.color, pin: t.pin || '', members: t.members, division: t.division, secretCards: t.secretCards })),
             stages: camp.stages.map(s => ({ id: s.id, name: s.name, criteria: s.criteria || [], startAt: s.startAt || '', durationMin: s.durationMin || null })),
@@ -392,6 +394,227 @@ export function registerFeatureRoutes(app, ctx) {
                     if (next.winner && next.winner !== next.a && next.winner !== next.b) next.winner = null;
                 }
             });
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // Team draw («قرعه‌کشی»): participants are drawn into the teams, live on the board.
+    // Every placed participant becomes a member of the team (id dm_<pid>, source 'draw').
+    // -----------------------------------------------------------------------
+    app.post('/api/draw', route(async (req, res) => {
+        const id = requireId(req.query.id, 'شناسه مسابقه');
+        const b = req.body || {};
+        const { draw, placement } = await mutateCamp(id, {}, camp => {
+            const user = requireCampUser(req, camp, MANAGER_ROLES);
+            need(camp, 'draw', 'قرعه‌کشی تیم‌ها');
+            const r = drawOp(camp, b);
+            r.changes.draw = r.draw;
+            r.audit = { user, action: 'draw', details: { op: String(b.op) } };
+            return r;
+        });
+        res.json({ success: true, draw, ...(placement ? { placement } : {}) });
+    }));
+
+    // Highest participant number among the draw members of the teams (0 when there are none).
+    const drawMemberBase = teams => {
+        let n = 0;
+        for (const t of teams) for (const m of t.members || []) { const x = /^dm_(\d{1,9})$/.exec((m && m.id) || ''); if (x) n = Math.max(n, parseInt(x[1], 10)); }
+        return n;
+    };
+    const intOf = v => (typeof v === 'number' ? v : (typeof v === 'string' && /^\s*\d+\s*$/.test(v) ? parseInt(v, 10) : NaN));
+    const cleanPotName = (v, seed) => str(v, LIMITS.drawPot) || defaultPotName(seed);
+
+    function drawOp(camp, b) {
+        const now = Date.now();
+        const teams = camp.teams;
+        const op = b.op;
+        const changes = {};
+        if (op === 'setup') {
+            const old = camp.draw;
+            if (old && drawPlacements(old, teams).length) throw new HttpError(409, 'این قرعه‌کشی نتیجه دارد؛ ابتدا آن را از نو شروع کنید.');
+            if (!Array.isArray(b.people)) throw new HttpError(400, 'فهرست شرکت‌کننده‌ها نامعتبر است.');
+            // Members placed by an earlier (deleted) draw stay in the teams: new ids never reuse theirs.
+            const base = drawMemberBase(teams);
+            const people = [];
+            for (const x of b.people.slice(0, LIMITS.drawPeople * 2)) {
+                const name = drawName(x && x.name);
+                const seed = drawSeed(x && x.seed);
+                if (!name || seed === null) continue;
+                const p = { id: base + people.length + 1, name, seed };
+                const row = intOf(x.row);
+                if (Number.isInteger(row) && row >= 1 && row <= 1e6) p.row = row;
+                people.push(p);
+            }
+            if (b.people.length > LIMITS.drawPeople * 2 || people.length > LIMITS.drawPeople) throw new HttpError(400, 'حداکثر ۳۰۰۰ شرکت‌کننده مجاز است.');
+            if (!people.length) throw new HttpError(400, 'هیچ شرکت‌کننده معتبری در فهرست نیست.');
+            const draw = {
+                status: 'setup', live: false, title: str(b.title, LIMITS.drawTitle) || DRAW_DEFAULT_TITLE, fileName: str(b.fileName, 200),
+                people, potNames: {}, capacity: null, placed: [], order: 0, curPot: null,
+                settings: { auto: !!(old && old.settings && old.settings.auto), holdMs: (old && old.settings && old.settings.holdMs) || 2600 },
+                createdAt: now, updatedAt: now
+            };
+            const pots = isPlainObject(b.potNames) ? b.potNames : {};
+            for (const seed of drawSeeds(draw)) draw.potNames[String(seed)] = cleanPotName(pots[String(seed)], seed);
+            draw.curPot = drawSeeds(draw)[0];
+            return { draw, changes };
+        }
+        if (!camp.draw) throw new HttpError(404, 'قرعه‌کشی ساخته نشده است.');
+        if (op === 'clear') return { draw: null, changes };
+        const draw = structuredClone(camp.draw);
+        draw.placed = drawPlacements(draw, teams);
+        draw.updatedAt = now;
+        const person = pid => {
+            const p = draw.people.find(x => x.id === intOf(pid));
+            if (!p) throw new HttpError(404, 'شرکت‌کننده یافت نشد.');
+            return p;
+        };
+        const notDone = () => { if (draw.status === 'done') throw new HttpError(409, 'قرعه‌کشی پایان یافته است؛ برای ادامه آن را دوباره باز کنید.'); };
+        const memberOf = p => ({ id: 'dm_' + p.id, name: p.name, seed: p.seed, source: 'draw' });
+        const removeMember = pid => {
+            for (const t of teams) {
+                const n = t.members.length;
+                t.members = t.members.filter(m => m.id !== 'dm_' + pid);
+                if (t.members.length !== n) changes.teams = teams;
+            }
+        };
+        const advancePot = () => {
+            const left = new Map();
+            const placed = new Set(draw.placed.map(x => x.pid));
+            for (const p of draw.people) if (!placed.has(p.id)) left.set(p.seed, (left.get(p.seed) || 0) + 1);
+            if (left.get(draw.curPot)) return;
+            const seeds = drawSeeds(draw);
+            const next = seeds.find(s => s > draw.curPot && left.get(s)) ?? seeds.find(s => left.get(s));
+            if (next !== undefined) draw.curPot = next;
+        };
+        const place = (p, team) => {
+            notDone();
+            if (draw.placed.some(x => x.pid === p.id)) throw new HttpError(409, 'این شرکت‌کننده قبلاً قرعه خورده است.');
+            const cap = drawCapacity(draw, teams.length);
+            const used = new Set(draw.placed.filter(x => x.team === team.id).map(x => x.s));
+            let slot = 0;
+            while (slot < cap && used.has(slot)) slot++;
+            if (slot >= cap) throw new HttpError(409, `ظرفیت تیم «${team.name}» پر است.`);
+            const placement = { pid: p.id, team: team.id, s: slot, o: ++draw.order, t: now };
+            draw.placed.push(placement);
+            const m = memberOf(p);
+            const i = team.members.findIndex(x => x.id === m.id);
+            if (i >= 0) team.members[i] = { ...team.members[i], ...m }; else team.members.push(m);
+            // The same participant can never sit in two teams.
+            for (const t of teams) if (t !== team) t.members = t.members.filter(x => x.id !== m.id);
+            changes.teams = teams;
+            if (draw.status === 'setup') draw.status = 'running';
+            advancePot();
+            return placement;
+        };
+        const unplace = rec => {
+            draw.placed = draw.placed.filter(x => x !== rec);
+            removeMember(rec.pid);
+            const p = draw.people.find(x => x.id === rec.pid);
+            if (p) draw.curPot = p.seed;
+        };
+        switch (op) {
+            case 'settings': {
+                if (b.title !== undefined) draw.title = str(b.title, LIMITS.drawTitle) || DRAW_DEFAULT_TITLE;
+                if (isPlainObject(b.potNames)) {
+                    for (const seed of drawSeeds(draw)) if (b.potNames[String(seed)] !== undefined) draw.potNames[String(seed)] = cleanPotName(b.potNames[String(seed)], seed);
+                }
+                if (b.capacity !== undefined) {
+                    let cap = null;
+                    if (b.capacity !== null && b.capacity !== '' && b.capacity !== 0 && b.capacity !== '0') {
+                        cap = intOf(b.capacity);
+                        if (!Number.isInteger(cap) || cap < 1 || cap > LIMITS.drawPeople) throw new HttpError(400, 'ظرفیت نامعتبر است.');
+                        if (cap <= drawCapacity({ ...draw, capacity: null }, teams.length)) cap = null;
+                    }
+                    if (cap !== (draw.capacity || null)) {
+                        if (draw.placed.length) throw new HttpError(409, 'ظرفیت تیم‌ها را فقط پیش از اولین قرعه می‌توان تغییر داد.');
+                        draw.capacity = cap;
+                    }
+                }
+                if (b.auto !== undefined) draw.settings.auto = bool(b.auto);
+                if (b.holdMs !== undefined) {
+                    const ms = intOf(b.holdMs);
+                    if (!Number.isInteger(ms)) throw new HttpError(400, 'زمان نمایش نامعتبر است.');
+                    draw.settings.holdMs = Math.min(8000, Math.max(1000, ms));
+                }
+                return { draw, changes };
+            }
+            case 'start':
+                draw.status = 'running';
+                return { draw, changes };
+            case 'place': {
+                const team = findTeam(camp, b.team);
+                const placement = place(person(b.pid), team);
+                return { draw, changes, placement };
+            }
+            case 'auto': {
+                const p = person(b.pid);
+                notDone();
+                const cap = drawCapacity(draw, teams.length);
+                const counts = new Map(teams.map(t => [t.id, 0]));
+                for (const x of draw.placed) counts.set(x.team, counts.get(x.team) + 1);
+                let best = null;
+                for (const t of teams) if (counts.get(t.id) < cap && (!best || counts.get(t.id) < counts.get(best.id))) best = t;
+                if (!best) throw new HttpError(409, 'همه تیم‌ها پر هستند.');
+                const placement = place(p, best);
+                return { draw, changes, placement };
+            }
+            case 'remove': {
+                notDone();
+                const p = person(b.pid);
+                const rec = draw.placed.find(x => x.pid === p.id);
+                if (!rec) throw new HttpError(404, 'این شرکت‌کننده هنوز در تیمی نیست.');
+                unplace(rec);
+                return { draw, changes };
+            }
+            case 'undo': {
+                notDone();
+                if (!draw.placed.length) throw new HttpError(409, 'قرعه‌ای برای برگرداندن نیست.');
+                unplace(draw.placed.reduce((a, x) => (x.o > a.o ? x : a)));
+                return { draw, changes };
+            }
+            case 'pot': {
+                const seed = drawSeed(b.seed);
+                if (seed === null || !draw.people.some(p => p.seed === seed)) throw new HttpError(404, 'گلدان یافت نشد.');
+                draw.curPot = seed;
+                return { draw, changes };
+            }
+            case 'rename': {
+                const p = person(b.pid);
+                const name = drawName(b.name);
+                if (!name) throw new HttpError(400, 'نام را بنویسید.');
+                p.name = name;
+                for (const t of teams) for (const m of t.members) if (m.id === 'dm_' + p.id) { m.name = name; changes.teams = teams; }
+                return { draw, changes };
+            }
+            case 'add': {
+                const name = drawName(b.name);
+                const seed = drawSeed(b.seed);
+                if (!name) throw new HttpError(400, 'نام را بنویسید.');
+                if (seed === null) throw new HttpError(400, 'سید باید عددی صحیح بین ۰ تا ۹۹۹ باشد.');
+                if (draw.people.length >= LIMITS.drawPeople) throw new HttpError(400, 'حداکثر ۳۰۰۰ شرکت‌کننده مجاز است.');
+                const p = { id: draw.people.reduce((m, x) => Math.max(m, x.id), drawMemberBase(teams)) + 1, name, seed };
+                draw.people.push(p);
+                if (!(String(seed) in draw.potNames)) draw.potNames[String(seed)] = defaultPotName(seed);
+                if (draw.curPot === null || draw.curPot === undefined) draw.curPot = seed;
+                return { draw, changes, person: p };
+            }
+            case 'live':
+                draw.live = bool(b.on);
+                return { draw, changes };
+            case 'finish':
+                draw.status = 'done';
+                draw.live = false;
+                return { draw, changes };
+            case 'reset':
+                for (const t of teams) {
+                    const n = t.members.length;
+                    t.members = t.members.filter(m => m.source !== 'draw');
+                    if (t.members.length !== n) changes.teams = teams;
+                }
+                Object.assign(draw, { placed: [], order: 0, curPot: drawSeeds(draw)[0] ?? null, status: 'running' });
+                return { draw, changes };
+            default:
+                throw new HttpError(400, 'عملیات نامعتبر است.');
         }
     }
 

@@ -535,7 +535,7 @@ function frozen_teams($c) {
 }
 
 const PRIVATE_CAMP_FIELDS = ['password', 'users', 'auditLog', 'deletedAt', 'clientKey', 'ownerId', 'notify', 'assignments', 'chanceCards',
-    'judgeMessage', 'appeals', 'moments', 'decisions', 'rounds', 'registration', 'calibration', 'scoreCap', 'frozen'];
+    'judgeMessage', 'appeals', 'moments', 'decisions', 'rounds', 'registration', 'calibration', 'scoreCap', 'frozen', 'draw'];
 
 // What the live board and everyone with the link may see ('public'), or what signed-in referees
 // and managers get from the poll ('member'): never passwords, PINs, tokens or the user list.
@@ -570,6 +570,9 @@ function public_state($c, $view = 'public') {
         }
         return $out;
     }, $c['rounds']);
+    // The team draw is shown (as a summary without the names still in the pots) only while it is live.
+    $drawView = draw_public($c['draw'] ?? null, $c['teams']);
+    if ($drawView) $s['draw'] = $drawView;
     $s['closedStages'] = as_map($masked ? ($frozen['closedStages'] ?? []) : $c['closedStages']);
     $s['stageTieredResults'] = as_map($masked ? ($frozen['stageTieredResults'] ?? []) : $c['stageTieredResults']);
     if ($member) {
@@ -1001,7 +1004,7 @@ const DISPLAY_KEYS = [
 ];
 const FEATURE_KEYS = [
     'assignments', 'rubric', 'individual', 'scoreCap', 'appeals', 'divisions', 'bracket', 'roles',
-    'budget', 'decisions', 'secretCards', 'peerReview', 'chanceCards', 'calibration', 'registration'
+    'budget', 'decisions', 'secretCards', 'peerReview', 'chanceCards', 'calibration', 'registration', 'draw'
 ];
 const DISPLAY_PRESETS = [
     'full' => [],
@@ -1033,12 +1036,14 @@ const TAG_PACKS = [
 ];
 const LIMITS = [
     'moments' => 300, 'appeals' => 200, 'budgetNote' => 200, 'registrations' => 200, 'text' => 300, 'members' => 30, 'cards' => 50,
-    'rounds' => 50, 'options' => 8, 'criteria' => 12, 'calibrationCases' => 30, 'channels' => 5
+    'rounds' => 50, 'options' => 8, 'criteria' => 12, 'calibrationCases' => 30, 'channels' => 5,
+    // team draw: participants, name / title / pot-name lengths, highest seed
+    'drawPeople' => 3000, 'drawName' => 80, 'drawTitle' => 120, 'drawPot' => 60, 'drawSeed' => 999
 ];
 // Camp fields kept in the JSON column "extras".
 const EXTRA_KEYS = ['display', 'features', 'skills', 'tagSkills', 'divisions', 'roles', 'assignments', 'scoreCap', 'chanceCards', 'rounds',
     'decisions', 'appeals', 'moments', 'timer', 'ticker', 'judgeMessage', 'ceremony', 'frozen', 'lastChance', 'bracket', 'peerReview',
-    'calibration', 'registration', 'notify', 'brand', 'uiLang', 'certificate', 'clientKey', 'ownerId'];
+    'calibration', 'registration', 'notify', 'brand', 'uiLang', 'certificate', 'clientKey', 'ownerId', 'draw'];
 const CHANNEL_TYPES = ['telegram', 'bale', 'eitaa', 'webhook'];
 const TEMPLATE_KEYS = [
     'campType', 'tieredPointsLadder', 'fieldJudgingMode', 'fieldJudgingValues', 'positiveTags', 'negativeTags', 'stages',
@@ -1140,17 +1145,101 @@ function clean_roles($list) {
     return array_slice($out, 0, 15);
 }
 
+// Team members: up to LIMITS['members'] added by hand, plus the participants placed by the team
+// draw (source 'draw', id 'dm_<pid>'), which keep their source and seed.
 function clean_members($list) {
     if (!is_list($list)) return [];
     $seen = [];
     $out = [];
-    foreach (array_slice($list, 0, LIMITS['members']) as $m) {
+    $manual = 0;
+    $drawn = 0;
+    foreach (array_slice($list, 0, LIMITS['members'] + LIMITS['drawPeople']) as $m) {
+        $fromDraw = g($m, 'source') === 'draw';
         $x = ['id' => id_or(g($m, 'id'), 'm'), 'name' => sstr(g($m, 'name'), 80), 'role' => sstr(g($m, 'role'), 40)];
+        if ($fromDraw) {
+            $x['source'] = 'draw';
+            $seed = draw_seed(g($m, 'seed'));
+            if ($seed !== null) $x['seed'] = $seed;
+        }
         if ($x['name'] === '' || isset($seen[$x['id']])) continue;
+        if ($fromDraw ? $drawn >= LIMITS['drawPeople'] : $manual >= LIMITS['members']) continue;
+        if ($fromDraw) $drawn++; else $manual++;
         $seen[$x['id']] = true;
         $out[] = $x;
     }
     return $out;
+}
+
+// ---------------------------------------------------------------------------
+// Team draw («قرعه‌کشی»): participants are drawn into the camp's teams (mirrors lib/features.js).
+// ---------------------------------------------------------------------------
+const DRAW_DEFAULT_TITLE = 'مراسم قرعه‌کشی';
+const DRAW_WS = '/[\s\x{00A0}\x{1680}\x{2000}-\x{200A}\x{2028}\x{2029}\x{202F}\x{205F}\x{3000}\x{FEFF}]+/u';
+
+function persian_digits($v) { return strtr((string)$v, ['0' => '۰', '1' => '۱', '2' => '۲', '3' => '۳', '4' => '۴', '5' => '۵', '6' => '۶', '7' => '۷', '8' => '۸', '9' => '۹']); }
+function default_pot_name($seed) { return 'گلدان ' . persian_digits($seed); }
+
+function draw_name($v) {
+    if (is_int($v) || (is_float($v) && is_finite($v))) return (string)$v;
+    if (!is_string($v)) return '';
+    return mb_substr(trim(preg_replace(DRAW_WS, ' ', $v), " \t\n\r\0\x0B"), 0, LIMITS['drawName']);
+}
+
+// A seed: integer 0..999 (a number, or a string of ASCII / Persian / Arabic digits); otherwise null.
+function draw_seed($v) {
+    if (is_float($v) && is_finite($v) && floor($v) == $v) $v = (int)$v;
+    if (is_int($v)) return $v >= 0 && $v <= LIMITS['drawSeed'] ? $v : null;
+    if (!is_string($v)) return null;
+    $s = trim($v);
+    $map = [];
+    for ($i = 0; $i < 10; $i++) { $map[mb_chr(0x06F0 + $i)] = (string)$i; $map[mb_chr(0x0660 + $i)] = (string)$i; }
+    $s = strtr($s, $map);
+    if (!preg_match('/^\d{1,3}$/', $s)) return null;
+    $n = (int)$s;
+    return $n <= LIMITS['drawSeed'] ? $n : null;
+}
+
+function draw_seeds($draw) {
+    $seeds = [];
+    foreach ($draw['people'] as $p) $seeds[$p['seed']] = true;
+    $seeds = array_keys($seeds);
+    sort($seeds);
+    return $seeds;
+}
+
+function draw_capacity($draw, $teamCount) {
+    return max((int)ceil(count($draw['people']) / max(1, $teamCount)), (int)($draw['capacity'] ?? 0), 1);
+}
+
+// Placements of teams that no longer exist are dropped.
+function draw_placements($draw, $teams) {
+    $ids = array_fill_keys(array_column($teams, 'id'), true);
+    return array_values(array_filter(is_array($draw['placed'] ?? null) ? $draw['placed'] : [], function ($p) use ($ids) { return isset($ids[$p['team'] ?? '']); }));
+}
+
+// JSON shape of the draw (pot names stay an object).
+function draw_json($draw) {
+    if (!is_array($draw)) return null;
+    if (array_key_exists('potNames', $draw)) $draw['potNames'] = as_map($draw['potNames']);
+    if (is_array($draw['settings'] ?? null)) $draw['settings'] = as_map($draw['settings']);
+    return $draw;
+}
+
+// What the board and everyone else see while the draw is live (never the names still in the pots).
+function draw_public($draw, $teams) {
+    if (!is_array($draw) || ($draw['live'] ?? false) !== true || !is_array($draw['people'] ?? null)) return null;
+    $names = [];
+    foreach ($draw['people'] as $p) $names[$p['id']] = $p['name'];
+    $placed = array_map(function ($p) use ($names) {
+        return ['pid' => $p['pid'], 'team' => $p['team'], 's' => $p['s'], 'o' => $p['o'], 'name' => $names[$p['pid']] ?? ''];
+    }, draw_placements($draw, $teams));
+    $pots = is_array($draw['potNames'] ?? null) ? $draw['potNames'] : [];
+    $cur = $draw['curPot'] ?? null;
+    return [
+        'live' => true, 'title' => $draw['title'] ?? '', 'cap' => draw_capacity($draw, count($teams)),
+        'holdMs' => ($draw['settings']['holdMs'] ?? null) ?: 2600, 'total' => count($draw['people']), 'placedCount' => count($placed),
+        'pot' => $cur === null ? '' : ($pots[(string)$cur] ?? ''), 'placed' => $placed
+    ];
 }
 
 function clean_secret_cards($list) {
@@ -1348,7 +1437,7 @@ function parse_extras($c) {
     $c['registration']['requests'] = is_array($c['registration']['requests'] ?? null) ? array_values($c['registration']['requests']) : [];
     $obj('notify', ['channels' => [], 'events' => []]);
     $obj('brand', []);
-    foreach (['timer', 'ticker', 'judgeMessage', 'ceremony', 'frozen', 'lastChance', 'bracket', 'certificate'] as $k) {
+    foreach (['timer', 'ticker', 'judgeMessage', 'ceremony', 'frozen', 'lastChance', 'bracket', 'certificate', 'draw'] as $k) {
         $c[$k] = is_array($c[$k] ?? null) && $c[$k] ? $c[$k] : null;
     }
     $c['uiLang'] = in_array($c['uiLang'] ?? '', ['en', 'ar'], true) ? $c['uiLang'] : 'fa';
@@ -1379,6 +1468,7 @@ function extras_maps($c) {
         $c['calibration']['scores'] = as_map($s);
     }
     if (is_array($c['notify'] ?? null) && array_key_exists('events', $c['notify'])) $c['notify']['events'] = as_map($c['notify']['events']);
+    if (is_array($c['draw'] ?? null)) $c['draw'] = draw_json($c['draw']);
     if (is_array($c['frozen'] ?? null)) {
         foreach (['closedStages', 'stageTieredResults'] as $k) if (array_key_exists($k, $c['frozen'])) $c['frozen'][$k] = as_map($c['frozen'][$k]);
         if (is_array($c['frozen']['teams'] ?? null)) {
@@ -1855,6 +1945,251 @@ function team_private_view($camp, $team) {
         'rounds' => $rounds,
         'peer' => ($f['peerReview'] && $open) ? ['stageId' => $open, 'stageName' => $stageName, 'skills' => $camp['skills'], 'done' => array_map('strval', array_keys($done))] : null
     ];
+}
+
+// ---------------------------------------------------------------------------
+// Team draw operations (mirrors drawOp in routes/features.js)
+// ---------------------------------------------------------------------------
+function draw_int($v) {
+    if (is_int($v)) return $v;
+    if (is_float($v) && is_finite($v) && floor($v) == $v) return (int)$v;
+    if (is_string($v) && preg_match('/^\s*\d+\s*$/', $v)) return (int)trim($v);
+    return null;
+}
+
+// Highest participant number among the draw members of the teams (0 when there are none).
+function draw_member_base($teams) {
+    $n = 0;
+    foreach ($teams as $t) foreach (($t['members'] ?? []) as $m) {
+        if (is_array($m) && is_string($m['id'] ?? null) && preg_match('/^dm_(\d{1,9})$/', $m['id'], $x)) $n = max($n, (int)$x[1]);
+    }
+    return $n;
+}
+
+function draw_pot_name($v, $seed) {
+    $s = sstr($v, LIMITS['drawPot']);
+    return $s !== '' ? $s : default_pot_name($seed);
+}
+
+function draw_op($camp, $b) {
+    $now = now_ms();
+    $teams = $camp['teams'];
+    $op = $b['op'] ?? null;
+    $changes = [];
+    if ($op === 'setup') {
+        $old = $camp['draw'] ?? null;
+        if ($old && draw_placements($old, $teams)) throw new HttpError(409, 'این قرعه‌کشی نتیجه دارد؛ ابتدا آن را از نو شروع کنید.');
+        if (!is_list($b['people'] ?? null)) throw new HttpError(400, 'فهرست شرکت‌کننده‌ها نامعتبر است.');
+        // Members placed by an earlier (deleted) draw stay in the teams: new ids never reuse theirs.
+        $base = draw_member_base($teams);
+        $people = [];
+        foreach (array_slice($b['people'], 0, LIMITS['drawPeople'] * 2) as $x) {
+            $name = draw_name(g($x, 'name'));
+            $seed = draw_seed(g($x, 'seed'));
+            if ($name === '' || $seed === null) continue;
+            $p = ['id' => $base + count($people) + 1, 'name' => $name, 'seed' => $seed];
+            $row = draw_int(g($x, 'row'));
+            if ($row !== null && $row >= 1 && $row <= 1000000) $p['row'] = $row;
+            $people[] = $p;
+        }
+        if (count($b['people']) > LIMITS['drawPeople'] * 2 || count($people) > LIMITS['drawPeople']) throw new HttpError(400, 'حداکثر ۳۰۰۰ شرکت‌کننده مجاز است.');
+        if (!$people) throw new HttpError(400, 'هیچ شرکت‌کننده معتبری در فهرست نیست.');
+        $title = sstr($b['title'] ?? null, LIMITS['drawTitle']);
+        $draw = [
+            'status' => 'setup', 'live' => false, 'title' => $title !== '' ? $title : DRAW_DEFAULT_TITLE, 'fileName' => sstr($b['fileName'] ?? null, 200),
+            'people' => $people, 'potNames' => [], 'capacity' => null, 'placed' => [], 'order' => 0, 'curPot' => null,
+            'settings' => ['auto' => !empty($old['settings']['auto']), 'holdMs' => ($old['settings']['holdMs'] ?? null) ?: 2600],
+            'createdAt' => $now, 'updatedAt' => $now
+        ];
+        $pots = is_array($b['potNames'] ?? null) ? $b['potNames'] : [];
+        $seeds = draw_seeds($draw);
+        foreach ($seeds as $seed) $draw['potNames'][(string)$seed] = draw_pot_name($pots[(string)$seed] ?? null, $seed);
+        $draw['curPot'] = $seeds[0];
+        return ['draw' => $draw, 'changes' => $changes];
+    }
+    if (empty($camp['draw'])) throw new HttpError(404, 'قرعه‌کشی ساخته نشده است.');
+    if ($op === 'clear') return ['draw' => null, 'changes' => $changes];
+    $draw = $camp['draw'];
+    $draw['people'] = array_values($draw['people'] ?? []);
+    $draw['potNames'] = is_array($draw['potNames'] ?? null) ? $draw['potNames'] : [];
+    $draw['settings'] = is_array($draw['settings'] ?? null) ? $draw['settings'] : ['auto' => false, 'holdMs' => 2600];
+    $draw['placed'] = draw_placements($draw, $teams);
+    $draw['updatedAt'] = $now;
+
+    $personIndex = function ($pid) use (&$draw) {
+        $id = draw_int($pid);
+        foreach ($draw['people'] as $i => $p) if ($id !== null && $p['id'] === $id) return $i;
+        throw new HttpError(404, 'شرکت‌کننده یافت نشد.');
+    };
+    $notDone = function () use (&$draw) {
+        if (($draw['status'] ?? '') === 'done') throw new HttpError(409, 'قرعه‌کشی پایان یافته است؛ برای ادامه آن را دوباره باز کنید.');
+    };
+    $removeMember = function ($pid) use (&$teams, &$changes) {
+        foreach ($teams as &$t) {
+            $n = count($t['members']);
+            $t['members'] = array_values(array_filter($t['members'], function ($m) use ($pid) { return ($m['id'] ?? null) !== 'dm_' . $pid; }));
+            if (count($t['members']) !== $n) $changes['teams'] = true;
+        }
+        unset($t);
+    };
+    $advancePot = function () use (&$draw) {
+        $placed = array_fill_keys(array_column($draw['placed'], 'pid'), true);
+        $left = [];
+        foreach ($draw['people'] as $p) if (!isset($placed[$p['id']])) $left[$p['seed']] = ($left[$p['seed']] ?? 0) + 1;
+        if (!empty($left[$draw['curPot']])) return;
+        $seeds = draw_seeds($draw);
+        $next = null;
+        foreach ($seeds as $s) if ($s > $draw['curPot'] && !empty($left[$s])) { $next = $s; break; }
+        if ($next === null) foreach ($seeds as $s) if (!empty($left[$s])) { $next = $s; break; }
+        if ($next !== null) $draw['curPot'] = $next;
+    };
+    $place = function ($pi, $ti) use (&$draw, &$teams, &$changes, $notDone, $advancePot, $now) {
+        $notDone();
+        $p = $draw['people'][$pi];
+        foreach ($draw['placed'] as $x) if ($x['pid'] === $p['id']) throw new HttpError(409, 'این شرکت‌کننده قبلاً قرعه خورده است.');
+        $team = $teams[$ti];
+        $cap = draw_capacity($draw, count($teams));
+        $used = [];
+        foreach ($draw['placed'] as $x) if ($x['team'] === $team['id']) $used[$x['s']] = true;
+        $slot = 0;
+        while ($slot < $cap && isset($used[$slot])) $slot++;
+        $teamName = $team['name'] ?? '';
+        if ($slot >= $cap) throw new HttpError(409, "ظرفیت تیم «{$teamName}» پر است.");
+        $draw['order'] = (int)($draw['order'] ?? 0) + 1;
+        $placement = ['pid' => $p['id'], 'team' => $team['id'], 's' => $slot, 'o' => $draw['order'], 't' => $now];
+        $draw['placed'][] = $placement;
+        $m = ['id' => 'dm_' . $p['id'], 'name' => $p['name'], 'seed' => $p['seed'], 'source' => 'draw'];
+        foreach ($teams as $i => &$t) {
+            if ($i === $ti) {
+                $found = false;
+                foreach ($t['members'] as &$x) if (($x['id'] ?? null) === $m['id']) { $x = array_merge($x, $m); $found = true; }
+                unset($x);
+                if (!$found) $t['members'][] = $m;
+            } else {
+                // The same participant can never sit in two teams.
+                $t['members'] = array_values(array_filter($t['members'], function ($x) use ($m) { return ($x['id'] ?? null) !== $m['id']; }));
+            }
+        }
+        unset($t);
+        $changes['teams'] = true;
+        if (($draw['status'] ?? '') === 'setup') $draw['status'] = 'running';
+        $advancePot();
+        return $placement;
+    };
+    $unplace = function ($pid) use (&$draw, $removeMember) {
+        $draw['placed'] = array_values(array_filter($draw['placed'], function ($x) use ($pid) { return $x['pid'] !== $pid; }));
+        $removeMember($pid);
+        foreach ($draw['people'] as $p) if ($p['id'] === $pid) $draw['curPot'] = $p['seed'];
+    };
+    $result = function ($extra = []) use (&$draw, &$teams, &$changes) {
+        if (!empty($changes['teams'])) $changes['teams'] = $teams;
+        return array_merge(['draw' => $draw, 'changes' => $changes], $extra);
+    };
+
+    switch ($op) {
+        case 'settings':
+            if (array_key_exists('title', $b)) { $t = sstr($b['title'], LIMITS['drawTitle']); $draw['title'] = $t !== '' ? $t : DRAW_DEFAULT_TITLE; }
+            if (is_array($b['potNames'] ?? null)) {
+                foreach (draw_seeds($draw) as $seed) if (array_key_exists((string)$seed, $b['potNames'])) $draw['potNames'][(string)$seed] = draw_pot_name($b['potNames'][(string)$seed], $seed);
+            }
+            if (array_key_exists('capacity', $b)) {
+                $c = $b['capacity'];
+                $cap = null;
+                if (!($c === null || $c === '' || $c === 0 || $c === '0')) {
+                    $cap = draw_int($c);
+                    if ($cap === null || $cap < 1 || $cap > LIMITS['drawPeople']) throw new HttpError(400, 'ظرفیت نامعتبر است.');
+                    if ($cap <= draw_capacity(array_merge($draw, ['capacity' => null]), count($teams))) $cap = null;
+                }
+                if ($cap !== (($draw['capacity'] ?? null) ?: null)) {
+                    if ($draw['placed']) throw new HttpError(409, 'ظرفیت تیم‌ها را فقط پیش از اولین قرعه می‌توان تغییر داد.');
+                    $draw['capacity'] = $cap;
+                }
+            }
+            if (array_key_exists('auto', $b)) $draw['settings']['auto'] = bool_v($b['auto']);
+            if (array_key_exists('holdMs', $b)) {
+                $ms = draw_int($b['holdMs']);
+                if ($ms === null) throw new HttpError(400, 'زمان نمایش نامعتبر است.');
+                $draw['settings']['holdMs'] = min(8000, max(1000, $ms));
+            }
+            return $result();
+        case 'start':
+            $draw['status'] = 'running';
+            return $result();
+        case 'place':
+            $ti = team_index($camp, $b['team'] ?? null);
+            $placement = $place($personIndex($b['pid'] ?? null), $ti);
+            return $result(['placement' => $placement]);
+        case 'auto':
+            $pi = $personIndex($b['pid'] ?? null);
+            $notDone();
+            $cap = draw_capacity($draw, count($teams));
+            $counts = array_fill_keys(array_column($teams, 'id'), 0);
+            foreach ($draw['placed'] as $x) $counts[$x['team']]++;
+            $best = null;
+            foreach ($teams as $i => $t) if ($counts[$t['id']] < $cap && ($best === null || $counts[$t['id']] < $counts[$teams[$best]['id']])) $best = $i;
+            if ($best === null) throw new HttpError(409, 'همه تیم‌ها پر هستند.');
+            $placement = $place($pi, $best);
+            return $result(['placement' => $placement]);
+        case 'remove':
+            $notDone();
+            $pid = $draw['people'][$personIndex($b['pid'] ?? null)]['id'];
+            if (!in_array($pid, array_column($draw['placed'], 'pid'), true)) throw new HttpError(404, 'این شرکت‌کننده هنوز در تیمی نیست.');
+            $unplace($pid);
+            return $result();
+        case 'undo':
+            $notDone();
+            if (!$draw['placed']) throw new HttpError(409, 'قرعه‌ای برای برگرداندن نیست.');
+            $last = $draw['placed'][0];
+            foreach ($draw['placed'] as $x) if ($x['o'] > $last['o']) $last = $x;
+            $unplace($last['pid']);
+            return $result();
+        case 'pot':
+            $seed = draw_seed($b['seed'] ?? null);
+            if ($seed === null || !in_array($seed, array_column($draw['people'], 'seed'), true)) throw new HttpError(404, 'گلدان یافت نشد.');
+            $draw['curPot'] = $seed;
+            return $result();
+        case 'rename':
+            $pi = $personIndex($b['pid'] ?? null);
+            $name = draw_name($b['name'] ?? null);
+            if ($name === '') throw new HttpError(400, 'نام را بنویسید.');
+            $draw['people'][$pi]['name'] = $name;
+            $mid = 'dm_' . $draw['people'][$pi]['id'];
+            foreach ($teams as &$t) foreach ($t['members'] as &$m) if (($m['id'] ?? null) === $mid) { $m['name'] = $name; $changes['teams'] = true; }
+            unset($t, $m);
+            return $result();
+        case 'add':
+            $name = draw_name($b['name'] ?? null);
+            $seed = draw_seed($b['seed'] ?? null);
+            if ($name === '') throw new HttpError(400, 'نام را بنویسید.');
+            if ($seed === null) throw new HttpError(400, 'سید باید عددی صحیح بین ۰ تا ۹۹۹ باشد.');
+            if (count($draw['people']) >= LIMITS['drawPeople']) throw new HttpError(400, 'حداکثر ۳۰۰۰ شرکت‌کننده مجاز است.');
+            $id = draw_member_base($teams);
+            foreach ($draw['people'] as $p) $id = max($id, $p['id']);
+            $p = ['id' => $id + 1, 'name' => $name, 'seed' => $seed];
+            $draw['people'][] = $p;
+            if (!array_key_exists((string)$seed, $draw['potNames'])) $draw['potNames'][(string)$seed] = default_pot_name($seed);
+            if (($draw['curPot'] ?? null) === null) $draw['curPot'] = $seed;
+            return $result(['person' => $p]);
+        case 'live':
+            $draw['live'] = bool_v($b['on'] ?? false);
+            return $result();
+        case 'finish':
+            $draw['status'] = 'done';
+            $draw['live'] = false;
+            return $result();
+        case 'reset':
+            foreach ($teams as &$t) {
+                $n = count($t['members']);
+                $t['members'] = array_values(array_filter($t['members'], function ($m) { return ($m['source'] ?? null) !== 'draw'; }));
+                if (count($t['members']) !== $n) $changes['teams'] = true;
+            }
+            unset($t);
+            $seeds = draw_seeds($draw);
+            $draw = array_merge($draw, ['placed' => [], 'order' => 0, 'curPot' => $seeds ? $seeds[0] : null, 'status' => 'running']);
+            return $result();
+        default:
+            throw new HttpError(400, 'عملیات نامعتبر است.');
+    }
 }
 
 function analysis_data($camp) {
@@ -2748,6 +3083,7 @@ try {
             'divisions' => $camp['divisions'], 'roles' => $camp['roles'], 'assignments' => $camp['assignments'], 'scoreCap' => $camp['scoreCap'],
             'chanceCards' => $camp['chanceCards'], 'rounds' => $camp['rounds'], 'decisions' => $camp['decisions'], 'appeals' => $camp['appeals'],
             'registration' => $camp['registration'], 'peerReview' => $camp['peerReview'], 'bracket' => $camp['bracket'], 'brand' => $camp['brand'], 'uiLang' => $camp['uiLang'], 'certificate' => $camp['certificate'],
+            'draw' => $camp['draw'],
             'calibration' => ['cases' => $camp['calibration']['cases'], 'scores' => $camp['calibration']['scores']],
             'teams' => array_map(function ($t) {
                 return ['id' => $t['id'], 'name' => $t['name'] ?? '', 'color' => $t['color'] ?? '', 'pin' => $t['pin'] ?? '', 'members' => $t['members'], 'division' => $t['division'], 'secretCards' => $t['secretCards']];
@@ -3059,6 +3395,21 @@ try {
             return ['changes' => ['peerReview' => ['open' => $open, 'at' => now_ms()]], 'audit' => ['user' => $user, 'action' => 'peer', 'details' => ['open' => $open]]];
         });
         out(['success' => true]);
+
+    // Team draw («قرعه‌کشی»): participants are drawn into the teams, live on the board.
+    // Every placed participant becomes a member of the team (id dm_<pid>, source 'draw').
+    case 'draw':
+        $res = mutate_camp($_GET['id'] ?? '', false, function ($camp) use ($data) {
+            $user = require_camp_user($camp, MANAGER_ROLES);
+            need_feature($camp, 'draw', 'قرعه‌کشی تیم‌ها');
+            $r = draw_op($camp, $data);
+            $r['changes']['draw'] = $r['draw'];
+            $r['audit'] = ['user' => $user, 'action' => 'draw', 'details' => ['op' => is_string($data['op'] ?? null) ? $data['op'] : '']];
+            return $r;
+        });
+        $out = ['success' => true, 'draw' => draw_json($res['draw'])];
+        if (!empty($res['placement'])) $out['placement'] = $res['placement'];
+        out($out);
 
     // Undo from the history
     case 'undo':
