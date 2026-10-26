@@ -209,4 +209,246 @@ export function registerScenarios(ctx) {
         const r = await call('POST', `/api/instant?id=${campId}`, { teamId: "x'); alert(1);//", delta: 1 }, op);
         assert.equal(r.status, 400);
     });
+
+    test('instant scores with a client id are idempotent (offline retries)', async () => {
+        const op = await login('op', 'op1');
+        const body = { teamId: 't_b', delta: 4, clientLogId: 'log_offline_retry_1' };
+        const a = await call('POST', `/api/instant?id=${campId}`, body, op);
+        const b = await call('POST', `/api/instant?id=${campId}`, body, op);
+        assert.equal(a.json.logId, 'log_offline_retry_1');
+        assert.equal(b.json.success, true);
+        const t = (await call('GET', `/api?action=poll&id=${campId}`)).json.teams.find(x => x.id === 't_b');
+        assert.equal(t.scoreLogs.filter(l => l.id === 'log_offline_retry_1').length, 1);
+    });
+
+    test('audit log records manager actions and is not public', async () => {
+        const op = await login('op', 'op1');
+        await call('POST', `/api/stage_scores?id=${campId}`, { stageId: 's_1', scores: { t_a: 3 } }, op);
+        const r = await call('GET', `/api/audit?id=${campId}`, undefined, op);
+        assert.equal(r.json.success, true);
+        assert.equal(r.json.entries[0].action, 'stage_scores');
+        assert.equal(r.json.entries[0].by.username, 'op');
+        const ref = await login('ref2', 'r2');
+        assert.equal((await call('GET', `/api/audit?id=${campId}`, undefined, ref)).status, 403);
+        assert.ok(!('auditLog' in (await call('GET', `/api?action=poll&id=${campId}`)).json));
+    });
+
+    test('managers reset referee passwords; users change their own', async () => {
+        const op = await login('op', 'op1');
+        const list = await call('GET', `/api/users?id=${campId}`, undefined, op);
+        assert.ok(list.json.users.every(u => !('password' in u)));
+        assert.equal(list.json.users.find(u => u.username === 'ref2').canReset, true);
+        assert.equal(list.json.users.find(u => u.username === 'op').canReset, false);
+        assert.equal((await call('POST', `/api/users/reset_password?id=${campId}`, { username: 'op', newPassword: 'xxxxxx' }, op)).status, 403);
+        assert.equal((await call('POST', `/api/users/reset_password?id=${campId}`, { username: 'ref2', newPassword: '123' }, op)).status, 400);
+        assert.equal((await call('POST', `/api/users/reset_password?id=${campId}`, { username: 'ref2', newPassword: 'reset-2' }, op)).json.success, true);
+        const ref = await login('ref2', 'reset-2');
+        assert.equal((await call('POST', `/api/users/reset_password?id=${campId}`, { username: 'ref1', newPassword: 'zzzzzz' }, ref)).status, 403);
+        assert.equal((await call('POST', '/api/user/password', { campId, currentPassword: 'wrong', newPassword: 'mine-22' }, ref)).status, 400);
+        const ch = await call('POST', '/api/user/password', { campId, currentPassword: 'reset-2', newPassword: 'ref2-pass' }, ref);
+        assert.equal(ch.json.success, true, JSON.stringify(ch.json));
+        assert.equal((await call('POST', `/api/instant?id=${campId}`, { teamId: 't_a', delta: 1 }, ref)).status, 401);
+        assert.equal((await call('POST', `/api/instant?id=${campId}`, { teamId: 't_a', delta: 1 }, ch.json.token)).json.success, true);
+    });
+
+    test('stage reset clears one stage only', async () => {
+        const op = await login('op', 'op1');
+        const before = (await call('GET', `/api?action=poll&id=${campId}`)).json.teams.find(t => t.id === 't_a');
+        const logsSum = before.scoreLogs.filter(l => l.type !== 'cancelled').reduce((a, l) => a + l.value, 0);
+        const r = await call('POST', `/api/stage/reset?id=${campId}`, { stageId: 's_1' }, op);
+        assert.equal(r.json.success, true);
+        const a = (await call('GET', `/api?action=poll&id=${campId}`)).json.teams.find(t => t.id === 't_a');
+        assert.equal(a.stageScores.s_1, undefined);
+        assert.deepEqual(a.judgeStageScores.s_1 || {}, {});
+        assert.equal(a.score, logsSum);
+    });
+
+    test('board control, finish and announcement', async () => {
+        const op = await login('op', 'op1');
+        await call('POST', `/api/board?id=${campId}`, { activeStageId: 's_2' }, op);
+        assert.equal((await call('GET', `/api?action=poll&id=${campId}`)).json.activeStageId, 's_2');
+        assert.equal((await call('POST', `/api/board?id=${campId}`, { activeStageId: 'nope' }, op)).status, 404);
+        const ref = await login('ref2', 'ref2-pass');
+        assert.equal((await call('POST', `/api/finish?id=${campId}`, { announce: true }, ref)).status, 403);
+        assert.equal((await call('POST', `/api/finish?id=${campId}`, { announce: true }, op)).json.success, true);
+        let st = (await call('GET', `/api?action=poll&id=${campId}`)).json;
+        assert.equal(st.locked, true);
+        assert.equal(st.announcement.active, true);
+        assert.equal((await call('POST', `/api/board?id=${campId}`, { announcement: 'hide' }, op)).json.success, true);
+        st = (await call('GET', `/api?action=poll&id=${campId}`)).json;
+        assert.equal(st.announcement, null);
+        await call('POST', `/superadmin/camps/${campId}/lock`, { locked: false }, saToken);
+    });
+
+    test('scores reset is operator-only', async () => {
+        const op = await login('op', 'op1');
+        const ref = await login('ref2', 'ref2-pass');
+        assert.equal((await call('POST', `/api/scores/reset?id=${campId}`, { confirm: 'RESET' }, ref)).status, 403);
+        assert.equal((await call('POST', `/api/scores/reset?id=${campId}`, {}, op)).status, 400);
+        assert.equal((await call('POST', `/api/scores/reset?id=${campId}`, { confirm: 'RESET' }, op)).json.success, true);
+        const st = (await call('GET', `/api?action=poll&id=${campId}`)).json;
+        assert.ok(st.teams.every(t => t.score === 0 && t.scoreLogs.length === 0));
+    });
+
+    test('duplicate and delete camps', async () => {
+        const op = await login('op', 'op1');
+        await call('POST', `/api/instant?id=${campId}`, { teamId: 't_a', delta: 9 }, op);
+        const d = await call('POST', `/superadmin/camps/${campId}/duplicate`, { title: 'دوره دوم' }, saToken);
+        assert.equal(d.json.success, true);
+        const copyId = d.json.campId;
+        const st = (await call('GET', `/api?action=poll&id=${copyId}`)).json;
+        assert.equal(st.title, 'دوره دوم');
+        assert.ok(st.teams.length === 2 && st.teams.every(t => t.score === 0 && t.scoreLogs.length === 0));
+        assert.equal((await call('POST', '/login', { id: copyId, username: 'op', password: 'op1' })).json.success, true);
+        assert.equal((await call('POST', `/superadmin/camps/${copyId}/delete`, {})).status, 401);
+        assert.equal((await call('POST', `/superadmin/camps/${copyId}/delete`, {}, saToken)).json.success, true);
+        assert.equal((await call('GET', `/api?action=poll&id=${copyId}`)).status, 404);
+        const list = (await call('GET', '/superadmin/camps', undefined, saToken)).json.camps;
+        assert.ok(!list.some(c => c.id === copyId));
+    });
+
+    test('superadmin can change their password', async () => {
+        assert.equal((await call('POST', '/superadmin/password', { currentPassword: 'wrong', newPassword: 'another-pass' }, saToken)).status, 400);
+        const r = await call('POST', '/superadmin/password', { currentPassword: ctx.saPassword, newPassword: 'another-pass' }, saToken);
+        assert.equal(r.json.success, true);
+        assert.equal((await call('GET', '/superadmin/camps', undefined, saToken)).status, 401);
+        assert.equal((await call('GET', '/superadmin/camps', undefined, r.json.token)).status, 200);
+        assert.equal((await call('POST', '/superadmin/login', { password: ctx.saPassword })).json.success, false);
+        const back = await call('POST', '/superadmin/password', { currentPassword: 'another-pass', newPassword: ctx.saPassword }, r.json.token);
+        saToken = back.json.token;
+        assert.equal((await call('POST', '/superadmin/login', { password: ctx.saPassword })).json.success, true);
+    });
+
+    test('custom camp links: chosen id, uniqueness, validation; random when empty', async () => {
+        const base = { orgName: 'Org', title: 'Custom', password: 'p', teams: [{ id: 't_1', name: 'A' }], stages: [{ id: 's_1', name: 'S' }], users: [] };
+        const c = await call('POST', '/setup', { ...base, customId: 'summer-1405' }, saToken);
+        assert.equal(c.json.success, true);
+        assert.equal(c.json.campId, 'summer-1405');
+        assert.equal((await call('GET', '/api?action=info&id=summer-1405')).json.title, 'Custom');
+        const dup = await call('POST', '/setup', { ...base, customId: 'summer-1405', title: 'Other' }, saToken);
+        assert.equal(dup.status, 409);
+        assert.equal((await call('GET', '/api?action=info&id=summer-1405')).json.title, 'Custom'); // not overwritten
+        assert.equal((await call('POST', '/setup', { ...base, customId: 'کمپ تابستان' }, saToken)).status, 400);
+        assert.equal((await call('POST', '/setup', { ...base, customId: 'ab' }, saToken)).status, 400);
+        const r = await call('POST', '/setup', { ...base, customId: '  ' }, saToken);
+        assert.match(r.json.campId, /^camp_[0-9a-f]{12}$/);
+        const av1 = await call('GET', '/superadmin/id_available?id=summer-1405', undefined, saToken);
+        assert.equal(av1.json.available, false);
+        assert.equal(av1.json.reason, 'taken');
+        assert.equal((await call('GET', '/superadmin/id_available?id=winter-1405', undefined, saToken)).json.available, true);
+        assert.equal((await call('GET', '/superadmin/id_available?id=a b', undefined, saToken)).json.reason, 'invalid');
+        assert.equal((await call('GET', '/superadmin/id_available?id=winter-1405')).status, 401);
+        const d = await call('POST', '/superadmin/camps/summer-1405/duplicate', { title: 'Winter', customId: 'winter-1405' }, saToken);
+        assert.equal(d.json.campId, 'winter-1405');
+        assert.equal((await call('POST', '/superadmin/camps/summer-1405/duplicate', { customId: 'winter-1405' }, saToken)).status, 409);
+    });
+
+    // ---- storage, trash and backups ------------------------------------------------------
+    const PNG = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
+    let mediaCampId;
+
+    test('images are stored as files and are not part of the polled data', async () => {
+        const r = await call('POST', '/setup', {
+            orgName: 'Media', title: 'Images', password: 'oppass', logo: PNG,
+            teams: [{ id: 't_1', name: 'A', image: PNG, happyImage: PNG }, { id: 't_2', name: 'B' }],
+            stages: [{ id: 's_1', name: 'S' }],
+            users: [{ id: 'u_r', username: 'pic', password: 'picpass', role: 'referee', profilePic: PNG }]
+        }, saToken);
+        assert.equal(r.json.success, true);
+        mediaCampId = r.json.campId;
+        const ref = (await call('POST', '/login', { id: mediaCampId, username: 'pic', password: 'picpass' })).json.token;
+        assert.equal((await call('POST', `/api/instant?id=${mediaCampId}`, { teamId: 't_1', delta: 3 }, ref)).json.success, true);
+        const poll = await call('GET', `/api?action=poll&id=${mediaCampId}`);
+        assert.ok(!poll.text.includes('base64'), 'no embedded images in poll');
+        assert.match(poll.json.logo, ctx.mediaRe);
+        assert.equal(poll.json.teams[0].image, poll.json.logo); // same picture stored once
+        assert.match(poll.json.teams[0].scoreLogs[0].user.profilePic, ctx.mediaRe);
+        const img = await ctx.raw(poll.json.logo);
+        assert.equal(img.status, 200);
+        assert.match(img.headers.get('content-type'), /^image\/png/);
+        assert.match(img.headers.get('cache-control') || '', /immutable/);
+        assert.equal(Buffer.from(await img.arrayBuffer()).length, 70);
+        assert.equal((await ctx.raw(poll.json.logo.replace(/[a-f0-9]{32}/, '0'.repeat(32)))).status, 404);
+        const pic = await call('POST', '/api/user/profile-pic', { campId: mediaCampId, profilePic: PNG }, ref);
+        assert.match(pic.json.profilePic, ctx.mediaRe);
+    });
+
+    test('unchanged live data answers 304 Not Modified', async () => {
+        const url = `/api?action=poll&id=${mediaCampId}`;
+        const first = await call('GET', url);
+        const r1 = await ctx.raw(ctx.pollUrl ? ctx.pollUrl(mediaCampId) : url);
+        const etag = r1.headers.get('etag');
+        assert.ok(etag, 'poll has an ETag');
+        const again = await ctx.raw(ctx.pollUrl ? ctx.pollUrl(mediaCampId) : url, { headers: { 'If-None-Match': etag } });
+        assert.equal(again.status, 304);
+        const op = await login2(mediaCampId, 'admin', 'oppass');
+        await call('POST', `/api/board?id=${mediaCampId}`, { activeStageId: 's_1' }, op);
+        const changed = await ctx.raw(ctx.pollUrl ? ctx.pollUrl(mediaCampId) : url, { headers: { 'If-None-Match': etag } });
+        assert.equal(changed.status, 200);
+        assert.notEqual(changed.headers.get('etag'), etag);
+        assert.equal(first.status, 200);
+    });
+
+    async function login2(id, username, password) {
+        const r = await call('POST', '/login', { id, username, password });
+        assert.equal(r.json.success, true, `login ${username}`);
+        return r.json.token;
+    }
+
+    test('deleted camps go to the trash and can be restored or removed for good', async () => {
+        const c = await call('POST', '/setup', { orgName: 'T', title: 'Trash me', password: 'oppass', customId: 'trash-test', teams: [{ id: 't_1', name: 'A' }], stages: [{ id: 's_1', name: 'S' }], users: [] }, saToken);
+        assert.equal(c.json.success, true);
+        const id = c.json.campId;
+        assert.equal((await call('POST', `/superadmin/camps/${id}/purge`, {}, saToken)).status, 400); // not in the trash
+        assert.equal((await call('POST', `/superadmin/camps/${id}/delete`, {}, saToken)).json.success, true);
+        assert.equal((await call('GET', `/api?action=poll&id=${id}`)).status, 404);
+        assert.equal((await call('POST', '/login', { id, username: 'admin', password: 'oppass' })).json.success, false);
+        const list = (await call('GET', '/superadmin/camps', undefined, saToken)).json;
+        assert.ok(!list.camps.some(x => x.id === id));
+        assert.ok(list.trashCount >= 1);
+        assert.equal((await call('GET', '/superadmin/trash')).status, 401);
+        const trash = (await call('GET', '/superadmin/trash', undefined, saToken)).json;
+        const item = trash.camps.find(x => x.id === id);
+        assert.ok(item && item.title === 'Trash me' && item.purgeAt > item.deletedAt);
+        assert.equal((await call('GET', `/superadmin/id_available?id=${id}`, undefined, saToken)).json.reason, 'trash');
+        assert.equal((await call('POST', `/superadmin/camps/${id}/restore`, {}, saToken)).json.success, true);
+        assert.equal((await call('GET', `/api?action=poll&id=${id}`)).status, 200);
+        assert.equal((await call('POST', `/superadmin/camps/${id}/restore`, {}, saToken)).status, 400);
+        await call('POST', `/superadmin/camps/${id}/delete`, {}, saToken);
+        assert.equal((await call('POST', `/superadmin/camps/${id}/purge`, {}, saToken)).json.success, true);
+        assert.ok(!(await call('GET', '/superadmin/trash', undefined, saToken)).json.camps.some(x => x.id === id));
+        assert.equal((await call('GET', `/superadmin/id_available?id=${id}`, undefined, saToken)).json.available, true);
+    });
+
+    test('a camp exported to a backup file can be imported again', async () => {
+        assert.equal((await call('GET', `/superadmin/camps/${mediaCampId}/export`)).status, 401);
+        const exp = await call('GET', `/superadmin/camps/${mediaCampId}/export`, undefined, saToken);
+        assert.equal(exp.status, 200);
+        const backup = exp.json;
+        assert.equal(backup.format, 'sim-camp-backup');
+        assert.equal(backup.camps.length, 1);
+        assert.equal(backup.camps[0].teams[0].scoreLogs.length, 1);
+        assert.equal(Object.keys(backup.media).length, 1); // one picture used everywhere
+        const full = await call('GET', '/superadmin/backup', undefined, saToken);
+        assert.ok(full.json.camps.length >= 2);
+        assert.equal((await call('POST', '/superadmin/import', backup)).status, 401);
+        assert.equal((await call('POST', '/superadmin/import', { hello: 1 }, saToken)).status, 400);
+        const imp = await call('POST', '/superadmin/import', backup, saToken);
+        assert.equal(imp.json.success, true);
+        assert.equal(imp.json.imported.length, 1);
+        const newId = imp.json.imported[0].id;
+        assert.notEqual(newId, mediaCampId); // the original link is taken
+        const poll = (await call('GET', `/api?action=poll&id=${newId}`)).json;
+        assert.equal(poll.title, 'Images');
+        assert.equal(poll.teams[0].score, 3);
+        assert.equal((await ctx.raw(poll.logo)).status, 200);
+        assert.equal((await call('POST', '/login', { id: newId, username: 'pic', password: 'picpass' })).json.success, true);
+        // Restoring a deleted camp from the backup keeps its original link.
+        await call('POST', `/superadmin/camps/${newId}/delete`, {}, saToken);
+        await call('POST', `/superadmin/camps/${newId}/purge`, {}, saToken);
+        const copy = JSON.parse(JSON.stringify(backup));
+        copy.camps[0].id = newId;
+        const again = await call('POST', '/superadmin/import', copy, saToken);
+        assert.equal(again.json.imported[0].id, newId);
+    });
 }
