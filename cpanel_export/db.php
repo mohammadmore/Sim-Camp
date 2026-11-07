@@ -36,6 +36,8 @@ if ($db_driver === 'mysql' || $db_driver === 'auto') {
                 PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC
             ]);
             unset($password); // do not keep the DB password in a global that other code might print
+            // A blocked write gives up after 10 s instead of InnoDB's default 50 s.
+            $conn->exec('SET SESSION innodb_lock_wait_timeout = 10');
             $active_driver = 'mysql';
         } catch(PDOException $e) {
             if ($db_driver === 'mysql') {
@@ -62,7 +64,7 @@ if (!$conn) {
         $conn = new PDO("sqlite:" . $sqlite_file, null, null, [
             PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
             PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
-            PDO::ATTR_TIMEOUT => 15 // wait for concurrent writers instead of failing with "database is locked"
+            PDO::ATTR_TIMEOUT => 10 // wait up to 10 s for concurrent writers, then fail with "database is locked"
         ]);
         $conn->exec('PRAGMA journal_mode = WAL');
         $active_driver = 'sqlite';
@@ -125,7 +127,12 @@ function ensure_database_schema($conn, $active_driver) {
                 'fieldJudgingValues' => 'TEXT',
                 'positiveTags' => 'TEXT',
                 'negativeTags' => 'TEXT',
-                'archived' => 'TINYINT DEFAULT 0'
+                'archived' => 'TINYINT DEFAULT 0',
+                'auditLog' => 'LONGTEXT',
+                'announcement' => 'TEXT',
+                'activeStageId' => 'VARCHAR(64)',
+                'deletedAt' => 'BIGINT NULL',
+                'extras' => 'LONGTEXT' // feature settings and live state (JSON object)
             ];
             foreach ($columns_to_check as $col => $type) {
                 try {
@@ -180,7 +187,12 @@ function ensure_database_schema($conn, $active_driver) {
                 'fieldJudgingValues' => 'TEXT',
                 'positiveTags' => 'TEXT',
                 'negativeTags' => 'TEXT',
-                'archived' => 'INTEGER DEFAULT 0'
+                'archived' => 'INTEGER DEFAULT 0',
+                'auditLog' => 'TEXT',
+                'announcement' => 'TEXT',
+                'activeStageId' => 'TEXT',
+                'deletedAt' => 'INTEGER',
+                'extras' => 'TEXT' // feature settings and live state (JSON object)
             ];
             foreach ($sqlite_cols as $col => $type) {
                 try {

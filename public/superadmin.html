@@ -3,10 +3,211 @@
 <head>
     <link rel="icon" type="image/svg+xml" href="favicon.svg">
     <link rel="icon" type="image/png" href="favicon.png">
+    <link rel="manifest" href="manifest.webmanifest">
+    <link rel="apple-touch-icon" href="apple-touch-icon.png">
+    <meta name="theme-color" content="#312e81">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <link rel="stylesheet" href="style.css?v=2">
-    <title>پنل سوپرادمین - سیمولیشن کمپ</title>    <script src="vendor/lucide-1.61.0.min.js"></script>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="stylesheet" href="style.css?v=14">
+    <title>پنل سوپرادمین - سیمولیشن کمپ</title>
+    <style>
+        /* ---- Superadmin panel layout (page-local; shared tokens live in style.css) ---- */
+        #loginSection { width: min(400px, calc(100% - 32px)); box-sizing: border-box; }
+        #loginSection .settings-input { margin-bottom: 12px; }
+        #loginSection .login-btn { width: 100%; padding: 13px 20px; border-radius: var(--radius-md); font-size: 16px; }
+        .org-login-link { background: transparent; border: none; box-shadow: none; font-size: 13px; text-decoration: underline; cursor: pointer; color: var(--text-color); opacity: 0.85; min-height: 40px; margin-top: 6px; padding: 8px 12px; }
+
+        /* Dashboard toolbar: equal-width buttons, one primary (new) and one danger (log out) */
+        .action-buttons-container { display: flex; flex-wrap: wrap; justify-content: center; gap: 12px; margin-bottom: 30px; }
+        .main-action-btn {
+            flex: 0 1 170px; justify-content: center; padding: 13px 16px; border-radius: var(--radius-md); font-size: 15px;
+            background: var(--glass-bg); color: var(--text-color); border: 1px solid var(--glass-border);
+        }
+        .main-action-btn .lucide, .main-action-btn svg { width: 20px; height: 20px; flex-shrink: 0; }
+        @media (min-width: 651px) and (max-width: 960px) {
+            /* Tablets: five equal columns, icon above the label (two even rows for the superadmin) */
+            .action-buttons-container { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 10px; }
+            .main-action-btn { flex-direction: column; gap: 4px; padding: 10px 6px; font-size: 13px; }
+        }
+        @media (max-width: 650px) {
+            .action-buttons-container > .main-action-btn:first-child { grid-column: 1 / -1; flex-direction: row; gap: 8px; font-size: 15px; padding: 12px; }
+            .action-buttons-container > .main-action-btn:first-child .btn-text { font-size: 15px; }
+            .main-action-btn { min-height: 64px; border-radius: var(--radius-md); }
+        }
+
+        /* Camp cards: main actions in a 2-column grid, rarely used ones as a smaller row underneath */
+        .camp-card { border-radius: var(--radius-lg); text-align: right; }
+        .camp-card-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; }
+        .camp-card-head h3 { margin: 0 0 8px 0; font-size: 18px; line-height: 1.4; overflow-wrap: anywhere; }
+        .camp-card-org { font-size: 13px; opacity: 0.8; display: flex; align-items: center; gap: 5px; }
+        .camp-card-org .lucide { width: 14px; height: 14px; flex-shrink: 0; }
+        .camp-card .camp-badge { flex-shrink: 0; display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; }
+        .camp-card .camp-badge .lucide { width: 14px; height: 14px; }
+        .camp-actions { margin-top: 0; }
+        .camp-actions button, .camp-actions a { min-height: 40px; font-weight: 600; font-size: 13px; border-radius: var(--radius-sm); box-sizing: border-box; }
+        .camp-actions .camp-link { background: rgba(37, 99, 235, 0.1); border: 1px solid rgba(37, 99, 235, 0.3); }
+        .camp-more { display: flex; flex-wrap: wrap; gap: 6px; padding-top: 12px; border-top: 1px solid var(--glass-border); }
+        .camp-more button {
+            flex: 1 1 auto; display: inline-flex; align-items: center; justify-content: center; gap: 5px; min-height: 36px;
+            padding: 6px 10px; font-size: 12px; font-weight: 600; border-radius: var(--radius-sm); color: var(--text-color);
+            background: transparent; border: 1px solid var(--glass-border); box-shadow: none;
+        }
+        .camp-more .lucide, .camp-more svg { width: 14px; height: 14px; }
+
+        /* Camp form */
+        #setupModal { position: fixed; inset: 0; width: 100vw; height: 100vh; height: 100dvh; z-index: 1200; overflow-y: auto; padding: 25px 12px; box-sizing: border-box; align-items: center; justify-content: center; }
+        #setupSection {
+            --pad: 28px; padding: var(--pad); width: 95%; max-width: 650px; max-height: 88vh; max-height: 92dvh; overflow-y: auto;
+            position: relative; border-radius: var(--radius-lg); box-sizing: border-box; margin: auto; text-align: right;
+        }
+        #setupSection .setup-sticky-head {
+            top: calc(-1 * var(--pad)); margin: calc(-1 * var(--pad)) calc(-1 * var(--pad)) 16px; padding: 14px var(--pad) 10px;
+            flex-direction: column; align-items: stretch; gap: 10px; border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+        }
+        .setup-head-row { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+        .setup-head-actions { display: flex; gap: 8px; align-items: center; }
+        .setup-sticky-head .close-btn { position: static; flex-shrink: 0; }
+        .setup-save-top, #saveCampBtn { border-radius: var(--radius-md); }
+        .setup-save-top { padding: 10px 22px; min-height: 40px; }
+        #saveCampBtn { padding: 15px; width: 100%; font-size: 18px; margin-top: 8px; }
+        .setup-jump { margin: 0; }
+        .setup-jump a { display: inline-flex; align-items: center; min-height: 32px; padding: 4px 14px; font-size: 13px; box-sizing: border-box; }
+        #orgName, #teamsList, #stagesList, #usersList, #safFormExtras { scroll-margin-top: 140px; }
+        @media (max-width: 650px) {
+            /* Phones: the form fills the screen instead of floating in a narrow card */
+            #setupModal { padding: 0; align-items: stretch; }
+            #setupSection { --pad: 16px; width: 100%; max-width: none; max-height: none; min-height: 100%; margin: 0; border-radius: 0; border: none; }
+            #setupSection .setup-sticky-head { border-radius: 0; padding-top: calc(12px + env(safe-area-inset-top)); }
+            #setupFormTitle { font-size: 19px !important; }
+        }
+
+        /* Logo source: segmented control */
+        #setupSection .tabs { gap: 0; padding: 3px; border-radius: var(--radius-md); background: var(--input-bg); border: 1px solid var(--glass-border); }
+        #setupSection .tab-btn { border: none; background: transparent; border-radius: calc(var(--radius-md) - 3px); min-height: 38px; font-weight: 600; box-shadow: none; }
+        #setupSection .tab-btn.active, [data-theme="dark"] #setupSection .tab-btn.active { background: var(--primary); color: var(--on-primary); }
+        #logoFilePick { margin-bottom: 15px; }
+
+        /* Custom link and the read-only camp link: the address gets its own left-to-right line */
+        .camp-link-url { display: block; margin: 4px 0; padding: 8px 10px; border-radius: var(--radius-sm); background: var(--input-bg); border: 1px solid var(--glass-border); text-align: left; direction: ltr; word-break: break-all; font-size: 13px; }
+        @media (max-width: 600px) {
+            .custom-id-row { flex-direction: column; }
+            .custom-id-prefix { max-width: none; white-space: normal; word-break: break-all; padding: 6px 10px; font-size: 12px; border-bottom: 1px solid var(--glass-border); }
+        }
+
+        /* Team / stage / user rows */
+        .dynamic-item { padding: 10px; border-radius: var(--radius-md); background: var(--input-bg); border: 1px solid var(--glass-border); align-items: flex-start; }
+        .dynamic-item input[type="text"], .dynamic-item input[type="password"], .dynamic-item input[type="number"] { min-width: 0; box-sizing: border-box; margin: 0; }
+        .item-main { display: flex; flex-direction: column; gap: 8px; flex: 1; min-width: 0; }
+        .item-line { display: flex; gap: 8px; align-items: center; }
+        .item-line .t-name { flex: 1; }
+        .item-tools { display: flex; gap: 4px; align-items: center; flex-shrink: 0; }
+        .item-tools .icon-btn, .user-side .icon-btn { width: 36px; height: 36px; padding: 0; font-size: 14px; border-radius: var(--radius-sm); }
+        .stage-grid { display: grid; grid-template-columns: 1fr auto auto; grid-template-areas: "name mult tools" "unit unit unit"; gap: 8px; align-items: center; width: 100%; }
+        .stage-grid .stage-name-input { grid-area: name; }
+        .stage-grid .stage-unit-select { grid-area: unit; margin: 0; padding: 8px 10px; width: 100%; box-sizing: border-box; }
+        .stage-grid .stage-mult { grid-area: mult; }
+        .stage-grid .item-tools { grid-area: tools; }
+        .stage-mult { display: flex; align-items: center; gap: 6px; padding: 3px 8px; border-radius: var(--radius-sm); border: 1px solid var(--glass-border); font-size: 13px; white-space: nowrap; }
+        .stage-mult input { width: 56px; padding: 5px; text-align: center; font-weight: 800; border-radius: 6px; }
+        @media (max-width: 600px) {
+            .stage-grid { grid-template-columns: 1fr auto; grid-template-areas: "name name" "unit unit" "mult tools"; }
+            .stage-grid .stage-mult { justify-self: start; }
+        }
+        .user-item { gap: 10px; }
+        .user-side { display: flex; flex-direction: column; align-items: center; gap: 8px; flex-shrink: 0; }
+        .u-pic-circle { width: 44px; height: 44px; border-radius: 50%; overflow: hidden; border: 2px solid var(--glass-border); background: var(--surface-2); display: flex; align-items: center; justify-content: center; }
+        .u-pic-circle img { width: 100%; height: 100%; object-fit: cover; }
+        .user-fields { display: flex; flex-direction: column; gap: 8px; flex: 1; min-width: 0; }
+        .user-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+        .user-grid .u-role { margin: 0; width: 100%; }
+        .user-grid .u-pass { grid-column: span 2; }
+        @media (max-width: 600px) {
+            .user-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+            .user-grid .u-role { grid-column: span 2; }
+            .user-grid .u-pass { grid-column: auto; }
+        }
+        .saf-template-row { margin-bottom: 15px; }
+        .saf-template-row .manage-row select { flex: 1; min-width: 0; }
+        .saf-template-row .manage-row button { min-height: 42px; border-radius: var(--radius-sm); }
+
+        /* Team pictures */
+        .team-images > summary { min-height: 32px; display: flex; align-items: center; gap: 6px; }
+        .img-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 8px; }
+        .img-row input[type="text"] { flex: 1; min-width: 120px; }
+        .img-row .icon-btn { min-height: 36px; padding: 6px 12px; font-size: 13px; font-weight: 600; gap: 5px; white-space: nowrap; border-radius: var(--radius-sm); }
+        .img-row .icon-btn .lucide { width: 14px; height: 14px; }
+        .img-row .t-clear-img-btn, .img-row .u-clear-pic-btn { width: 36px; padding: 0; }
+        .t-img-thumb { width: 64px; height: 36px; border-radius: 6px; overflow: hidden; border: 1px solid var(--glass-border); flex-shrink: 0; background: var(--surface-2); display: flex; align-items: center; justify-content: center; position: relative; font-size: 16px; }
+        .t-img-thumb img { width: 100%; height: 100%; object-fit: cover; }
+        .t-img-thumb .lucide { width: 16px; height: 16px; opacity: 0.5; }
+        .t-img-badge { position: absolute; bottom: 1px; right: 2px; font-size: 11px; line-height: 1.1; font-weight: 700; background: rgba(0,0,0,0.65); color: #fff; padding: 0 3px; border-radius: 3px; pointer-events: none; direction: ltr; }
+        .t-react-box { margin-top: 10px; padding: 10px; border-radius: var(--radius-sm); border: 1px dashed var(--glass-border); }
+        .t-react-box > span { font-size: 12px; line-height: 1.7; opacity: 0.9; font-weight: 600; }
+        .t-react-box .img-row { margin-top: 6px; }
+
+        /* Tag boxes: the add button never wraps */
+        .tag-manage-box .icon-btn { white-space: nowrap; font-size: 14px; border-radius: var(--radius-sm); }
+
+        /* Dialogs opened from the dashboard */
+        .sa-dialog { padding: 28px; width: 90%; max-width: 760px; max-height: 90vh; max-height: 90dvh; overflow-y: auto; text-align: right; position: relative; box-sizing: border-box; border-radius: var(--radius-lg); }
+        .sa-dialog > h3 { margin-top: 0; display: flex; align-items: center; gap: 10px; padding-inline-end: 44px; }
+        .sa-section { margin-top: 18px; padding: 16px; border-radius: var(--radius-md); background: var(--input-bg); border: 1px solid var(--glass-border); display: flex; flex-direction: column; gap: 10px; }
+        .sa-section h4 { margin: 0; display: flex; align-items: center; gap: 8px; }
+        .sa-section h4 .lucide { width: 18px; height: 18px; }
+        .sa-section .settings-input { margin: 0; }
+        .sa-section .sa-save { align-self: flex-end; padding: 10px 22px; border-radius: var(--radius-md); min-height: 40px; }
+        .sa-section label { font-size: 14px; }
+        .sa-section .file-pick { align-self: flex-start; }
+        #safDefaults .manage-row button { border-radius: var(--radius-sm); }
+        @media (max-width: 600px) {
+            .sa-dialog { padding: 20px 16px; width: calc(100% - 16px); }
+            .sa-section { padding: 12px; }
+            .sa-section .sa-save { align-self: stretch; }
+        }
+
+        /* Trash / organizers rows */
+        .trash-row .manage-row button { min-height: 40px; border-radius: var(--radius-sm); }
+        .trash-meta { display: flex; flex-wrap: wrap; gap: 4px 10px; font-size: 13px; opacity: 0.85; }
+        .trash-meta .camp-id-tag { font-family: monospace; font-size: 12px; }
+        .help-body .sa-form { display: flex; flex-direction: column; gap: 10px; margin-top: 8px; padding: 14px; border-radius: var(--radius-md); background: var(--input-bg); border: 1px solid var(--glass-border); }
+        .help-body .sa-form h3 { margin: 0; font-size: 16px; }
+        .help-body .sa-form .settings-input { margin: 0; }
+        .help-body .sa-actions { display: flex; justify-content: flex-end; gap: 8px; flex-wrap: wrap; margin-top: 4px; }
+        .help-body .sa-actions button { min-height: 42px; padding: 10px 20px; border-radius: var(--radius-md); }
+
+        /* Tag chips: a finger-sized × without making the chip taller */
+        .tag-manage-box .editable-tag-chip .del-btn { display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 32px; margin: -8px -4px -8px -10px; font-size: 16px; }
+        #orgDisabled { width: 20px; height: 20px; }
+        .adv-inline:has(#orgDisabled) { min-height: 36px; display: inline-flex; align-items: center; gap: 8px; }
+
+        /* Leagues */
+        .lg-item .adv-del { min-width: 36px; min-height: 36px; }
+        .lg-item .lg-field select, .lg-item .lg-field input, .lg-item .lg-name { min-height: 40px; }
+        .lg-item { display: flex; flex-direction: column; gap: 10px; }
+        .lg-item .adv-row > * { min-width: 0; }
+        .lg-item .lg-field { display: flex; flex-direction: column; gap: 4px; flex: 1 1 160px; min-width: 0; font-size: 12px; font-weight: 600; opacity: 0.95; }
+        .lg-item .lg-field select, .lg-item .lg-field input { width: 100%; box-sizing: border-box; }
+        .lg-item .lg-fields { display: flex; gap: 10px; flex-wrap: wrap; }
+        .lg-camps-label { font-size: 12px; font-weight: 600; opacity: 0.9; }
+        .lg-item .adv-chip:has(input:checked) { background: rgba(37, 99, 235, 0.14); border-color: var(--primary); }
+
+        /* Links dialog: every block the same shape (title, note, address, buttons; QR beside it) */
+        .help-body .link-block { display: grid; grid-template-columns: 1fr auto; gap: 8px 14px; align-items: start; padding: 12px; margin-bottom: 10px; border: 1px solid var(--glass-border); border-radius: var(--radius-md); background: var(--input-bg); }
+        .help-body .link-block .link-info { min-width: 0; }
+        .help-body .link-block .link-qr svg { width: 112px; height: 112px; }
+        .help-body .link-info b { font-size: 15px; }
+        .help-body .link-info .manage-note { margin: 0; }
+        .help-body .link-info .manage-row button, .help-body .link-info .manage-link-btn { min-height: 40px; padding: 8px 14px; border-radius: var(--radius-sm); font-size: 13px; box-sizing: border-box; display: inline-flex; align-items: center; }
+        @media (max-width: 480px) {
+            .help-body .link-block .link-qr svg { width: 84px; height: 84px; }
+        }
+        #clientKeyOut:empty { display: none; }
+        #clientKeyOut { display: flex; flex-direction: column; gap: 6px; margin-top: 6px; }
+    </style>
+    <script src="i18n.js" data-scope="panel"></script>
+    <script src="vendor/lucide-1.61.0.min.js"></script>
     <script src="common.js"></script>
     <script>
         window.AUTH_STORAGE_KEY = 'sa_token';
@@ -43,6 +244,7 @@
                 hideModal('loginSection');
                 setTimeout(() => { showModal('dashboardSection', 'block'); }, 280);
                 loadCamps();
+                SAF.restore();
             }
         });
 
@@ -74,77 +276,112 @@
         
     </script>
     <script src="vendor/xlsx-0.18.5.full.min.js"></script>
+    <script src="vendor/qrcode-generator-1.4.4.js"></script>
+    <script src="features.js"></script>
+    <script src="advanced.js"></script>
+    <script src="superadmin-features.js"></script>
 </head>
 <body>
     <button onclick="toggleTheme()" class="theme-toggle" title="تغییر پوسته"><i data-lucide="moon"></i></button>
 
     <img id="mainSystemLogo" src="" alt="Simulation Camp Logo" style="display: none; width: calc(60% + 60px); max-width: 460px; aspect-ratio: 12/5; object-fit: contain; margin-bottom: 20px; background: transparent; border: none; box-shadow: none;">
     <!-- Superadmin Login -->
-    <div id="loginSection" class="glass" style="padding: 30px; width: 60%; max-width: 400px; text-align: center;">
+    <div id="loginSection" class="glass" style="padding: 30px; text-align: center;">
         <h2>ورود سوپرادمین</h2>
+        <div id="saUserRow" style="display: none;"><input type="text" id="saUsername" placeholder="نام کاربری برگزارکننده" class="settings-input" dir="ltr" autocomplete="username"></div>
         <input type="password" id="saPassword" placeholder="رمز عبور" class="settings-input" onkeydown="if(event.key === 'Enter') superadminLogin()">
-        <button onclick="superadminLogin()" style="padding: 10px 20px; width: 100%;" title="ورود به پنل مدیریت">ورود</button>
+        <button type="button" onclick="superadminLogin()" class="login-btn btn-primary" title="ورود به پنل مدیریت">ورود</button>
         <p id="saErrorMsg" style="color: var(--error-color); display: none;"></p>
+        <button type="button" onclick="SAF.toggleOrgLogin()" class="org-login-link">ورود به‌عنوان برگزارکننده</button>
     </div>
 
     <!-- Superadmin Dashboard -->
     <div id="dashboardSection" style="display: none; width: 90%; max-width: 1000px; text-align: center;">
         <h2 style="margin-top: 0; margin-bottom: 25px; font-size: 28px;">داشبورد سوپرادمین</h2>
         
-        <div class="action-buttons-container" style="display: flex; gap: 15px; justify-content: center; flex-wrap: wrap; margin-bottom: 30px;">
-            <button onclick="openSetupMode(null)" class="main-action-btn" style="background: rgba(0, 255, 136, 0.3); color: var(--success-color); border: 1px solid var(--success-color);" title="ایجاد رویداد جدید به صورت دستی">
+        <div class="action-buttons-container">
+            <button type="button" onclick="openSetupMode(null)" class="main-action-btn btn-primary" title="ایجاد رویداد جدید به صورت دستی">
                 <i data-lucide="plus-circle"></i> <span class="btn-text">مسابقه جدید</span>
             </button>
-            <button onclick="showExcelGuide()" class="main-action-btn" style="background: var(--blue-bg); color: var(--blue-color); border: 1px solid var(--blue-border);" title="بارگذاری اطلاعات رویداد از فایل اکسل">
+            <button type="button" onclick="showExcelGuide()" class="main-action-btn" title="بارگذاری اطلاعات رویداد از فایل اکسل">
                 <i data-lucide="file-spreadsheet"></i> <span class="btn-text">ورود اکسل</span>
             </button>
-            <button onclick="toggleAllCampsView()" id="toggleAllCampsBtn" class="main-action-btn" style="background: rgba(255, 255, 255, 0.15); color: var(--text-color); border: 1px solid var(--glass-border);" title="نمایش همه مسابقات (آرشیو شده و فعال)">
-                <i data-lucide="layers"></i> <span class="btn-text">مسابقات</span>
+
+            <button type="button" onclick="SAF.openLeagues()" class="main-action-btn super-only" title="جدول چند مسابقه (لیگ)">
+                <i data-lucide="trophy"></i> <span class="btn-text">لیگ‌ها</span>
             </button>
-            <button onclick="openGlobalSettings()" class="main-action-btn" style="background: rgba(255, 255, 255, 0.15); color: var(--text-color); border: 1px solid var(--glass-border);" title="تنظیمات کلی سیستم و سوپرادمین">
+            <button type="button" onclick="SAF.openOrganizers()" class="main-action-btn super-only" title="حساب برگزارکننده‌ها">
+                <i data-lucide="building-2"></i> <span class="btn-text">برگزارکننده‌ها</span>
+            </button>
+            <button type="button" onclick="openGlobalSettings()" class="main-action-btn super-only" title="تنظیمات کلی سیستم و سوپرادمین">
                 <i data-lucide="settings"></i> <span class="btn-text">تنظیمات</span>
             </button>
-            <a href="cpanel_export.zip" download class="main-action-btn" style="background: rgba(168, 85, 247, 0.2); color: #c084fc; border: 1px solid rgba(168, 85, 247, 0.4); text-decoration: none;" title="دانلود بسته آماده برای استقرار روی هاست سی‌پنل (cPanel)">
+            <button type="button" onclick="openTrash()" class="main-action-btn" title="مسابقه‌های حذف‌شده (قابل بازگرداندن)">
+                <i data-lucide="trash"></i> <span class="btn-text">سطل زباله</span> <span id="trashCountBadge" class="count-badge" style="display:none"></span>
+            </button>
+            <button type="button" onclick="openBackupMenu()" class="main-action-btn" title="دانلود فایل پشتیبان یا بازیابی از آن">
+                <i data-lucide="hard-drive-download"></i> <span class="btn-text">پشتیبان‌گیری</span>
+            </button>
+            <input type="file" id="backupFileInput" accept=".json,application/json" style="display:none" onchange="importBackupFile(this)">
+            <button type="button" onclick="SAF.changeOrgPassword()" class="main-action-btn org-only" style="display: none;" title="تغییر رمز عبور من">
+                <i data-lucide="key-round"></i> <span class="btn-text">رمز من</span>
+            </button>
+            <button type="button" id="cpanelPackageBtn" onclick="downloadCpanelPackage()" class="main-action-btn super-only" title="دانلود بسته آماده برای استقرار روی هاست سی‌پنل">
                 <i data-lucide="archive"></i> <span class="btn-text">بسته cPanel</span>
-            </a>
-            <button onclick="superadminLogout()" class="main-action-btn" style="background: rgba(255, 76, 76, 0.15); color: var(--danger-color); border: 1px solid rgba(255, 76, 76, 0.3);" title="خروج از حساب سوپرادمین">
+            </button>
+            <button type="button" onclick="showSuperadminHelp()" class="main-action-btn" title="راهنما">
+                <i data-lucide="circle-help"></i> <span class="btn-text">راهنما</span>
+            </button>
+            <button type="button" onclick="superadminLogout()" class="main-action-btn btn-danger" title="خروج از حساب سوپرادمین">
                 <i data-lucide="log-out"></i> <span class="btn-text">خروج</span>
             </button>
         </div>
+        <div class="camp-filters">
+            <input type="search" id="campSearch" class="settings-input" placeholder="جستجوی عنوان، سازمان یا شناسه…" oninput="renderCampsGrid()" aria-label="جستجوی مسابقات">
+            <select id="campFilter" class="settings-input" onchange="renderCampsGrid()" aria-label="فیلتر وضعیت">
+                <option value="active">فعال و قفل‌شده</option>
+                <option value="open">فقط فعال</option>
+                <option value="locked">قفل / پایان‌یافته</option>
+                <option value="archived">آرشیو</option>
+                <option value="all">همه</option>
+            </select>
+        </div>
+        <div id="campsSummary" class="camps-summary" aria-live="polite"></div>
         <div id="campsGrid" class="dashboard-grid">
             <!-- Cards go here -->
         </div>
     </div>
 
     
-    <!-- Global Settings Modal -->
+    <!-- Global Settings Modal: three separate parts, each saved with its own button -->
     <div id="globalSettingsModal" class="modal-overlay">
-        <div class="glass" style="padding: 30px; width: 90%; max-width: 500px; text-align: right;">
-            <h3 style="margin-top: 0; display: flex; align-items: center; gap: 10px;"><i data-lucide="settings"></i> تنظیمات عمومی سیستم</h3>
-            <div style="display: flex; flex-direction: column; gap: 15px; margin-top: 20px;">
-                <div>
-                    <label style="display: block; margin-bottom: 8px;">لوگوی اصلی سیستم (لینک عکس):</label>
-                    <input type="text" id="sysLogoLink" class="settings-input" placeholder="https://example.com/logo.png">
-                </div>
-                <div>
-                    <label style="display: block; margin-bottom: 8px;">یا آپلود فایل لوگو:</label>
-                    <input type="file" id="sysLogoFile" accept="image/*" class="settings-input" style="padding: 10px;">
-                </div>
+        <div class="glass sa-dialog">
+            <button type="button" class="close-btn" onclick="closeGlobalSettings()" title="بستن">&times;</button>
+            <h3><i data-lucide="settings"></i> تنظیمات عمومی سیستم</h3>
+            <div class="sa-section">
+                <h4><i data-lucide="image"></i> لوگوی اصلی سیستم</h4>
+                <label for="sysLogoLink">لینک عکس</label>
+                <input type="text" id="sysLogoLink" class="settings-input" placeholder="https://example.com/logo.png" dir="ltr">
+                <label>یا آپلود فایل لوگو:</label>
+                <label class="file-pick"><input type="file" id="sysLogoFile" accept="image/*">📷 انتخاب فایل <span class="file-name"></span></label>
+                <button type="button" onclick="saveGlobalSettings();" class="sa-save btn-primary" title="ذخیره تنظیمات کلی سیستم">ذخیره لوگو</button>
             </div>
-            <div style="display: flex; gap: 10px; margin-top: 25px;">
-                <button onclick="saveGlobalSettings();" style="flex: 2; padding: 12px; background: rgba(0, 255, 136, 0.3); border: 1px solid var(--success-color); color: var(--success-color);" title="ذخیره تنظیمات کلی سیستم">
-                    <i data-lucide="save" style="width: 18px; height: 18px; vertical-align: middle; margin-left: 5px;"></i> ذخیره تغییرات
-                </button>
-                <button onclick="closeGlobalSettings()" style="flex: 1; padding: 12px; background: var(--input-bg);" title="انصراف و بستن تنظیمات">لغو</button>
-            </div>
+            <div id="safDefaults" class="sa-section"></div>
+            <form class="sa-section" onsubmit="event.preventDefault(); changeSuperadminPassword();">
+                <h4><i data-lucide="key-round"></i> تغییر رمز سوپرادمین</h4>
+                <input type="password" id="saCurrentPass" class="settings-input" placeholder="رمز فعلی" autocomplete="current-password">
+                <input type="password" id="saNewPass" class="settings-input" placeholder="رمز جدید (حداقل ۶ کاراکتر)" autocomplete="new-password">
+                <input type="password" id="saNewPass2" class="settings-input" placeholder="تکرار رمز جدید" autocomplete="new-password">
+                <button type="submit" class="sa-save btn-primary">تغییر رمز</button>
+            </form>
         </div>
     </div>
     
     <!-- Excel Guide Modal -->
-    <!-- Excel Guide Modal -->
     <div id="excelGuideModal" class="modal-overlay">
-        <div class="glass" style="padding: 30px; width: 90%; max-width: 700px; max-height: 90vh; overflow-y: auto;">
-            <h3 style="margin-top: 0; display: flex; align-items: center; gap: 10px;"><i data-lucide="file-spreadsheet"></i> ورود از طریق اکسل</h3>
+        <div class="glass sa-dialog" style="max-width: 700px;">
+            <button type="button" class="close-btn" onclick="closeExcelGuide()" title="بستن">&times;</button>
+            <h3><i data-lucide="file-spreadsheet"></i> ورود از طریق اکسل</h3>
             <p>لطفا یک فایل اکسل با <b>دو شیت مجزا</b> ایجاد کنید.</p>
             
             <h4 style="margin-top: 20px; color: var(--blue-color);">شیت اول: اطلاعات مسابقه</h4>
@@ -196,21 +433,31 @@
             <div id="excelErrors" style="display: none; background: rgba(255,50,50,0.1); border: 1px solid var(--danger-color); color: var(--danger-color); padding: 15px; border-radius: 10px; margin-top: 20px; font-size: 13px; text-align: right;"></div>
             <div style="display: flex; gap: 10px; margin-top: 25px; align-items: center; justify-content: flex-end;">
                 <input type="file" id="excelUpload" accept=".xlsx, .xls" style="display: none;" onchange="handleExcelUpload(event);">
-                <button onclick="document.getElementById('excelUpload').click()" style="flex: 2; padding: 12px; background: var(--blue-bg); color: var(--blue-color); border: 1px solid var(--blue-border); cursor: pointer; border-radius: 10px;" title="انتخاب فایل اکسل از دستگاه">
+                <button type="button" onclick="document.getElementById('excelUpload').click()" class="btn-primary" style="flex: 2; padding: 12px; cursor: pointer; border-radius: var(--radius-md);" title="انتخاب فایل اکسل از دستگاه">
                     <i data-lucide="upload" style="width: 18px; height: 18px; vertical-align: middle; margin-left: 5px;"></i> انتخاب فایل اکسل
                 </button>
-                <button onclick="closeExcelGuide()" style="flex: 1; padding: 12px; background: var(--input-bg); border-radius: 10px; cursor: pointer;" title="بستن راهنمای فایل اکسل">بستن</button>
+                <button type="button" onclick="closeExcelGuide()" style="flex: 1; padding: 12px; background: var(--input-bg); border-radius: var(--radius-md); cursor: pointer;" title="بستن راهنمای فایل اکسل">بستن</button>
             </div>
         </div>
     </div>
 
     <!-- Setup / Edit Modal Overlay -->
-    <div id="setupModal" class="modal-overlay" style="position: fixed; inset: 0; width: 100vw; height: 100vh; z-index: 1200; overflow-y: auto; padding: 25px 12px; box-sizing: border-box; align-items: center; justify-content: center;">
-        <div id="setupSection" class="glass modal-content" style="padding: 30px; width: 95%; max-width: 650px; max-height: 88vh; overflow-y: auto; position: relative; border-radius: 20px; box-sizing: border-box; margin: auto;">
-            <span class="close-btn" onclick="backToDashboard()" title="بستن" style="top: 20px; left: 20px; right: auto;">&times;</span>
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; padding-left: 35px;">
-                <h2 id="setupFormTitle" style="margin: 0; font-size: 24px;">تنظیمات مسابقه</h2>
-                <button onclick="backToDashboard()" class="icon-btn" style="font-size: 14px; padding: 6px 14px;" title="بازگشت به داشبورد و لیست رویدادها">بازگشت به داشبورد</button>
+    <div id="setupModal" class="modal-overlay" data-guard="setup">
+        <div id="setupSection" class="glass modal-content">
+            <div class="setup-sticky-head">
+                <div class="setup-head-row">
+                    <h2 id="setupFormTitle" style="margin: 0; font-size: 22px;">تنظیمات مسابقه</h2>
+                    <div class="setup-head-actions">
+                        <button type="button" onclick="createCamp()" class="setup-save-top btn-primary" title="ذخیره همه تغییرات">ذخیره</button>
+                        <button type="button" class="close-btn" onclick="backToDashboard()" title="بستن">&times;</button>
+                    </div>
+                </div>
+                <nav class="setup-jump" aria-label="بخش‌های فرم">
+                    <a href="#orgName" onclick="jumpTo(event, 'orgName')">اطلاعات کلی</a>
+                    <a href="#teamsList" onclick="jumpTo(event, 'teamsList')">تیم‌ها</a>
+                    <a href="#stagesList" onclick="jumpTo(event, 'stagesList')">مراحل</a>
+                    <a href="#usersList" id="jumpUsers" onclick="jumpTo(event, 'usersList')">کاربران</a>
+                </nav>
             </div>
         
         <input type="hidden" id="editCampId">
@@ -220,14 +467,27 @@
         
         <label>عنوان مسابقه:</label>
         <input type="text" id="campTitle" placeholder="مثلا: جام رمضان ۱۴۰۵" class="settings-input">
+
+        <div id="customIdSection">
+            <label for="customCampId">لینک اختصاصی مسابقه (اختیاری):</label>
+            <div class="custom-id-row" dir="ltr">
+                <span class="custom-id-prefix" id="customIdPrefix"></span>
+                <input type="text" id="customCampId" placeholder="summer-1405" autocomplete="off" spellcheck="false" oninput="onCustomIdInput()" aria-describedby="customIdStatus">
+            </div>
+            <div id="customIdStatus" class="custom-id-status" aria-live="polite"></div>
+        </div>
+        <div id="campLinkSection" class="custom-id-status" style="display: none;">
+            <span>لینک این مسابقه:</span> <span style="opacity: 0.75;">(بعد از ساخت قابل تغییر نیست)</span>
+            <code id="campLinkView" class="camp-link-url" dir="ltr"></code>
+        </div>
         
         <label>لوگوی سازمان:</label>
-        <div class="tabs">
-            <button class="tab-btn active" id="tabUrlBtn" onclick="setLogoMode('url')" title="استفاده از آدرس اینترنتی تصویر">لینک عکس</button>
-            <button class="tab-btn" id="tabUploadBtn" onclick="setLogoMode('upload')" title="آپلود تصویر از دستگاه">آپلود از دستگاه</button>
+        <div class="tabs" role="tablist">
+            <button type="button" class="tab-btn active" id="tabUrlBtn" role="tab" aria-selected="true" onclick="setLogoMode('url')" title="استفاده از آدرس اینترنتی تصویر">لینک عکس</button>
+            <button type="button" class="tab-btn" id="tabUploadBtn" role="tab" aria-selected="false" onclick="setLogoMode('upload')" title="آپلود تصویر از دستگاه">آپلود از دستگاه</button>
         </div>
-        <input type="text" id="logoUrl" placeholder="https://example.com/logo.png" class="settings-input">
-        <input type="file" id="logoFile" accept="image/*" style="display: none; width: 100%; padding: 10px; margin-bottom: 15px; box-sizing: border-box; background: var(--input-bg);" onchange="handleFileUpload(event)">
+        <input type="text" id="logoUrl" placeholder="https://example.com/logo.png" class="settings-input" dir="ltr">
+        <label class="file-pick" id="logoFilePick" style="display: none;"><input type="file" id="logoFile" accept="image/*" onchange="handleFileUpload(event)">📷 انتخاب فایل <span class="file-name"></span></label>
         <input type="hidden" id="logoBase64">
         <!-- Image Preview -->
         <div style="text-align: center;">
@@ -294,7 +554,8 @@
         <div id="stagesList" class="dynamic-list"></div>
         <button onclick="addStage()" class="icon-btn add-dynamic-btn" style="width: 100%; margin-bottom: 20px; color:var(--success-color);" title="افزودن مرحله جدید">+ افزودن مرحله جدید</button>
 
-        <button id="saveCampBtn" onclick="createCamp()" style="padding: 15px; width: 100%; font-size: 18px; background: rgba(0, 255, 136, 0.4);" title="ذخیره تنظیمات و ایجاد رویداد">ذخیره و ایجاد لینک</button>
+        <div id="safFormExtras"></div>
+        <button type="button" id="saveCampBtn" class="btn-primary" onclick="createCamp()" title="ذخیره تنظیمات و ایجاد رویداد">ذخیره و ایجاد لینک</button>
         
         <div id="result" style="margin-top: 20px; color: var(--text-color); font-weight: bold; display: none; text-align: center;">
             لینک اپراتور: <br>
@@ -344,17 +605,13 @@
         let logoMode = 'url';
         function setLogoMode(mode) {
             logoMode = mode;
-            if (mode === 'url') {
-                document.getElementById('tabUrlBtn').classList.add('active');
-                document.getElementById('tabUploadBtn').classList.remove('active');
-                document.getElementById('logoUrl').style.display = 'block';
-                document.getElementById('logoFile').style.display = 'none';
-            } else {
-                document.getElementById('tabUrlBtn').classList.remove('active');
-                document.getElementById('tabUploadBtn').classList.add('active');
-                document.getElementById('logoUrl').style.display = 'none';
-                document.getElementById('logoFile').style.display = 'block';
-            }
+            const url = mode === 'url';
+            document.getElementById('tabUrlBtn').classList.toggle('active', url);
+            document.getElementById('tabUploadBtn').classList.toggle('active', !url);
+            document.getElementById('tabUrlBtn').setAttribute('aria-selected', url);
+            document.getElementById('tabUploadBtn').setAttribute('aria-selected', !url);
+            document.getElementById('logoUrl').style.display = url ? 'block' : 'none';
+            document.getElementById('logoFilePick').style.display = url ? 'none' : 'inline-flex';
             updatePreview();
         }
 
@@ -432,6 +689,22 @@
         }
         function closeGlobalSettings() {
             hideModal('globalSettingsModal');
+        }
+
+        function changeSuperadminPassword() {
+            const cur = document.getElementById('saCurrentPass').value;
+            const p1 = document.getElementById('saNewPass').value;
+            const p2 = document.getElementById('saNewPass2').value;
+            if (p1.length < 6) return window.showToast('رمز جدید باید حداقل ۶ کاراکتر باشد.', 'error');
+            if (p1 !== p2) return window.showToast('تکرار رمز جدید مطابقت ندارد.', 'error');
+            fetch('/superadmin/password', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ currentPassword: cur, newPassword: p1 }) })
+                .then(jsonOrThrow)
+                .then(res => {
+                    if (res.token) Auth.set(res.token);
+                    ['saCurrentPass', 'saNewPass', 'saNewPass2'].forEach(i => { document.getElementById(i).value = ''; });
+                    window.showToast('رمز سوپرادمین تغییر کرد.', 'success');
+                })
+                .catch(e => window.showToast(e.message, 'error'));
         }
         
         function closeExcelGuide() {
@@ -537,8 +810,10 @@
                                     }
                                     
                                     let role = 'operator';
-                                    if (roleStr.includes('سرداور') || roleStr.includes('ارشد')) role = 'head_referee';
-                                    else if (roleStr.includes('داور') && !roleStr.includes('ارشد')) role = 'referee';
+                                    // Persian, English or Arabic role names in the sheet.
+                                    const rs = roleStr.toLowerCase();
+                                    if (/سرداور|ارشد|head|chief|senior|رئيس/.test(rs)) role = 'head_referee';
+                                    else if (/داور|referee|judge|حكم|حَكَم/.test(rs)) role = 'referee';
                                     
                                     if (role === 'operator' || role === 'head_referee') hasOp = true;
 
@@ -615,16 +890,18 @@
             fetch('/superadmin/login', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ password: pass })
+                body: JSON.stringify(SAF.loginBody(pass))
             })
             .then(res => res.json())
             .then(data => {
                 if (data.success) {
                     Auth.set(data.token);
+                    SAF.onLogin(data.role);
                     document.getElementById('saPassword').value = '';
                     hideModal('loginSection');
                     setTimeout(() => { showModal('dashboardSection', 'block'); }, 280);
                     loadCamps();
+                    Help.once('superadmin', 'راهنمای پنل سوپرادمین', SUPERADMIN_HELP);
                 } else {
                     Auth.clear();
                     document.getElementById('saErrorMsg').innerText = data.message || data.error;
@@ -671,13 +948,15 @@
                     return;
                 }
                 applySystemLogo(url);
-                closeGlobalSettings();
-                setTimeout(() => alert('تنظیمات ذخیره شد'), 10);
+                window.showToast('تنظیمات ذخیره شد', 'success');
             };
 
             if (fileInput.files && fileInput.files[0]) {
                 logoUrl = await compressImageFile(fileInput.files[0], 512);
                 document.getElementById('sysLogoLink').value = '';
+                fileInput.value = '';
+                const fn = fileInput.closest('.file-pick').querySelector('.file-name');
+                if (fn) fn.textContent = '';
                 await finishSave(logoUrl);
             } else {
                 await finishSave(logoUrl);
@@ -695,105 +974,80 @@
     
         
         let allFetchedCamps = [];
-        let viewingAllCamps = false;
 
-        function toggleAllCampsView() {
-            const grid = document.getElementById('campsGrid');
-            grid.style.opacity = '0';
-            grid.style.transform = 'translateY(10px)';
-            grid.style.transition = 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)';
-            
-            setTimeout(() => {
-            viewingAllCamps = !viewingAllCamps;
-            const btn = document.getElementById('toggleAllCampsBtn');
-            if (viewingAllCamps) {
-                btn.style.background = 'var(--blue-bg)';
-                btn.style.color = 'var(--blue-color)';
-                btn.innerHTML = '<i data-lucide="layers"></i> <span class="btn-text">فقط فعال‌ها</span>';
-            } else {
-                btn.style.background = 'rgba(255, 255, 255, 0.15)';
-                btn.style.color = 'var(--text-color)';
-                btn.innerHTML = '<i data-lucide="layers"></i> <span class="btn-text">مسابقات</span>';
-            }
-            if(typeof refreshIcons === 'function') refreshIcons();
-            renderCampsGrid();
-            
-            grid.style.opacity = '1';
-            grid.style.transform = 'translateY(0)';
-            }, 200);
+        function campMatchesFilter(camp) {
+            const f = document.getElementById('campFilter').value;
+            const locked = !!camp.locked;
+            if (f === 'archived') return !!camp.archived;
+            if (f === 'all') return true;
+            if (camp.archived) return false;
+            if (f === 'open') return !locked;
+            if (f === 'locked') return locked;
+            return true;
         }
 
         function toggleArchive(id, status, btnElement) {
             const card = btnElement.closest('.camp-card');
-            if(card) {
-                if(!viewingAllCamps) {
-                    const targetBtn = document.getElementById('toggleAllCampsBtn');
-                    const cardRect = card.getBoundingClientRect();
-                    const targetRect = targetBtn.getBoundingClientRect();
-                    
-                    // Calculate translation distance
-                    const deltaX = (targetRect.left + targetRect.width / 2) - (cardRect.left + cardRect.width / 2);
-                    const deltaY = (targetRect.top + targetRect.height / 2) - (cardRect.top + cardRect.height / 2);
-                    
-                    // Set relative position so z-index works to fly over everything
-                    card.style.position = 'relative';
-                    card.style.zIndex = '2500';
-                    card.style.pointerEvents = 'none'; // Avoid intercepting clicks
-                    
-                    // Apply smooth fly-away transform
-                    card.style.transition = 'transform 0.6s cubic-bezier(0.5, 0, 0.2, 1), opacity 0.5s ease-out';
-                    card.style.transform = `translate(${deltaX}px, ${deltaY}px) scale(0.05)`;
-                    card.style.opacity = '0';
-                    
-                    // Pulse the target button slightly when the card "arrives"
-                    setTimeout(() => {
-                        targetBtn.style.transform = 'scale(1.1)';
-                        targetBtn.style.transition = 'transform 0.2s';
-                        setTimeout(() => targetBtn.style.transform = 'scale(1)', 200);
-                    }, 500);
-
-                } else {
-                    card.style.opacity = status ? '0.6' : '1';
-                    btnElement.style.opacity = '0.5';
-                    btnElement.innerText = 'درحال ثبت...';
-                }
+            const willHide = card && !campMatchesFilter({ ...allFetchedCamps.find(c => c.id === id), archived: status });
+            if (card && willHide) {
+                // Fly the card into the filter box so it is clear where it went.
+                const targetBtn = document.getElementById('campFilter');
+                const cardRect = card.getBoundingClientRect();
+                const targetRect = targetBtn.getBoundingClientRect();
+                const deltaX = (targetRect.left + targetRect.width / 2) - (cardRect.left + cardRect.width / 2);
+                const deltaY = (targetRect.top + targetRect.height / 2) - (cardRect.top + cardRect.height / 2);
+                card.style.position = 'relative';
+                card.style.zIndex = '2500';
+                card.style.pointerEvents = 'none';
+                card.style.transition = 'transform 0.6s cubic-bezier(0.5, 0, 0.2, 1), opacity 0.5s ease-out';
+                card.style.transform = `translate(${deltaX}px, ${deltaY}px) scale(0.05)`;
+                card.style.opacity = '0';
+            } else if (card) {
+                btnElement.style.opacity = '0.5';
+                btnElement.innerText = 'درحال ثبت...';
             }
-            
             setTimeout(() => {
                 fetch(`/superadmin/camps/${id}/archive`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ archived: status })
                 })
-                .then(res => res.json())
-                .then(data => {
-                    if (data.success) loadCamps();
-                });
-            }, !viewingAllCamps ? 600 : 0);
+                .then(jsonOrThrow)
+                .then(() => {
+                    loadCamps();
+                    window.showToast(status ? 'مسابقه آرشیو شد (از فیلتر «آرشیو» قابل مشاهده است).' : 'مسابقه از آرشیو خارج شد.', 'success');
+                })
+                .catch(e => { window.showToast(e.message, 'error'); loadCamps(); });
+            }, willHide ? 600 : 0);
         }
 
         function loadCamps() {
             fetch('/superadmin/camps')
-            .then(res => res.json())
+            .then(jsonOrThrow)
             .then(data => {
-                if (data.success) {
-                    allFetchedCamps = data.camps;
-                    renderCampsGrid();
-                }
-            });
+                allFetchedCamps = data.camps;
+                (data.camps || []).forEach(c => I18N.names(c));
+                const badge = document.getElementById('trashCountBadge');
+                if (badge) { badge.textContent = fmtNum(data.trashCount || 0); badge.style.display = data.trashCount ? '' : 'none'; }
+                renderCampsGrid();
+            })
+            .catch(e => { if (e.status !== 401) window.showToast('دریافت فهرست مسابقات انجام نشد: ' + e.message, 'error'); });
         }
 
         function renderCampsGrid() {
             const grid = document.getElementById('campsGrid');
             grid.innerHTML = '';
-            
-            let campsToShow = allFetchedCamps;
-            if (!viewingAllCamps) {
-                campsToShow = allFetchedCamps.filter(c => !c.archived);
-            }
-            
+            const q = toEnDigits(document.getElementById('campSearch').value).trim().toLowerCase();
+            const campsToShow = allFetchedCamps.filter(campMatchesFilter).filter(c => !q ||
+                [c.title, c.orgName, c.id].some(v => String(v || '').toLowerCase().includes(q)));
+            const archivedCount = allFetchedCamps.filter(c => c.archived).length;
+            document.getElementById('campsSummary').textContent =
+                `${fmtNum(campsToShow.length)} مورد از ${fmtNum(allFetchedCamps.length)} مسابقه` + (archivedCount ? `، ${fmtNum(archivedCount)} مسابقه در آرشیو` : '');
+
             if (campsToShow.length === 0) {
-                grid.innerHTML = '<p>هیچ مسابقه‌ای برای نمایش وجود ندارد.</p>';
+                grid.innerHTML = allFetchedCamps.length === 0
+                    ? '<div class="empty-state"><span class="empty-icon">🏕️</span>هنوز مسابقه‌ای ساخته نشده است.<br><small>با «مسابقه جدید» یا «ورود اکسل» شروع کنید.</small></div>'
+                    : '<div class="empty-state"><span class="empty-icon">🔍</span>مسابقه‌ای با این جستجو یا فیلتر پیدا نشد.</div>';
                 return;
             }
 
@@ -801,52 +1055,287 @@
                 const card = document.createElement('div');
                 card.className = 'camp-card fade-in-up';
                 card.style.animationDelay = `${index * 0.05}s`;
-                if (camp.archived) card.style.opacity = '0.6';
+                if (camp.archived) card.style.opacity = '0.75';
                 
-                const isLocked = camp.locked === 1;
+                const isLocked = !!camp.locked;
                 const statusBadge = isLocked 
                     ? '<span class="camp-badge badge-locked"><i data-lucide="lock"></i> قفل شده</span>'
-                    : '<span class="camp-badge badge-active"><i data-lucide="check-circle" style="width: 14px; height: 14px; margin-left: 5px;"></i> فعال</span>';
-
+                    : '<span class="camp-badge badge-active"><i data-lucide="check-circle"></i> فعال</span>';
                 const archiveBtn = camp.archived
-                    ? `<button onclick="toggleArchive('${camp.id}', false, this)" title="خروج از آرشیو" style="width: 100%; padding: 10px; display: flex; align-items: center; justify-content: center; gap: 8px; background: rgba(255, 165, 0, 0.15); color: #ffa500; border: 1px solid rgba(255, 165, 0, 0.3); border-radius: 12px;">
-                            <i data-lucide="arrow-up-circle" style="width: 16px; height: 16px;"></i> خروج از آرشیو
-                        </button>`
-                    : `<button onclick="toggleArchive('${camp.id}', true, this)" title="آرشیو این رویداد" style="width: 100%; padding: 10px; display: flex; align-items: center; justify-content: center; gap: 8px; background: rgba(100, 100, 100, 0.2); border: 1px solid rgba(100,100,100,0.3); border-radius: 12px; color: var(--text-color);">
-                            <i data-lucide="archive" style="width: 16px; height: 16px;"></i> آرشیو
-                        </button>`;
+                    ? `<button type="button" onclick="toggleArchive('${camp.id}', false, this)" title="خروج از آرشیو"><i data-lucide="arrow-up-circle"></i> خروج از آرشیو</button>`
+                    : `<button type="button" onclick="toggleArchive('${camp.id}', true, this)" title="آرشیو این رویداد"><i data-lucide="archive"></i> آرشیو</button>`;
                 
+                // Main actions (2-column grid), then the rarely used ones in a smaller row.
                 card.innerHTML = `
-                    <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 5px;">
-                        <div style="flex-grow: 1; padding-left: 10px;">
-                            <h3 style="margin: 0 0 8px 0; font-size: 18px; line-height: 1.4;">${esc(camp.title || 'بدون عنوان')}</h3>
-                            <div style="font-size: 13px; opacity: 0.7; display: flex; align-items: center; gap: 5px;">
-                                <i data-lucide="building-2" style="width: 14px; height: 14px;"></i> 
-                                ${esc(camp.orgName || '-')}
-                            </div>
+                    <div class="camp-card-head">
+                        <div style="min-width: 0;">
+                            <h3>${esc(camp.title || 'بدون عنوان')}</h3>
+                            <div class="camp-card-org"><i data-lucide="building-2"></i> ${esc(camp.orgName || '-')}</div>
+                            ${SAF.ownerLabel(camp)}
                         </div>
                         ${statusBadge}
                     </div>
-                    
-                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 15px;">
-                        <button onclick="openSetupMode('${camp.id}')" title="ویرایش تنظیمات" style="padding: 10px; display: flex; align-items: center; justify-content: center; gap: 8px; border-radius: 12px;">
-                            <i data-lucide="edit-2" style="width: 16px; height: 16px;"></i> ویرایش
-                        </button>
-                        <button onclick="toggleLock('${camp.id}', ${!isLocked})" title="${isLocked ? 'باز کردن' : 'قفل کردن'}" style="padding: 10px; display: flex; align-items: center; justify-content: center; gap: 8px; background: rgba(255, 76, 76, 0.15); color: var(--danger-color); border: 1px solid rgba(255, 76, 76, 0.3); border-radius: 12px;">
-                            ${isLocked ? '<i data-lucide="unlock" style="width: 16px; height: 16px;"></i> باز' : '<i data-lucide="lock" style="width: 16px; height: 16px;"></i> قفل'}
-                        </button>
-                        <div style="grid-column: span 2;">
-                            ${archiveBtn}
-                        </div>
-                        <a href="operator.html?id=${camp.id}" target="_blank" class="icon-btn" style="grid-column: span 2; display: flex; align-items: center; justify-content: center; gap: 8px; background: rgba(79, 172, 254, 0.1); color: #4facfe; border: 1px solid rgba(79, 172, 254, 0.2); text-decoration: none; font-size: 14px; padding: 12px; border-radius: 12px; width: 100%; box-sizing: border-box; transition: all 0.3s;">
-                            <i data-lucide="external-link" style="width: 16px; height: 16px;"></i> پنل اپراتور
-                        </a>
+                    <div class="camp-actions">
+                        <button type="button" onclick="openSetupMode('${camp.id}')" title="ویرایش تنظیمات"><i data-lucide="edit-2"></i> ویرایش</button>
+                        <button type="button" onclick="openCampLinks('${camp.id}')" title="لینک‌ها و QR"><i data-lucide="qr-code"></i> لینک‌ها و QR</button>
+                        <a href="operator.html?id=${camp.id}" target="_blank" class="camp-link"><i data-lucide="external-link"></i> پنل اپراتور</a>
+                        <a href="board.html?id=${camp.id}" target="_blank" class="camp-link"><i data-lucide="monitor"></i> تابلوی زنده</a>
+                        ${SAF.cardAnalysis(camp)}
+                        <button type="button" onclick="toggleLock('${camp.id}', ${!isLocked})" title="${isLocked ? 'باز کردن قفل و امکان ثبت امتیاز' : 'قفل کردن ثبت امتیاز'}">${isLocked ? '<i data-lucide="unlock"></i> باز کردن' : '<i data-lucide="lock"></i> قفل'}</button>
+                    </div>
+                    <div class="camp-more">
+                        <button type="button" onclick="duplicateCamp('${camp.id}')" title="ساخت دوره جدید با همین تیم‌ها، مراحل و کاربران"><i data-lucide="copy"></i> تکثیر</button>
+                        ${SAF.cardExtras(camp)}
+                        <button type="button" onclick="exportCamp('${camp.id}')" title="دانلود فایل پشتیبان همین مسابقه (با امتیازها و تصاویر)"><i data-lucide="download"></i> خروجی</button>
+                        ${archiveBtn}
+                        <button type="button" onclick="deleteCamp('${camp.id}')" class="camp-delete-btn btn-danger" title="انتقال به سطل زباله"><i data-lucide="trash-2"></i> حذف</button>
                     </div>
                 `;
                 grid.appendChild(card);
             });
             if(typeof refreshIcons === 'function') refreshIcons();
         }
+
+        // ---- Custom camp link (optional; random when left empty) ----
+        const CAMP_ID_RE = /^[A-Za-z0-9_-]{3,64}$/;
+        const CAMP_ID_HELP = 'لینک اختصاصی فقط می‌تواند شامل حروف انگلیسی، عدد، خط تیره (-) و زیرخط (_) و بین ۳ تا ۶۴ کاراکتر باشد.';
+        let customIdTimer = null;
+
+        // Persian digits -> Latin, spaces -> "-"
+        function normalizeCustomId(v) {
+            return toEnDigits(v || '').trim().replace(/\s+/g, '-');
+        }
+
+        // url (optional) is shown on its own left-to-right line under the message.
+        function setCustomIdStatus(text, kind, url) {
+            const el = document.getElementById('customIdStatus');
+            el.textContent = text;
+            if (url) {
+                const code = document.createElement('code');
+                code.className = 'camp-link-url';
+                code.dir = 'ltr';
+                code.textContent = url;
+                el.appendChild(code);
+            }
+            el.className = 'custom-id-status' + (kind ? ' ' + kind : '');
+        }
+
+        function showCampLinkMode(existingId) {
+            document.getElementById('customIdPrefix').textContent = appUrl('operator.html?id=');
+            document.getElementById('customIdSection').style.display = existingId ? 'none' : '';
+            document.getElementById('campLinkSection').style.display = existingId ? '' : 'none';
+            if (existingId) {
+                document.getElementById('campLinkView').textContent = appUrl('operator.html?id=' + existingId);
+            } else {
+                document.getElementById('customCampId').value = '';
+                setCustomIdStatus('خالی بگذارید تا یک لینک تصادفی ساخته شود.', '');
+            }
+        }
+
+        function onCustomIdInput() {
+            const input = document.getElementById('customCampId');
+            const v = normalizeCustomId(input.value);
+            if (v !== input.value.trim()) input.value = v;
+            clearTimeout(customIdTimer);
+            if (!v) return setCustomIdStatus('خالی بگذارید تا یک لینک تصادفی ساخته شود.', '');
+            if (!CAMP_ID_RE.test(v)) return setCustomIdStatus(CAMP_ID_HELP, 'bad');
+            setCustomIdStatus('در حال بررسی…', '');
+            customIdTimer = setTimeout(() => {
+                fetch('/superadmin/id_available?id=' + encodeURIComponent(v))
+                    .then(jsonOrThrow)
+                    .then(r => {
+                        if (normalizeCustomId(input.value) !== v) return; // typed on meanwhile
+                        if (r.available) setCustomIdStatus('✓ این لینک آزاد است:', 'ok', appUrl('operator.html?id=' + v));
+                        else setCustomIdStatus(r.message || 'این لینک قابل استفاده نیست.', 'bad');
+                    })
+                    .catch(() => setCustomIdStatus('بررسی لینک انجام نشد؛ هنگام ذخیره دوباره بررسی می‌شود.', ''));
+            }, 400);
+        }
+
+        function campById(id) { return allFetchedCamps.find(c => c.id === id) || {}; }
+
+        function duplicateCamp(id) {
+            const src = campById(id);
+            const title = prompt('عنوان مسابقه جدید (تیم‌ها، مراحل و کاربران کپی می‌شوند؛ امتیازها خیر):', `${src.title || ''} (دوره جدید)`);
+            if (title === null) return;
+            const rawId = prompt('لینک اختصاصی مسابقه جدید (اختیاری؛ حروف انگلیسی، عدد، - و _). خالی بگذارید تا لینک تصادفی ساخته شود:', '');
+            if (rawId === null) return;
+            const customId = normalizeCustomId(rawId);
+            if (customId && !CAMP_ID_RE.test(customId)) return window.showToast(CAMP_ID_HELP, 'error');
+            fetch(`/superadmin/camps/${id}/duplicate`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ title, customId: customId || undefined }) })
+                .then(jsonOrThrow)
+                .then(() => { window.showToast('مسابقه جدید ساخته شد.', 'success'); loadCamps(); })
+                .catch(e => window.showToast('تکثیر انجام نشد: ' + e.message, 'error'));
+        }
+
+        // Deleting moves the camp to the trash (restorable for 30 days); the live board and logins stop at once.
+        function deleteCamp(id) {
+            const camp = campById(id);
+            const name = camp.title || 'بدون عنوان';
+            if (!confirm(`«${name}» به سطل زباله منتقل شود؟\n\nلینک‌های ورود و تابلوی زنده از کار می‌افتند. تا ۳۰ روز می‌توانید آن را از «سطل زباله» بازگردانید؛ بعد از آن برای همیشه پاک می‌شود.`)) return;
+            fetch(`/superadmin/camps/${id}/delete`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' })
+                .then(jsonOrThrow)
+                .then(() => {
+                    loadCamps();
+                    window.undoToast(`«${name}» به سطل زباله رفت.`, () => restoreCamp(id, true), 8);
+                })
+                .catch(e => window.showToast('حذف انجام نشد: ' + e.message, 'error'));
+        }
+
+        // ---- Trash ----
+        function trashRow(c) {
+            const days = Math.max(0, Math.ceil((c.purgeAt - Date.now()) / 86400000));
+            const when = new Date(c.deletedAt).toLocaleString(I18N.locale);
+            return `<div class="trash-row">
+                <div class="trash-info"><b>${esc(c.title || 'بدون عنوان')}</b>
+                    <span class="trash-meta"><span>${esc(c.orgName || '-')}</span><bdi class="camp-id-tag" dir="ltr">${esc(c.id)}</bdi></span>
+                    <span class="trash-meta"><span>حذف: ${esc(when)}</span><span>پاک‌شدن خودکار تا ${fmtNum(days)} روز دیگر</span></span></div>
+                <div class="manage-row">
+                    <button type="button" onclick="restoreCamp(${jsArg(c.id)})"><i data-lucide="rotate-ccw"></i> بازگرداندن</button>
+                    <button type="button" class="camp-delete-btn btn-danger" onclick="purgeCamp(${jsArg(c.id)}, ${jsArg(c.title || '')})"><i data-lucide="x-circle"></i> حذف دائمی</button>
+                </div></div>`;
+        }
+
+        function openTrash() {
+            fetch('/superadmin/trash').then(jsonOrThrow).then(data => {
+                const body = data.camps.length
+                    ? `<p class="manage-note">مسابقه‌های حذف‌شده ${fmtNum(data.trashDays)} روز اینجا می‌مانند و بعد خودکار پاک می‌شوند.</p>` + data.camps.map(trashRow).join('')
+                    : '<div class="empty-state"><span class="empty-icon">🗑️</span>سطل زباله خالی است.</div>';
+                Help.show('سطل زباله', body, { ok: false });
+                if (typeof refreshIcons === 'function') refreshIcons();
+            }).catch(e => window.showToast('دریافت سطل زباله انجام نشد: ' + e.message, 'error'));
+        }
+
+        function restoreCamp(id, quiet) {
+            fetch(`/superadmin/camps/${encodeURIComponent(id)}/restore`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' })
+                .then(jsonOrThrow)
+                .then(() => {
+                    window.showToast(quiet ? 'حذف لغو شد.' : 'مسابقه بازگردانده شد.', 'success');
+                    loadCamps();
+                    if (!quiet) openTrash();
+                })
+                .catch(e => window.showToast('بازگرداندن انجام نشد: ' + e.message, 'error'));
+        }
+
+        function purgeCamp(id, title) {
+            const typed = prompt(`حذف دائمی «${title || id}»\n\nهمه تیم‌ها، امتیازها، کاربران و تاریخچه برای همیشه پاک می‌شود و قابل بازگشت نیست (مگر از فایل پشتیبان).\n\nبرای تأیید، کلمه «حذف» را بنویسید:`);
+            if (typed === null) return;
+            if (!I18N.typed(typed, 'حذف')) return window.showToast('تأیید نشد؛ مسابقه حذف نشد.', 'error');
+            fetch(`/superadmin/camps/${encodeURIComponent(id)}/purge`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' })
+                .then(jsonOrThrow)
+                .then(() => { window.showToast('مسابقه برای همیشه حذف شد.', 'success'); loadCamps(); openTrash(); })
+                .catch(e => window.showToast('حذف انجام نشد: ' + e.message, 'error'));
+        }
+
+        // ---- Backups (JSON files that both the Node and the cPanel edition can restore) ----
+        function downloadBlob(blob, filename) {
+            const a = document.createElement('a');
+            a.href = URL.createObjectURL(blob);
+            a.download = filename;
+            document.body.appendChild(a);
+            a.click();
+            setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
+        }
+
+        function fetchBackup(url, fallbackName) {
+            window.showToast('در حال آماده‌سازی فایل پشتیبان…', 'info');
+            return fetch(url).then(res => {
+                if (!res.ok) return jsonOrThrow(res);
+                const m = /filename="([^"]+)"/.exec(res.headers.get('Content-Disposition') || '');
+                return res.blob().then(b => { downloadBlob(b, m ? m[1] : fallbackName); window.showToast('فایل پشتیبان دانلود شد.', 'success'); });
+            }).catch(e => window.showToast('پشتیبان‌گیری انجام نشد: ' + e.message, 'error'));
+        }
+
+        function exportCamp(id) {
+            fetchBackup(`/superadmin/camps/${encodeURIComponent(id)}/export`, `sim-camp-${id}.json`);
+        }
+
+        function openBackupMenu() {
+            Help.show('پشتیبان‌گیری و بازیابی', `
+                <p>فایل پشتیبان شامل همه مسابقه‌ها (حتی داخل سطل زباله)، امتیازها، کاربران و تصاویر است و در هر دو نسخه (Node و cPanel) قابل بازیابی است.</p>
+                <div class="manage-row">
+                    ${SAF.isSuper() ? `<button type="button" class="btn-primary" onclick="fetchBackup('/superadmin/backup', 'sim-camp-backup.json')"><i data-lucide="download"></i> دانلود پشتیبان کامل</button>` : ''}
+                    <button type="button" onclick="document.getElementById('backupFileInput').click()"><i data-lucide="upload"></i> بازیابی از فایل پشتیبان</button>
+                </div>
+                <p class="manage-note">بازیابی هیچ مسابقه موجودی را بازنویسی نمی‌کند: اگر لینک یک مسابقه از قبل وجود داشته باشد، با لینک جدید ساخته می‌شود.</p>
+                <p class="manage-note">برای پشتیبان‌گیری خودکار روزانه، راهنمای README (بخش «پشتیبان‌گیری») را ببینید.</p>`, { ok: false });
+            if (typeof refreshIcons === 'function') refreshIcons();
+        }
+
+        function importBackupFile(input) {
+            const file = input.files && input.files[0];
+            input.value = '';
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = () => {
+                let backup;
+                try { backup = JSON.parse(reader.result); } catch (e) { return window.showToast('فایل انتخاب‌شده JSON معتبر نیست.', 'error'); }
+                if (!backup || backup.format !== 'sim-camp-backup') return window.showToast('این فایل، فایل پشتیبان سیم‌کمپ نیست.', 'error');
+                const n = Array.isArray(backup.camps) ? backup.camps.length : 0;
+                if (!confirm(`${fmtNum(n)} مسابقه از این فایل بازیابی شود؟`)) return;
+                window.showToast('در حال بازیابی…', 'info');
+                fetch('/superadmin/import', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: reader.result })
+                    .then(jsonOrThrow)
+                    .then(r => {
+                        const renamed = r.imported.filter(x => x.originalId && x.originalId !== x.id);
+                        let html = `<p>${fmtNum(r.imported.length)} مسابقه و ${fmtNum(r.media)} تصویر بازیابی شد.</p>`;
+                        if (renamed.length) html += '<p>این مسابقه‌ها چون لینکشان از قبل وجود داشت، با لینک جدید ساخته شدند:</p><ul>' +
+                            renamed.map(x => `<li>${esc(x.title || x.originalId)}: <span dir="ltr">${esc(x.originalId)} → ${esc(x.id)}</span></li>`).join('') + '</ul>';
+                        if (r.foreignPasswords) html += '<p><b>توجه:</b> این فایل از نسخه دیگر برنامه (Node / cPanel) است و رمزهای عبور آن اینجا قابل استفاده نیست. از «ویرایش» هر مسابقه برای اپراتور و کاربران رمز جدید تعیین کنید.</p>';
+                        Help.show('بازیابی انجام شد', html);
+                        loadCamps();
+                    })
+                    .catch(e => window.showToast('بازیابی انجام نشد: ' + (e.status === 413 ? 'حجم فایل بیش از حد مجاز سرور است.' : e.message), 'error'));
+            };
+            reader.readAsText(file);
+        }
+
+        function openCampLinks(id) {
+            const camp = campById(id);
+            const op = appUrl('operator.html?id=' + id);
+            const board = appUrl('board.html?id=' + id);
+            const results = appUrl('results.html?id=' + id);
+            // Same shape as SAF.linksExtra: text, address and buttons first, QR at the end side.
+            const block = (title, url, note) => `
+                <div class="link-block">
+                    <div class="link-info">
+                        <b>${title}</b><span class="manage-note">${note}</span>
+                        <input type="text" readonly value="${esc(url)}" dir="ltr" onclick="this.select()" aria-label="${title}">
+                        <div class="manage-row">
+                            <button type="button" onclick="copyText(${jsArg(url)})">کپی لینک</button>
+                            <a class="manage-link-btn" href="${esc(url)}" target="_blank" rel="noopener">باز کردن</a>
+                        </div>
+                    </div>
+                    <div class="link-qr">${qrSvg(url, 4)}</div>
+                </div>`;
+            Help.show(`لینک‌های «${camp.title || ''}»`,
+                block('ورود اپراتور و داوران', op, 'این لینک را به اپراتور و داورها بدهید؛ با نام کاربری و رمز خود وارد می‌شوند.') +
+                block('تابلوی زنده', board, 'برای نمایش روی تلویزیون یا پروژکتور؛ نیاز به ورود ندارد.') +
+                block('نتایج و تقدیرنامه (چاپ)', results, 'جدول نتایج و تقدیرنامه‌ها برای چاپ یا ذخیره PDF.') + SAF.linksExtra(id), { ok: false });
+        }
+
+        function downloadCpanelPackage() {
+            fetch('cpanel_export.zip', { method: 'HEAD' }).then(r => {
+                if (r.ok) { window.location.href = 'cpanel_export.zip'; return; }
+                window.showToast('بسته cPanel هنوز ساخته نشده است. در سرور دستور «npm run build:cpanel» را اجرا کنید.', 'error');
+            }).catch(() => window.showToast('دریافت بسته انجام نشد.', 'error'));
+        }
+
+        const SUPERADMIN_HELP = `
+            <ul>
+                <li><b>مسابقه جدید:</b> نام سازمان، عنوان، تیم‌ها، مراحل و کاربران (اپراتور، سرداور، داور) را وارد و ذخیره کنید. یا از «ورود اکسل» استفاده کنید.</li>
+                <li><b>لینک‌ها و QR:</b> لینک ورود داوران و تابلوی زنده را کپی کنید یا QR را برای اسکن نشان دهید.</li>
+                <li><b>قفل:</b> ثبت امتیاز را متوقف می‌کند (اپراتور هم می‌تواند با «پایان مسابقه» قفل کند؛ باز کردن فقط از اینجا).</li>
+                <li><b>تکثیر:</b> برای دوره بعدی، همان تیم‌ها، مراحل و کاربران با امتیاز صفر ساخته می‌شوند.</li>
+                <li><b>آرشیو</b> مسابقه را پنهان می‌کند؛ <b>حذف</b> آن را به <b>سطل زباله</b> می‌برد که تا ۳۰ روز قابل بازگرداندن است.</li>
+                <li><b>خروجی / پشتیبان‌گیری:</b> فایل پشتیبان یک مسابقه یا همه مسابقه‌ها (با امتیازها و تصاویر) را دانلود کنید و هر زمان از «بازیابی از فایل پشتیبان» برگردانید.</li>
+                <li><b>تنظیمات:</b> لوگوی سیستم، پیش‌فرض نمایش و مهارت‌ها برای مسابقه‌های جدید و تغییر رمز سوپرادمین.</li>
+                <li><b>قالب:</b> هر مسابقه را به‌عنوان قالب ذخیره کنید و مسابقه بعدی را از روی آن بسازید (چند قالب آماده هم هست).</li>
+                <li><b>امکانات پیشرفته</b> (پایین فرم مسابقه): المان‌های نمایشی، امکانات اختیاری، برند، تقدیرنامه و اطلاع‌رسانی در بله/ایتا/تلگرام.</li>
+                <li><b>آنالیز:</b> اتاق آنالیز، کارنامه تیم‌ها و بازیکن‌ها، آمار و خروجی اکسل. از «لینک‌ها و QR» می‌توانید لینک گزارش فقط‌خواندنی برای سازمان مشتری بسازید.</li>
+                <li><b>لیگ‌ها و برگزارکننده‌ها:</b> جدول چند مسابقه، و حساب جدا برای مؤسسه‌هایی که با این سامانه مسابقه برگزار می‌کنند.</li>
+            </ul>`;
+        function showSuperadminHelp() { Help.show('راهنمای پنل سوپرادمین', SUPERADMIN_HELP); }
 
         function toggleLock(id, lockStatus) {
             fetch(`/superadmin/camps/${id}/lock`, {
@@ -860,7 +1349,15 @@
             });
         }
 
-        function backToDashboard() {
+        function jumpTo(e, id) {
+            e.preventDefault();
+            const el = document.getElementById(id);
+            if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
+
+        function backToDashboard(force) {
+            if (force !== true && !FormGuard.confirmDiscard('setup')) return;
+            FormGuard.reset('setup');
             const sm = document.getElementById('setupModal');
             if (sm) {
                 sm.style.display = 'none';
@@ -884,17 +1381,20 @@
             const campType = document.getElementById('campType').value;
             const usersSection = document.getElementById('usersSectionWrapper');
             const tieredSec = document.getElementById('tieredSettingsSection');
-            if (campType === 'professional' || campType === 'tiered') {
-                usersSection.style.display = 'block';
-            } else {
-                usersSection.style.display = 'none';
-            }
+            const withUsers = campType === 'professional' || campType === 'tiered';
+            usersSection.style.display = withUsers ? 'block' : 'none';
+            // The "users" jump link only makes sense when the users section is shown.
+            const jump = document.getElementById('jumpUsers');
+            if (jump) jump.style.display = withUsers ? '' : 'none';
             if (tieredSec) {
                 tieredSec.style.display = (campType === 'tiered') ? 'block' : 'none';
             }
         }
 
         let currentPosTags = ['نظم', 'خلاقیت', 'کار تیمی', 'اخلاق ورزشی'];
+        // Used by the advanced settings section (tag → skill links) and templates.
+        window.getFormTags = () => [...new Set([...currentPosTags, ...currentNegTags])];
+        window.setFormTags = (pos, neg) => { currentPosTags = [...pos]; currentNegTags = [...neg]; renderPosTags(); renderNegTags(); };
         let currentNegTags = ['بی‌نظمی', 'تاخیر', 'نقض قوانین', 'رفتار نامناسب'];
 
         function toggleFieldJudgingSettings() {
@@ -980,6 +1480,7 @@
             if (campId) {
                 document.getElementById('setupFormTitle').innerText = 'ویرایش مسابقه';
                 document.getElementById('saveCampBtn').innerText = 'ذخیره تغییرات';
+                showCampLinkMode(campId);
                 
                 fetch(`/superadmin/camps/${campId}`)
                 .then(res => res.json())
@@ -1026,10 +1527,13 @@
     });
                         c.stages.forEach(s => addStage(s.name, s.id, s.unit, s.timeOrder, s.multiplier));
                         if(c.users) c.users.forEach(u => addUser(u.firstName, u.lastName, u.username, '', u.role, u.profilePic, u.id, !!u.hasPassword));
+                        SAF.onCampLoaded(c);
+                        FormGuard.reset('setup');
                     }
                 });
             } else {
                 document.getElementById('setupFormTitle').innerText = 'مسابقه جدید';
+                showCampLinkMode(null);
                 document.getElementById('saveCampBtn').innerText = 'ایجاد لینک اختصاصی';
                 document.getElementById('editCampId').value = '';
                 document.getElementById('campType').value = 'simple';
@@ -1053,6 +1557,8 @@
                 setLogoMode('url');
                 updatePreview();
                 addTeam(); addStage(); addUser();
+                SAF.onNewCamp();
+                FormGuard.reset('setup');
             }
         }
 
@@ -1067,55 +1573,45 @@
             item.dataset.scorelogs = JSON.stringify(scoreLogs);
             item.dataset.judgestagescores = JSON.stringify(judgeStageScores);
             item.innerHTML = `
-                <div style="display: flex; flex-direction: column; gap: 8px; width: 100%; padding: 4px;">
-                    <div style="display: flex; gap: 8px; align-items: center;">
-                        <input type="text" class="t-name" placeholder="نام تیم" value="${esc(name)}" style="flex: 2; min-width: 100px;">
+                <div class="item-main">
+                    <div class="item-line">
                         <div class="color-btn" style="background-color: ${safeColor(color)};" data-value="${esc(color)}" onclick="openColorPicker(this)" title="انتخاب رنگ تیم"></div>
-                    </div>
-                    
-                    <!-- عکس اصلی تیم ۱۶:۹ -->
-                    <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
-                        <div class="t-img-thumb" style="width: 56px; height: 31px; aspect-ratio: 16/9; border-radius: 6px; overflow: hidden; border: 1px solid var(--glass-border); flex-shrink: 0; background: var(--input-bg); display: flex; align-items: center; justify-content: center; position: relative;" title="پیش‌نمایش عکس اصلی ۱۶:۹">
-                            ${image ? `<img src="${esc(safeUrl(image))}" style="width: 100%; height: 100%; object-fit: cover;" onerror="this.style.display='none'">` : `<i data-lucide="image" style="width: 14px; height: 14px; opacity: 0.5;"></i>`}
-                            <span style="position: absolute; bottom: 1px; right: 2px; font-size: 7px; font-weight: bold; background: rgba(0,0,0,0.65); color: #fff; padding: 0 2px; border-radius: 2px; pointer-events: none;">16:9</span>
+                        <input type="text" class="t-name" placeholder="نام تیم" value="${esc(name)}">
+                        <div class="item-tools">
+                            <button type="button" onclick="moveItemUp(this)" class="icon-btn" title="انتقال به بالا">▲</button>
+                            <button type="button" onclick="moveItemDown(this)" class="icon-btn" title="انتقال به پایین">▼</button>
+                            <button type="button" onclick="confirmRemoveItem(this, 'team')" class="icon-btn remove-btn" title="حذف تیم">×</button>
                         </div>
-                        <input type="text" class="t-image" placeholder="عکس اصلی ۱۶:۹ (پیش‌فرض)" value="${esc(image)}" style="flex: 1; min-width: 120px; margin: 0;" oninput="updateTeamImgThumb(this)">
-                        <button type="button" class="icon-btn" onclick="triggerSuperPhotoInput(this)" title="آپلود عکس از فایل (نسبت ۱۶:۹)" style="padding: 5px 9px; font-size: 11px; display: inline-flex; align-items: center; gap: 3px; white-space: nowrap;"><i data-lucide="upload" style="width: 12px; height: 12px;"></i> آپلود</button>
-                        <button type="button" class="icon-btn remove-btn t-clear-img-btn" onclick="clearSuperPhoto(this)" title="حذف عکس" style="padding: 5px 7px; font-size: 11px; display: ${image ? 'inline-flex' : 'none'};">✕</button>
-                        <input type="file" accept="image/*" class="t-photo-file-input" style="display: none;" onchange="handleSuperPhotoSelected(this, '.t-image')">
                     </div>
-
+                    <details class="team-images" ${image || happyImage || sadImage ? 'open' : ''}>
+                    <summary>تصاویر تیم (اختیاری)${image || happyImage || sadImage ? ' — تنظیم شده' : ''}</summary>
+                    <!-- عکس اصلی تیم ۱۶:۹ -->
+                        <div class="img-row">
+                            <div class="t-img-thumb" title="پیش‌نمایش عکس اصلی ۱۶:۹">${image ? `<img src="${esc(safeUrl(image))}" onerror="this.style.display='none'">` : `<i data-lucide="image"></i>`}<span class="t-img-badge">16:9</span></div>
+                            <input type="text" class="t-image" placeholder="عکس اصلی ۱۶:۹ (پیش‌فرض)" value="${esc(image)}" oninput="updateTeamImgThumb(this)">
+                            <button type="button" class="icon-btn" onclick="triggerSuperPhotoInput(this)" title="آپلود عکس از فایل (نسبت ۱۶:۹)"><i data-lucide="upload"></i> آپلود</button>
+                            <button type="button" class="icon-btn remove-btn t-clear-img-btn" onclick="clearSuperPhoto(this)" title="حذف عکس" style="display: ${image ? 'inline-flex' : 'none'};">✕</button>
+                            <input type="file" accept="image/*" class="t-photo-file-input" style="display: none;" onchange="handleSuperPhotoSelected(this, '.t-image')">
+                        </div>
                     <!-- عکس‌های واکنشی اختیاری (خوشحالی و ناراحتی) -->
-                    <div style="background: rgba(0,0,0,0.12); padding: 8px 10px; border-radius: 10px; border: 1px dashed var(--glass-border); display: flex; flex-direction: column; gap: 6px;">
-                        <span style="font-size: 11px; opacity: 0.85; font-weight: bold; color: var(--text-color);">عکس‌های واکنش امتیاز (اختیاری ۱۶:۹ - در صورت خالی بودن، عکس اصلی استفاده می‌شود):</span>
-                        
-                        <!-- عکس خوشحالی (+) -->
-                        <div style="display: flex; gap: 6px; align-items: center; flex-wrap: wrap;">
-                            <div class="t-img-thumb" style="width: 46px; height: 26px; aspect-ratio: 16/9; border-radius: 5px; overflow: hidden; border: 1px solid var(--glass-border); flex-shrink: 0; background: var(--input-bg); display: flex; align-items: center; justify-content: center; position: relative;" title="پیش‌نمایش عکس خوشحالی">
-                                ${happyImage ? `<img src="${esc(safeUrl(happyImage))}" style="width: 100%; height: 100%; object-fit: cover;" onerror="this.style.display='none'">` : `<span style="font-size: 11px;">😄</span>`}
-                            </div>
-                            <input type="text" class="t-happy-image" placeholder="عکس حالت خوشحالی (+)" value="${esc(happyImage)}" style="flex: 1; min-width: 120px; margin: 0; font-size: 12px;" oninput="updateTeamImgThumb(this)">
-                            <button type="button" class="icon-btn" onclick="triggerSuperPhotoInput(this)" title="آپلود عکس خوشحالی" style="padding: 4px 8px; font-size: 11px; display: inline-flex; align-items: center; gap: 3px; white-space: nowrap;"><i data-lucide="upload" style="width: 11px; height: 11px;"></i> آپلود</button>
-                            <button type="button" class="icon-btn remove-btn t-clear-img-btn" onclick="clearSuperPhoto(this)" title="حذف عکس" style="padding: 4px 6px; font-size: 11px; display: ${happyImage ? 'inline-flex' : 'none'};">✕</button>
+                    <div class="t-react-box">
+                        <span>عکس‌های واکنش امتیاز (اختیاری ۱۶:۹ - در صورت خالی بودن، عکس اصلی استفاده می‌شود):</span>
+                        <div class="img-row">
+                            <div class="t-img-thumb" title="پیش‌نمایش عکس خوشحالی">${happyImage ? `<img src="${esc(safeUrl(happyImage))}" onerror="this.style.display='none'">` : `<span>😄</span>`}</div>
+                            <input type="text" class="t-happy-image" placeholder="عکس حالت خوشحالی (+)" value="${esc(happyImage)}" oninput="updateTeamImgThumb(this)">
+                            <button type="button" class="icon-btn" onclick="triggerSuperPhotoInput(this)" title="آپلود عکس خوشحالی"><i data-lucide="upload"></i> آپلود</button>
+                            <button type="button" class="icon-btn remove-btn t-clear-img-btn" onclick="clearSuperPhoto(this)" title="حذف عکس" style="display: ${happyImage ? 'inline-flex' : 'none'};">✕</button>
                             <input type="file" accept="image/*" class="t-photo-file-input" style="display: none;" onchange="handleSuperPhotoSelected(this, '.t-happy-image')">
                         </div>
-
-                        <!-- عکس ناراحتی (-) -->
-                        <div style="display: flex; gap: 6px; align-items: center; flex-wrap: wrap;">
-                            <div class="t-img-thumb" style="width: 46px; height: 26px; aspect-ratio: 16/9; border-radius: 5px; overflow: hidden; border: 1px solid var(--glass-border); flex-shrink: 0; background: var(--input-bg); display: flex; align-items: center; justify-content: center; position: relative;" title="پیش‌نمایش عکس ناراحتی">
-                                ${sadImage ? `<img src="${esc(safeUrl(sadImage))}" style="width: 100%; height: 100%; object-fit: cover;" onerror="this.style.display='none'">` : `<span style="font-size: 11px;">😔</span>`}
-                            </div>
-                            <input type="text" class="t-sad-image" placeholder="عکس حالت ناراحتی (-)" value="${esc(sadImage)}" style="flex: 1; min-width: 120px; margin: 0; font-size: 12px;" oninput="updateTeamImgThumb(this)">
-                            <button type="button" class="icon-btn" onclick="triggerSuperPhotoInput(this)" title="آپلود عکس ناراحتی" style="padding: 4px 8px; font-size: 11px; display: inline-flex; align-items: center; gap: 3px; white-space: nowrap;"><i data-lucide="upload" style="width: 11px; height: 11px;"></i> آپلود</button>
-                            <button type="button" class="icon-btn remove-btn t-clear-img-btn" onclick="clearSuperPhoto(this)" title="حذف عکس" style="padding: 4px 6px; font-size: 11px; display: ${sadImage ? 'inline-flex' : 'none'};">✕</button>
+                        <div class="img-row">
+                            <div class="t-img-thumb" title="پیش‌نمایش عکس ناراحتی">${sadImage ? `<img src="${esc(safeUrl(sadImage))}" onerror="this.style.display='none'">` : `<span>😔</span>`}</div>
+                            <input type="text" class="t-sad-image" placeholder="عکس حالت ناراحتی (-)" value="${esc(sadImage)}" oninput="updateTeamImgThumb(this)">
+                            <button type="button" class="icon-btn" onclick="triggerSuperPhotoInput(this)" title="آپلود عکس ناراحتی"><i data-lucide="upload"></i> آپلود</button>
+                            <button type="button" class="icon-btn remove-btn t-clear-img-btn" onclick="clearSuperPhoto(this)" title="حذف عکس" style="display: ${sadImage ? 'inline-flex' : 'none'};">✕</button>
                             <input type="file" accept="image/*" class="t-photo-file-input" style="display: none;" onchange="handleSuperPhotoSelected(this, '.t-sad-image')">
                         </div>
                     </div>
-                </div>
-                <div style="display: flex; flex-direction: column; gap: 4px; align-self: stretch; justify-content: center;">
-                    <button onclick="moveItemUp(this.parentElement)" class="icon-btn" title="انتقال به بالا">▲</button>
-                    <button onclick="moveItemDown(this.parentElement)" class="icon-btn" title="انتقال به پایین">▼</button>
-                    <button onclick="this.parentElement.remove()" class="icon-btn remove-btn" title="حذف">×</button>
+                    </details>
                 </div>
             `;
             list.appendChild(item);
@@ -1164,18 +1660,21 @@
             const clearBtn = row.querySelector('.t-clear-img-btn');
             if (!thumb) return;
             const val = textInput.value.trim();
+            // Each picture row has its own thumbnail; the main picture keeps its 16:9 badge.
+            const isMain = textInput.classList.contains('t-image');
+            const badge = isMain ? '<span class="t-img-badge">16:9</span>' : '';
             if (val) {
-                thumb.innerHTML = `<img src="${esc(safeUrl(val))}" style="width: 100%; height: 100%; object-fit: cover;" onerror="this.style.display='none'">`;
+                thumb.innerHTML = `<img src="${esc(safeUrl(val))}" onerror="this.style.display='none'">` + badge;
                 if (clearBtn) clearBtn.style.display = 'inline-flex';
             } else {
                 const isHappy = textInput.classList.contains('t-happy-image');
                 const isSad = textInput.classList.contains('t-sad-image');
                 if (isHappy) {
-                    thumb.innerHTML = `<span style="font-size: 11px;">😄</span>`;
+                    thumb.innerHTML = `<span>😄</span>`;
                 } else if (isSad) {
-                    thumb.innerHTML = `<span style="font-size: 11px;">😔</span>`;
+                    thumb.innerHTML = `<span>😔</span>`;
                 } else {
-                    thumb.innerHTML = `<i data-lucide="image" style="width: 14px; height: 14px; opacity: 0.5;"></i><span style="position: absolute; bottom: 1px; right: 2px; font-size: 7px; font-weight: bold; background: rgba(0,0,0,0.65); color: #fff; padding: 0 2px; border-radius: 2px; pointer-events: none;">16:9</span>`;
+                    thumb.innerHTML = `<i data-lucide="image"></i>` + badge;
                 }
                 if (clearBtn) clearBtn.style.display = 'none';
                 if (typeof refreshIcons === 'function') refreshIcons();
@@ -1221,25 +1720,6 @@
             });
         }
 
-        function updateTeamImgThumb(input) {
-            const row = input.closest('.dynamic-item');
-            if (!row) return;
-            const thumb = row.querySelector('.t-img-thumb');
-            const clearBtn = row.querySelector('.t-clear-img-btn');
-            const url = input.value.trim();
-            if (thumb) {
-                if (url) {
-                    thumb.innerHTML = `<img src="${esc(safeUrl(url))}" style="width: 100%; height: 100%; object-fit: cover;" onerror="this.style.display='none'"><span style="position: absolute; bottom: 1px; right: 2px; font-size: 8px; font-weight: bold; background: rgba(0,0,0,0.65); color: #fff; padding: 0 3px; border-radius: 2px; pointer-events: none;">16:9</span>`;
-                } else {
-                    thumb.innerHTML = `<i data-lucide="image" style="width: 16px; height: 16px; opacity: 0.5;"></i><span style="position: absolute; bottom: 1px; right: 2px; font-size: 8px; font-weight: bold; background: rgba(0,0,0,0.65); color: #fff; padding: 0 3px; border-radius: 2px; pointer-events: none;">16:9</span>`;
-                    if(typeof refreshIcons === 'function') refreshIcons();
-                }
-            }
-            if (clearBtn) {
-                clearBtn.style.display = url ? 'inline-flex' : 'none';
-            }
-        }
-
         function addStage(name = '', id = '', unit = 'points', timeOrder = 'asc', multiplier = 1) {
             if(!id) id = 's_' + Math.random().toString(36).substr(2, 9);
             let unitVal = 'points';
@@ -1251,21 +1731,21 @@
             item.className = 'dynamic-item';
             item.dataset.id = id;
             item.innerHTML = `
-                <div style="display: flex; gap: 8px; align-items: center; width: 100%; flex-wrap: wrap;">
-                    <input type="text" class="stage-name-input" placeholder="نام مرحله" value="${esc(name)}" style="flex: 2; min-width: 140px;">
-                    <select class="stage-unit-select settings-input" style="flex: 1.5; min-width: 180px; margin: 0; padding: 6px 10px; font-size: 13px;" title="واحد سنجش مرحله">
+                <div class="stage-grid">
+                    <input type="text" class="stage-name-input" placeholder="نام مرحله" value="${esc(name)}">
+                    <select class="stage-unit-select settings-input" title="واحد سنجش مرحله">
                         <option value="points" ${unitVal === 'points' ? 'selected' : ''}>🎯 امتیاز (بیشترین = برتر)</option>
                         <option value="time_asc" ${unitVal === 'time_asc' ? 'selected' : ''}>⚡ زمان - سرعت عمل (کمترین زمان = برتر)</option>
                         <option value="time_desc" ${unitVal === 'time_desc' ? 'selected' : ''}>⏳ زمان - استقامت (بیشترین زمان = برتر)</option>
                     </select>
-                    <div style="display: flex; align-items: center; gap: 4px; background: var(--input-bg); padding: 4px 8px; border-radius: 8px; border: 1px solid var(--glass-border);" title="ضریب مرحله (مثلاً ۱ یا ۲ - در مسابقه پلکانی امتیازات مرحله در این ضریب ضرب می‌شوند)">
-                        <span style="font-size: 12px; opacity: 0.85; white-space: nowrap;">ضریب:</span>
-                        <input type="number" step="0.5" min="0.1" class="stage-multiplier-input" placeholder="۱" value="${multiplier !== undefined ? multiplier : 1}" style="width: 55px; margin: 0; padding: 4px; text-align: center; font-size: 13px; font-weight: 800; border-radius: 6px;">
-                    </div>
-                    <div style="display: flex; gap: 4px; align-items: center;">
+                    <label class="stage-mult" title="ضریب مرحله (مثلاً ۱ یا ۲ - در مسابقه پلکانی امتیازات مرحله در این ضریب ضرب می‌شوند)">
+                        <span>ضریب:</span>
+                        <input type="number" step="0.5" min="0.1" class="stage-multiplier-input" placeholder="۱" value="${multiplier !== undefined ? multiplier : 1}">
+                    </label>
+                    <div class="item-tools">
                         <button type="button" onclick="moveItemUp(this)" class="icon-btn" title="انتقال به بالا">▲</button>
                         <button type="button" onclick="moveItemDown(this)" class="icon-btn" title="انتقال به پایین">▼</button>
-                        <button type="button" onclick="this.closest('.dynamic-item').remove()" class="icon-btn remove-btn" title="حذف">×</button>
+                        <button type="button" onclick="confirmRemoveItem(this, 'stage')" class="icon-btn remove-btn" title="حذف مرحله">×</button>
                     </div>
                 </div>
             `;
@@ -1279,35 +1759,32 @@
             item.className = 'dynamic-item user-item';
             item.dataset.id = id;
             item.dataset.hasPassword = hasPassword ? '1' : '';
-            item.style.alignItems = 'flex-start';
             item.innerHTML = `
-                <div style="display: flex; align-items: center; gap: 12px; width: 100%; padding: 5px;">
-                    <div class="u-pic-circle" style="width: 44px; height: 44px; border-radius: 50%; overflow: hidden; border: 2px solid var(--glass-border); flex-shrink: 0; background: var(--input-bg); display: flex; align-items: center; justify-content: center; box-shadow: 0 2px 6px rgba(0,0,0,0.15);">
-                        ${profilePic ? `<img src="${esc(safeUrl(profilePic))}" style="width: 100%; height: 100%; object-fit: cover;" onerror="this.style.display='none'">` : `<i data-lucide="user" style="width: 22px; height: 22px; opacity: 0.6;"></i>`}
+                <div class="user-side">
+                    <div class="u-pic-circle">
+                        ${profilePic ? `<img src="${esc(safeUrl(profilePic))}" onerror="this.style.display='none'">` : `<i data-lucide="user" style="width: 22px; height: 22px; opacity: 0.6;"></i>`}
                     </div>
-                    <div style="display: flex; flex-direction: column; gap: 10px; flex-grow: 1;">
-                        <div style="display: flex; gap: 10px; flex-wrap: wrap;">
-                            <input type="text" class="u-first" placeholder="نام" value="${esc(firstName)}" style="flex:1; min-width: 80px;">
-                            <input type="text" class="u-last" placeholder="نام خانوادگی" value="${esc(lastName)}" style="flex:1; min-width: 80px;">
-                            <select class="u-role settings-input" style="flex:1; min-width: 100px; margin-bottom: 0;">
-                                <option value="operator" ${role === 'operator' ? 'selected' : ''}>اپراتور</option>
-                                <option value="head_referee" ${role === 'head_referee' ? 'selected' : ''}>سرداور</option>
-                                <option value="referee" ${role === 'referee' ? 'selected' : ''}>داور</option>
-                            </select>
-                        </div>
-                        <div style="display: flex; gap: 8px; flex-wrap: wrap; align-items: center;">
-                            <input type="text" class="u-user" placeholder="نام کاربری" value="${esc(username)}" style="flex:1; min-width: 80px;">
-                            <input type="password" class="u-pass" placeholder="${hasPassword ? 'بدون تغییر' : 'رمز عبور'}" value="${esc(password)}" autocomplete="new-password" style="flex:1; min-width: 80px;">
-                            <div style="display: flex; gap: 6px; align-items: center; flex: 2; min-width: 180px;">
-                                <input type="text" class="u-pic" placeholder="لینک عکس پروفایل" value="${esc(profilePic)}" style="flex:1; min-width: 90px; margin: 0;" oninput="updateUserPicCircle(this)">
-                                <button type="button" class="icon-btn" onclick="triggerUserPhotoInput(this)" title="آپلود عکس از فایل" style="padding: 4px 8px; font-size: 11px; display: inline-flex; align-items: center; gap: 3px; white-space: nowrap;"><i data-lucide="upload" style="width: 12px; height: 12px;"></i> آپلود</button>
-                                <button type="button" class="icon-btn remove-btn u-clear-pic-btn" onclick="clearUserPhoto(this)" title="حذف عکس" style="padding: 4px 6px; font-size: 11px; display: ${profilePic ? 'inline-flex' : 'none'};">✕</button>
-                                <input type="file" accept="image/*" class="u-photo-file-input" style="display: none;" onchange="handleUserPhotoSelected(this)">
-                            </div>
-                        </div>
+                    <button type="button" onclick="confirmRemoveItem(this, 'user')" class="icon-btn remove-btn" title="حذف کاربر">×</button>
+                </div>
+                <div class="user-fields">
+                    <div class="user-grid">
+                        <input type="text" class="u-first" placeholder="نام" value="${esc(firstName)}">
+                        <input type="text" class="u-last" placeholder="نام خانوادگی" value="${esc(lastName)}">
+                        <select class="u-role settings-input">
+                            <option value="operator" ${role === 'operator' ? 'selected' : ''}>اپراتور</option>
+                            <option value="head_referee" ${role === 'head_referee' ? 'selected' : ''}>سرداور</option>
+                            <option value="referee" ${role === 'referee' ? 'selected' : ''}>داور</option>
+                        </select>
+                        <input type="text" class="u-user" placeholder="نام کاربری" value="${esc(username)}" dir="ltr">
+                        <input type="password" class="u-pass" placeholder="${hasPassword ? 'بدون تغییر' : 'رمز عبور'}" value="${esc(password)}" autocomplete="new-password">
+                    </div>
+                    <div class="img-row" style="margin-top: 0;">
+                        <input type="text" class="u-pic" placeholder="لینک عکس پروفایل" value="${esc(profilePic)}" oninput="updateUserPicCircle(this)">
+                        <button type="button" class="icon-btn" onclick="triggerUserPhotoInput(this)" title="آپلود عکس از فایل"><i data-lucide="upload"></i> آپلود</button>
+                        <button type="button" class="icon-btn remove-btn u-clear-pic-btn" onclick="clearUserPhoto(this)" title="حذف عکس" style="display: ${profilePic ? 'inline-flex' : 'none'};">✕</button>
+                        <input type="file" accept="image/*" class="u-photo-file-input" style="display: none;" onchange="handleUserPhotoSelected(this)">
                     </div>
                 </div>
-                <button onclick="this.parentElement.remove()" class="icon-btn remove-btn" title="حذف" style="height: auto; align-self: stretch;">×</button>
             `;
             list.appendChild(item);
             if(typeof refreshIcons === 'function') refreshIcons();
@@ -1383,7 +1860,7 @@
             if (!circle) return;
             const url = input.value.trim();
             if (url) {
-                circle.innerHTML = `<img src="${esc(safeUrl(url))}" style="width: 100%; height: 100%; object-fit: cover;" onerror="this.style.display='none'">`;
+                circle.innerHTML = `<img src="${esc(safeUrl(url))}" onerror="this.style.display='none'">`;
                 if (clearBtn) clearBtn.style.display = 'inline-flex';
             } else {
                 circle.innerHTML = `<i data-lucide="user" style="width: 22px; height: 22px; opacity: 0.6;"></i>`;
@@ -1585,8 +2062,15 @@
             const rawLadder = document.getElementById('tieredPointsLadder') ? document.getElementById('tieredPointsLadder').value : '500, 400, 300, 200, 100';
             const cleanLadder = rawLadder.split(',').map(x => parseInt(x.trim())).filter(x => !isNaN(x));
 
+            const customId = campId ? '' : normalizeCustomId(document.getElementById('customCampId').value);
+            if (customId && !CAMP_ID_RE.test(customId)) {
+                showFloatingError(CAMP_ID_HELP);
+                document.getElementById('customCampId').focus();
+                return;
+            }
             const campData = { 
                 campId: campId || null,
+                customId: customId || undefined,
                 orgName: orgName, 
                 title: campTitle,
                 campType: campType,
@@ -1601,6 +2085,7 @@
                 positiveTags: currentPosTags,
                 negativeTags: currentNegTags
             };
+            Object.assign(campData, SAF.extraForSave());
 
             fetch('/setup', {
                 method: 'POST',
@@ -1614,14 +2099,21 @@
                     return;
                 }
                 if(data.success) {
-                    const link = `operator.html?id=${data.campId}`;
-                    document.getElementById('result').style.display = 'block';
-                    document.getElementById('operatorLink').href = link;
-                    document.getElementById('operatorLink').innerText = window.location.origin + '/' + link;
-                    
+                    FormGuard.reset('setup');
+                    loadCamps();
                     if (campId) {
-                        alert("تغییرات با موفقیت ذخیره شد!");
-                        backToDashboard();
+                        window.showToast("تغییرات با موفقیت ذخیره شد.", 'success');
+                        backToDashboard(true);
+                    } else {
+                        // New camp: keep the form open with the links, then allow editing it right away.
+                        document.getElementById('editCampId').value = data.campId;
+                        document.getElementById('setupFormTitle').innerText = 'ویرایش مسابقه';
+                        showCampLinkMode(data.campId);
+                        const link = `operator.html?id=${data.campId}`;
+                        document.getElementById('result').style.display = 'block';
+                        document.getElementById('operatorLink').href = link;
+                        document.getElementById('operatorLink').innerText = appUrl(link);
+                        window.showToast("مسابقه ساخته شد. لینک‌ها را از «لینک‌ها و QR» در داشبورد هم می‌توانید بگیرید.", 'success');
                     }
                 }
             });
@@ -1646,13 +2138,6 @@
                     if (e.target.id === 'setupModal') backToDashboard();
                 });
             }
-            document.addEventListener('keydown', (e) => {
-                if (e.key === 'Escape') {
-                    if (sm && sm.style.display === 'flex') {
-                        backToDashboard();
-                    }
-                }
-            });
         });
     </script>
     

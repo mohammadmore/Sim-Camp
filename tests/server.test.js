@@ -1,6 +1,7 @@
 // Run with: npm test   (Node backend with the in-memory database adapter)
 import { before, after } from 'node:test';
 import { registerScenarios } from './scenarios.js';
+import { registerFeatureScenarios } from './scenarios2.js';
 
 process.env.NODE_ENV = 'test';
 process.env.DB_ADAPTER = 'memory';
@@ -29,4 +30,5 @@ async function call(method, path, body, token) {
     return { status: res.status, json, text };
 }
 
-registerScenarios({ call, saPassword: 'test-superadmin-pass' });
+registerScenarios({ call, raw: (url, init) => fetch(base + url, init), saPassword: 'test-superadmin-pass', mediaRe: /^\/media\/[a-f0-9]{32}\.png$/ });
+registerFeatureScenarios({ call, saPassword: 'test-superadmin-pass' });

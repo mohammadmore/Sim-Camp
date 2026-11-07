@@ -1,0 +1,9 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    // Images are written and served only by server.js (Firebase Admin SDK bypasses these rules).
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}
